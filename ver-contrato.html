@@ -1,1 +1,229 @@
 
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Seu contrato</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Poppins:wght@400;500;600;700&display=swap');
+  body { font-family: 'Poppins', sans-serif; margin: 0; background: #F4F6FD; }
+  .fredoka { font-family: 'Fredoka', sans-serif; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef } = React;
+
+const SUPABASE_URL = "https://drizqsevvmyyrdgczjvf.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRyaXpxc2V2dm15eXJkZ2N6anZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzNDM0MzAsImV4cCI6MjA5ODkxOTQzMH0.uTzYirVcO-TFJ6BCyDY9A8_Etw4v32iWlOETWht_hxQ";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+function formatBRL(v) {
+  const n = Number(v) || 0;
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+function parseDateLocal(str) { if (!str) return null; const [y,m,d] = str.split("-").map(Number); return new Date(y, m-1, d); }
+const MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+function formatDateLong(str) { const d = parseDateLocal(str); if (!d) return ""; return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`; }
+function labelData(tipoServico, qual) {
+  const isDecoracao = tipoServico === "decoracao";
+  if (qual === "ida") return isDecoracao ? "Data da montagem" : "Data de retirada";
+  return isDecoracao ? "Data da desmontagem/retirada" : "Data de devolução";
+}
+
+/* ============================================================
+   ASSINATURA DIGITAL (canvas) — igual ao painel da decoradora
+============================================================ */
+function SignaturePad({ onChange, cor }) {
+  const canvasRef = useRef(null);
+  const drawingRef = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
+  const hasDrawnRef = useRef(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#181A33";
+  }, []);
+
+  function getPos(e) {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return { x: (clientX - rect.left) * (canvas.width / rect.width), y: (clientY - rect.top) * (canvas.height / rect.height) };
+  }
+  function start(e) { e.preventDefault(); drawingRef.current = true; lastPos.current = getPos(e); }
+  function move(e) {
+    if (!drawingRef.current) return;
+    e.preventDefault();
+    const ctx = canvasRef.current.getContext("2d");
+    const pos = getPos(e);
+    ctx.beginPath(); ctx.moveTo(lastPos.current.x, lastPos.current.y); ctx.lineTo(pos.x, pos.y); ctx.stroke();
+    lastPos.current = pos; hasDrawnRef.current = true;
+  }
+  function end() {
+    if (!drawingRef.current) return;
+    drawingRef.current = false;
+    if (hasDrawnRef.current) onChange(canvasRef.current.toDataURL("image/png"));
+  }
+  function clear() {
+    const canvas = canvasRef.current;
+    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+    hasDrawnRef.current = false;
+    onChange("");
+  }
+
+  return (
+    <div>
+      <canvas ref={canvasRef} width={480} height={160} className="w-full rounded-xl bg-white" style={{ border: "2px dashed #e2e8f0", cursor: "crosshair", touchAction: "none" }}
+        onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
+        onTouchStart={start} onTouchMove={move} onTouchEnd={end} />
+      <button type="button" onClick={clear} className="text-xs font-semibold text-rose-400 hover:text-rose-500 mt-2 cursor-pointer">Limpar e assinar de novo</button>
+    </div>
+  );
+}
+
+function App() {
+  const [contrato, setContrato] = useState(undefined); // undefined = carregando, null = não achado
+  const [aceite, setAceite] = useState(false);
+  const [assinatura, setAssinatura] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [sucesso, setSucesso] = useState(false);
+
+  const params = new URLSearchParams(window.location.search);
+  const contratoId = params.get("id");
+
+  useEffect(() => {
+    if (!contratoId) { setContrato(null); return; }
+    (async () => {
+      const { data, error } = await sb.rpc("contrato_publico", { p_id: contratoId });
+      if (error || !data || data.length === 0) { setContrato(null); return; }
+      const c = data[0];
+      setContrato(c);
+      if (c.assinado_em) setSucesso(true);
+    })();
+  }, [contratoId]);
+
+  async function handleConfirmar() {
+    setErro("");
+    if (!aceite) { setErro("Marque a caixinha confirmando que você leu o contrato."); return; }
+    if (!assinatura) { setErro("Desenhe sua assinatura no campo indicado."); return; }
+    setEnviando(true);
+    const { data, error } = await sb.rpc("assinar_contrato_publico", { p_id: contratoId, p_assinatura: assinatura });
+    setEnviando(false);
+    if (error) { setErro("Erro ao enviar: " + error.message); return; }
+    if (data === false) { setErro("Esse contrato já foi assinado anteriormente."); setSucesso(true); return; }
+    setSucesso(true);
+  }
+
+  if (contrato === undefined) return <div className="min-h-screen flex items-center justify-center text-slate-400">Carregando contrato...</div>;
+  if (contrato === null) return (
+    <div className="min-h-screen flex items-center justify-center p-6 text-center">
+      <div>
+        <p className="text-4xl mb-3">🔍</p>
+        <p className="font-bold text-lg">Não encontramos esse contrato.</p>
+        <p className="text-sm text-slate-400 mt-1">Confira se o link está completo, ou fale com quem te enviou.</p>
+      </div>
+    </div>
+  );
+
+  const c = contrato;
+  const corPrincipal = c.loja_cor_principal || "#16308A";
+  const corDestaque = c.loja_cor_destaque || "#EC1E79";
+  const valor = Number(c.valor) || 0;
+  let pago = 0;
+  if (c.status_pagamento === "pago") pago = valor;
+  else if (c.status_pagamento === "sinal") pago = valor * 0.5;
+  const falta = Math.max(valor - pago, 0);
+  const isDecoracao = c.tipo_servico === "decoracao";
+
+  return (
+    <div className="min-h-screen py-8 px-4">
+      <div className="max-w-2xl mx-auto">
+        <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100 mb-5">
+          <div className="px-6 py-5 text-white flex items-center gap-3" style={{ background: corPrincipal }}>
+            {c.loja_logo && <img src={c.loja_logo} className="w-12 h-12 rounded-xl object-cover bg-white shrink-0" />}
+            <div><p className="fredoka text-xl font-bold">Contrato</p><p className="text-xs text-white/70">{c.loja_nome}</p></div>
+          </div>
+          <div className="p-6 text-[13px] leading-relaxed text-slate-800">
+            <div className="grid sm:grid-cols-2 gap-5 mb-4">
+              <div>
+                <p className="inline-block text-white text-[11px] font-bold px-2 py-0.5 rounded mb-1" style={{ background: corPrincipal }}>CONTRATANTE</p>
+                <p className="font-semibold">{c.contratante_nome}</p>
+                <p>CPF: {c.contratante_cpf || "—"}</p>
+                <p>Endereço: {c.contratante_endereco || "—"}</p>
+              </div>
+              <div>
+                <p className="inline-block text-white text-[11px] font-bold px-2 py-0.5 rounded mb-1" style={{ background: corPrincipal }}>CONTRATADA</p>
+                <p className="font-semibold">Empresa {c.loja_nome}</p>
+                <p>CNPJ: {c.loja_cnpj || "—"}</p>
+                <p>{c.loja_endereco || "—"}</p>
+              </div>
+            </div>
+            <div className="text-center border-y-2 py-3 mb-4" style={{ borderColor: corPrincipal + "22" }}>
+              <p className="font-bold">{c.produto_nome}</p>
+              {c.material_entregue && <p className="text-slate-500">Material entregue: {c.material_entregue}</p>}
+              <p className="font-bold mt-1">{formatBRL(valor)}</p>
+            </div>
+            <p className="mb-4">
+              {isDecoracao ? (
+                <>Acordam a montagem da decoração no dia <b>{formatDateLong(c.data_retirada)}</b>, das {c.hora_retirada_ini} às {c.hora_retirada_fim}, e a desmontagem no dia <b>{formatDateLong(c.data_devolucao)}</b>, das {c.hora_devolucao_ini} às {c.hora_devolucao_fim}.</>
+              ) : (
+                <>Acordam a retirada do produto no dia <b>{formatDateLong(c.data_retirada)}</b>, das {c.hora_retirada_ini} às {c.hora_retirada_fim}, e a devolução no dia <b>{formatDateLong(c.data_devolucao)}</b>, das {c.hora_devolucao_ini} às {c.hora_devolucao_fim}. Atraso na devolução gera multa de 10% por hora.</>
+              )}
+            </p>
+            <p className="font-bold mb-0.5">1. Objeto</p>
+            <p className="mb-3">Prestação de serviço conforme ordem de serviço combinada entre as partes.</p>
+            <p className="font-bold mb-0.5">2. Pagamento</p>
+            <p className="mb-3">Valor total {formatBRL(valor)}, via Pix. 50% no agendamento garante a data.{!isDecoracao && " Multa de 10% por hora de atraso na devolução; se não devolver no mesmo dia, cobra-se o valor de nova locação."}</p>
+            <p className="font-bold mb-0.5">3. Cuidados com as peças</p>
+            <p className="mb-3">As peças devem ser devolvidas em perfeito estado. Danos, quebras ou extravio geram cobrança do valor da peça — cobrança cumulativa com eventual multa por atraso.</p>
+            <p className="font-bold mb-0.5">4. Balões e decoração</p>
+            <p className="mb-3">Balões de alta qualidade, durabilidade de 5 a 6 dias em condições ideais; a contratada não responde por má exposição (sol, chuva, vento) ou ambiente informado incorretamente. Pequenas variações no tema podem ocorrer conforme disponibilidade, sempre entregando algo igual ou melhor.</p>
+            <div className="mt-4 pt-3 border-t border-dashed border-slate-200 flex flex-wrap gap-2">
+              <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: corPrincipal + "18", color: corPrincipal }}>Total {formatBRL(valor)}</span>
+              <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: "#22C3C318", color: "#0E8E8E" }}>Pago {formatBRL(pago)}</span>
+              <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: corDestaque + "18", color: corDestaque }}>Falta {formatBRL(falta)}</span>
+            </div>
+          </div>
+        </div>
+
+        {sucesso ? (
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 text-center">
+            <p className="text-4xl mb-2">🎉</p>
+            <p className="fredoka text-lg font-bold" style={{ color: corPrincipal }}>Contrato assinado!</p>
+            <p className="text-sm text-slate-400 mt-1">Obrigado, {c.contratante_nome}. A {c.loja_nome} já foi avisada.</p>
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
+            <p className="font-bold text-sm mb-3" style={{ color: corPrincipal }}>Confirme e assine</p>
+            <label className="flex items-start gap-2.5 mb-4 cursor-pointer">
+              <input type="checkbox" checked={aceite} onChange={(e) => setAceite(e.target.checked)} className="mt-1 w-4 h-4 shrink-0 cursor-pointer" />
+              <span className="text-sm text-slate-600">Li e concordo com os termos do contrato acima.</span>
+            </label>
+            <p className="text-sm font-semibold mb-1.5 text-slate-700">Sua assinatura</p>
+            <SignaturePad onChange={setAssinatura} />
+            {erro && <div className="text-sm font-semibold mt-4 px-3 py-2.5 rounded-xl" style={{ background: corDestaque + "15", color: corDestaque }}>⚠️ {erro}</div>}
+            <button disabled={enviando} onClick={handleConfirmar} className="w-full mt-4 py-3 rounded-xl font-bold text-white cursor-pointer active:scale-95 transition disabled:opacity-60" style={{ background: corDestaque }}>
+              {enviando ? "Enviando..." : "Confirmar assinatura"}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
