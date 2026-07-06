@@ -132,6 +132,7 @@ function contractFromDb(r) {
     dataRetirada: r.data_retirada || "", horaRetiradaIni: r.hora_retirada_ini || "09:00", horaRetiradaFim: r.hora_retirada_fim || "13:00",
     dataDevolucao: r.data_devolucao || "", horaDevolucaoIni: r.hora_devolucao_ini || "09:00", horaDevolucaoFim: r.hora_devolucao_fim || "19:00",
     statusPagamento: r.status_pagamento || "sinal",
+    assinadoEm: r.assinado_em || null,
     createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
   };
 }
@@ -819,13 +820,16 @@ function ContratoTab({ userId, profile }) {
   function handleSendWhatsapp(c) {
     if (!c.contratanteWhatsapp) { setErro("Esse contrato não tem WhatsApp cadastrado."); return; }
     const fin = computeFinance(c);
+    const base = window.location.href.replace(/[^/]*$/, "");
+    const link = `${base}ver-contrato.html?id=${encodeURIComponent(c.id)}`;
     const msg = [
       `Olá, ${c.contratanteNome}! Aqui é da ${profile.nome_loja}.`,
       `Segue o resumo do seu contrato:`, `Produto: ${c.produtoNome}`,
       `Valor: ${formatBRL(fin.valor)} (pago: ${formatBRL(fin.pago)} · falta: ${formatBRL(fin.pendente)})`,
       `${labelData(c.tipoServico, "ida")}: ${c.dataRetirada ? formatDateLong(c.dataRetirada) : "-"} das ${c.horaRetiradaIni} às ${c.horaRetiradaFim}`,
       `${labelData(c.tipoServico, "volta")}: ${c.dataDevolucao ? formatDateLong(c.dataDevolucao) : "-"} das ${c.horaDevolucaoIni} às ${c.horaDevolucaoFim}`,
-      ``, `Vou te enviar o PDF do contrato em seguida. Qualquer dúvida, me chama! 🎉`,
+      ``, `Segue o contrato completo para assinar:`, link,
+      ``, `Qualquer dúvida, me chama! 🎉`,
     ].join("\n");
     window.open(whatsappLink(c.contratanteWhatsapp, msg), "_blank");
   }
@@ -926,6 +930,7 @@ function ContratoTab({ userId, profile }) {
                   <div className="flex-1 min-w-0"><p className="font-bold text-xl leading-tight truncate fredoka" style={{ color: BRAND.tinta }}>{c.contratanteNome}</p><p className="text-sm text-slate-400 truncate">{c.produtoNome} · {labelData(c.tipoServico, "ida").toLowerCase()} {formatDateBR(c.dataRetirada)}</p></div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <Pill color={c.statusPagamento === "pago" ? BRAND.turquesa : c.statusPagamento === "sinal" ? BRAND.amarelo : BRAND.rosa}>{c.statusPagamento === "pago" ? "Pago" : c.statusPagamento === "sinal" ? "Sinal pago" : "Pendente"}</Pill>
+                    <Pill color={c.assinadoEm ? BRAND.turquesa : "#94a3b8"}>{c.assinadoEm ? "✅ Assinado" : "Aguardando assinatura"}</Pill>
                     <span className="font-bold text-sm" style={{ color: BRAND.azul }}>{formatBRL(fin.valor)}</span>
                   </div>
                 </div>
