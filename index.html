@@ -383,8 +383,8 @@ function HomeDashboard({ setPage, contracts }) {
       </div>
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
         <HomeCard emoji="📄" title="Preencher contrato" desc="Gere o contrato já pronto, só preenchendo nome, produto, valor e data." color={BRAND.rosa} onClick={() => setPage("contrato")} stat={`${contracts.length} contrato${contracts.length === 1 ? "" : "s"}`} />
-        <HomeCard emoji="💰" title="Financeiro" desc="Em breve nesta versão web." color={BRAND.amarelo} onClick={() => setPage("financeiro")} stat={formatBRL(aReceber) + " a receber"} />
-        <HomeCard emoji="📅" title="Agenda" desc="Em breve nesta versão web." color={BRAND.turquesa} onClick={() => setPage("agenda")} stat={entregasHoje > 0 ? `${entregasHoje} hoje` : "Nada hoje"} />
+        <HomeCard emoji="💰" title="Financeiro" desc="Faturamento do mês, produto mais vendido e valores a receber." color={BRAND.amarelo} onClick={() => setPage("financeiro")} stat={formatBRL(aReceber) + " a receber"} />
+        <HomeCard emoji="📅" title="Agenda" desc="Veja o que precisa entregar e retirar em cada dia." color={BRAND.turquesa} onClick={() => setPage("agenda")} stat={entregasHoje > 0 ? `${entregasHoje} hoje` : "Nada hoje"} />
       </div>
     </div>
   );
@@ -715,11 +715,6 @@ function buildContractHtml(dados, profile) {
 /* ============================================================
    ABA DE CONTRATO (ligada ao Supabase)
 ============================================================ */
-function buildReminderMessage(nomeCliente, kit, tipoServico, data, hora, horaFim, profile) {
-  const isDecoracao = tipoServico === "decoracao";
-  if (isDecoracao) return `Oi, ${nomeCliente}! Aqui é da ${profile.nome_loja}. Passando pra lembrar que amanhã, ${formatDateLong(data)}, é a montagem da decoração, das ${hora} às ${horaFim}. Qualquer coisa, me chama! 🎈`;
-  return `Oi, ${nomeCliente}! Aqui é da ${profile.nome_loja}. Passando pra lembrar que amanhã, ${formatDateLong(data)}, é a retirada do seu produto ${kit}, das ${hora} às ${horaFim}. Venha com um carro adequado pra levar tudo bem acomodado! 🎉`;
-}
 
 function ContratoTab({ userId, profile }) {
   const [contracts, setContracts] = useState([]);
@@ -951,6 +946,359 @@ function ContratoTab({ userId, profile }) {
 /* ============================================================
    APP PRINCIPAL
 ============================================================ */
+/* ============================================================
+   GRÁFICO GENÉRICO (Chart.js)
+============================================================ */
+function ChartCanvas({ type, data, options }) {
+  const canvasRef = React.useRef(null);
+  const chartRef = React.useRef(null);
+  useEffect(() => {
+    const ctx = canvasRef.current.getContext("2d");
+    if (chartRef.current) chartRef.current.destroy();
+    chartRef.current = new Chart(ctx, { type, data, options: options || {} });
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [JSON.stringify(data), type]);
+  return <canvas ref={canvasRef} />;
+}
+
+/* ============================================================
+   ABA FINANCEIRO
+============================================================ */
+function StatCard({ emoji, label, value, color, onClick, active }) {
+  return (
+    <button onClick={onClick} className="text-left w-full bg-white rounded-2xl p-5 shadow-sm border-2 transition cursor-pointer active:scale-[0.98]" style={{ borderColor: active ? color : "transparent" }}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-lg" style={{ background: color }}>{emoji}</div>
+        <span className="text-slate-300">{active ? "▾" : "▸"}</span>
+      </div>
+      <p className="text-2xl font-bold fredoka" style={{ color: BRAND.tinta }}>{value}</p>
+      <p className="text-xs text-slate-400 mt-0.5">{label}</p>
+    </button>
+  );
+}
+
+function FinanceiroTab({ userId }) {
+  const [contracts, setContracts] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+  const [activeDetail, setActiveDetail] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await sb.from("contracts").select("*").eq("decoradora_id", userId).order("created_at", { ascending: false });
+      setContracts((data || []).map(contractFromDb));
+      setCarregando(false);
+    })();
+  }, [userId]);
+
+  const totals = useMemo(() => {
+    let recebido = 0, pendente = 0, faturado = 0;
+    contracts.forEach((c) => { const f = computeFinance(c); recebido += f.pago; pendente += f.pendente; faturado += f.valor; });
+    return { recebido, pendente, faturado };
+  }, [contracts]);
+
+  const MESES_ABREV = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  const porMes = useMemo(() => {
+    const map = {};
+    function add(date, value) {
+      if (!date || !value) return;
+      const key = `${date.getFullYear()}-${date.getMonth()}`;
+      if (!map[key]) map[key] = { mes: MESES_ABREV[date.getMonth()], total: 0, order: date.getFullYear()*12+date.getMonth() };
+      map[key].total += value;
+    }
+    contracts.forEach((c) => {
+      const valor = parseValorBR(c.valor);
+      const dAssinatura = c.createdAt ? new Date(c.createdAt) : null;
+      const dEvento = c.dataRetirada ? parseDateLocal(c.dataRetirada) : null;
+      if (c.statusPagamento === "pago") add(dAssinatura, valor);
+      else if (c.statusPagamento === "sinal") { add(dAssinatura, valor*0.5); add(dEvento, valor*0.5); }
+    });
+    return Object.values(map).sort((a,b) => a.order-b.order).slice(-6);
+  }, [contracts]);
+
+  const porTipoServico = useMemo(() => {
+    const map = {};
+    contracts.forEach((c) => {
+      const key = c.tipoServico || "pegue_monte";
+      if (!map[key]) map[key] = { tipo: TIPO_SERVICO_LABELS[key] || key, total: 0, qtd: 0 };
+      map[key].total += parseValorBR(c.valor);
+      map[key].qtd += 1;
+    });
+    return Object.values(map).sort((a,b) => b.total-a.total);
+  }, [contracts]);
+
+  const produtosRanking = useMemo(() => {
+    const map = {};
+    contracts.forEach((c) => { const n = c.produtoNome || "Sem nome"; map[n] = (map[n]||0)+1; });
+    return Object.entries(map).map(([name,value]) => ({name,value})).sort((a,b)=>b.value-a.value).slice(0,6);
+  }, [contracts]);
+
+  const aReceberLista = useMemo(() => contracts.filter((c) => computeFinance(c).pendente > 0).sort((a,b) => (a.dataRetirada||"").localeCompare(b.dataRetirada||"")), [contracts]);
+  const recebidoLista = useMemo(() => contracts.filter((c) => computeFinance(c).pago > 0).sort((a,b) => (b.createdAt||0)-(a.createdAt||0)), [contracts]);
+  const faturadoLista = useMemo(() => [...contracts].sort((a,b) => (b.createdAt||0)-(a.createdAt||0)), [contracts]);
+
+  const PIE_CORES = [BRAND.rosa, BRAND.amarelo, BRAND.turquesa, BRAND.roxo, "#3D5AFE", "#F97316"];
+
+  if (carregando) return <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">Carregando financeiro...</div>;
+  if (contracts.length === 0) return <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">💰<p className="mt-3">Preencha um contrato pro financeiro começar a aparecer.</p></div>;
+
+  const listaAtiva = activeDetail === "recebido" ? recebidoLista : activeDetail === "pendente" ? aReceberLista : faturadoLista;
+
+  return (
+    <div className="max-w-5xl mx-auto px-5 py-7">
+      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Financeiro</h2>
+      <p className="text-sm text-slate-400 mb-5">Puxado automaticamente dos contratos preenchidos.</p>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        <StatCard emoji="💰" label="Já recebido" value={formatBRL(totals.recebido)} color={BRAND.turquesa} active={activeDetail==="recebido"} onClick={() => setActiveDetail(activeDetail==="recebido"?null:"recebido")} />
+        <StatCard emoji="⏳" label="A receber" value={formatBRL(totals.pendente)} color={BRAND.rosa} active={activeDetail==="pendente"} onClick={() => setActiveDetail(activeDetail==="pendente"?null:"pendente")} />
+        <StatCard emoji="📈" label="Faturamento total" value={formatBRL(totals.faturado)} color={BRAND.azul} active={activeDetail==="faturado"} onClick={() => setActiveDetail(activeDetail==="faturado"?null:"faturado")} />
+        <StatCard emoji="📦" label="Contratos" value={contracts.length} color={BRAND.amarelo} active={activeDetail==="contratos"} onClick={() => setActiveDetail(activeDetail==="contratos"?null:"contratos")} />
+      </div>
+
+      {activeDetail && (
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <p className="font-bold text-sm" style={{ color: BRAND.tinta }}>
+              {activeDetail === "recebido" && "De onde veio o que já foi recebido"}
+              {activeDetail === "pendente" && "Quem ainda falta pagar"}
+              {(activeDetail === "faturado" || activeDetail === "contratos") && "Todos os contratos"}
+            </p>
+            <button onClick={() => setActiveDetail(null)} className="p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer text-slate-400">✕</button>
+          </div>
+          <div className="space-y-2">
+            {listaAtiva.map((c) => {
+              const f = computeFinance(c);
+              const valorMostrado = activeDetail === "recebido" ? f.pago : activeDetail === "pendente" ? f.pendente : f.valor;
+              const cor = activeDetail === "pendente" ? BRAND.rosa : activeDetail === "recebido" ? BRAND.turquesa : BRAND.azul;
+              return (
+                <div key={c.id} className="flex items-center justify-between py-2.5 border-b border-slate-50 last:border-0">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm truncate" style={{ color: BRAND.tinta }}>{c.contratanteNome}</p>
+                    <p className="text-xs text-slate-400 truncate">{c.produtoNome} · {formatDateBR(c.dataRetirada)}</p>
+                  </div>
+                  <span className="font-bold text-sm shrink-0 ml-3" style={{ color: cor }}>{formatBRL(valorMostrado)}</span>
+                </div>
+              );
+            })}
+            {listaAtiva.length === 0 && <p className="text-sm text-slate-400">Nada por aqui ainda.</p>}
+          </div>
+        </div>
+      )}
+
+      <div className="grid lg:grid-cols-2 gap-5 mb-5">
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+          <p className="font-bold text-sm" style={{ color: BRAND.tinta }}>Dinheiro recebido por mês</p>
+          <p className="text-xs text-slate-400 mb-4">O sinal entra no mês do contrato, o restante no mês do evento.</p>
+          <div style={{ height: 220 }}>
+            <ChartCanvas type="bar" data={{ labels: porMes.map(m=>m.mes), datasets: [{ data: porMes.map(m=>m.total), backgroundColor: BRAND.azul, borderRadius: 8, maxBarThickness: 42 }] }}
+              options={{ plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: (v) => formatBRL(v) } } }, maintainAspectRatio: false }} />
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+          <p className="font-bold text-sm mb-4" style={{ color: BRAND.tinta }}>Produtos mais vendidos</p>
+          <div style={{ height: 220 }}>
+            <ChartCanvas type="doughnut" data={{ labels: produtosRanking.map(p=>p.name), datasets: [{ data: produtosRanking.map(p=>p.value), backgroundColor: PIE_CORES }] }}
+              options={{ maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } } }} />
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-6">
+        <p className="font-bold text-sm" style={{ color: BRAND.tinta }}>Balanço por tipo de serviço</p>
+        <p className="text-xs text-slate-400 mb-4">O que mais saiu: Pegue e Monte, Decoração, Balões ou Peças avulsas.</p>
+        <div style={{ height: 220 }}>
+          <ChartCanvas type="bar" data={{ labels: porTipoServico.map(t=>t.tipo), datasets: [{ data: porTipoServico.map(t=>t.total), backgroundColor: PIE_CORES, borderRadius: 8, maxBarThickness: 60 }] }}
+            options={{ plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: (v) => formatBRL(v) } } }, maintainAspectRatio: false }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   ABA AGENDA
+============================================================ */
+const DEVOLUCAO_COLOR = "#DC2626";
+function eventoCores(e) {
+  const corTipo = tipoServicoColor(e.tipoServico);
+  if (e.tipo === "volta") return { fill: DEVOLUCAO_COLOR, border: corTipo };
+  return { fill: corTipo, border: "transparent" };
+}
+function tomorrowISO() { const d = new Date(); d.setDate(d.getDate()+1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+const MESES_LONGO = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+const DIAS_SEMANA = ["D","S","T","Q","Q","S","S"];
+
+function buildEvents(contracts) {
+  const events = [];
+  contracts.forEach((c) => {
+    if (c.dataRetirada) events.push({ id: c.id+"-r", date: c.dataRetirada, tipo: "ida", label: labelData(c.tipoServico,"ida"), nome: c.contratanteNome, kit: c.produtoNome, hora: c.horaRetiradaIni, horaFim: c.horaRetiradaFim, whatsapp: c.contratanteWhatsapp, tipoServico: c.tipoServico });
+    if (c.dataDevolucao) events.push({ id: c.id+"-d", date: c.dataDevolucao, tipo: "volta", label: labelData(c.tipoServico,"volta"), nome: c.contratanteNome, kit: c.produtoNome, hora: c.horaDevolucaoIni, horaFim: c.horaDevolucaoFim, whatsapp: c.contratanteWhatsapp, tipoServico: c.tipoServico });
+  });
+  return events;
+}
+
+function buildReminderMessage(e, profile) {
+  const data = formatDateLong(e.date);
+  if (e.tipo !== "ida") return `Oi, ${e.nome}! Aqui é da ${profile.nome_loja}. Passando pra lembrar que amanhã, ${data}, é a ${e.label.toLowerCase()} do(a) ${e.kit}, das ${e.hora} às ${e.horaFim}. Qualquer dúvida, me chama! 🎉`;
+  if (e.tipoServico === "decoracao") return `Oi, ${e.nome}! Aqui é da ${profile.nome_loja}. Passando pra lembrar que amanhã, ${data}, é a montagem da decoração do seu evento, das ${e.hora} às ${e.horaFim}. Vamos combinar os últimos detalhes! 🎈`;
+  return `Oi, ${e.nome}! Aqui é da ${profile.nome_loja}. Passando pra lembrar que amanhã, ${data}, é a retirada do seu kit ${e.kit}, das ${e.hora} às ${e.horaFim}. Venha com um carro adequado pra levar o kit bem acomodado! 🎉`;
+}
+
+function MiniCalendar({ viewDate, setViewDate, eventsByDate, selected, setSelected }) {
+  const year = viewDate.getFullYear(), month = viewDate.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const cells = [];
+  for (let i=0;i<firstDay;i++) cells.push(null);
+  for (let d=1; d<=daysInMonth; d++) cells.push(d);
+  const todayStr = todayISO();
+  function isoFor(day) { return `${year}-${String(month+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`; }
+
+  return (
+    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+      <div className="flex items-center justify-between mb-4">
+        <button onClick={() => setViewDate(new Date(year, month-1, 1))} className="p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer">◀</button>
+        <p className="fredoka font-bold" style={{ color: BRAND.tinta }}>{MESES_LONGO[month]} {year}</p>
+        <button onClick={() => setViewDate(new Date(year, month+1, 1))} className="p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer">▶</button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 mb-1">{DIAS_SEMANA.map((d,i) => <div key={i} className="text-center text-[11px] font-bold text-slate-300 py-1">{d}</div>)}</div>
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((day, i) => {
+          if (!day) return <div key={i} />;
+          const iso = isoFor(day);
+          const evs = eventsByDate[iso] || [];
+          const isToday = iso === todayStr;
+          const isSelected = iso === selected;
+          return (
+            <button key={i} onClick={() => setSelected(iso)} className="aspect-square rounded-xl flex flex-col items-center justify-center text-sm font-semibold relative transition cursor-pointer"
+              style={isSelected ? { background: BRAND.azul, color: "#fff" } : isToday ? { background: BRAND.azul+"14", color: BRAND.azul } : { color: BRAND.tinta }}>
+              {day}
+              {evs.length > 0 && (
+                <span className="flex gap-0.5 absolute bottom-1 items-center">
+                  {evs.slice(0,4).map((e,idx) => <span key={idx} className="w-2 h-2 rounded-full" style={isSelected ? { background: "#fff" } : { background: eventoCores(e).fill, border: `1.5px solid ${eventoCores(e).border}` }} />)}
+                  {evs.length > 4 && <span className="text-[8px] font-bold ml-0.5" style={{ color: isSelected ? "#fff" : BRAND.tinta }}>+{evs.length-4}</span>}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AgendaTab({ userId, profile }) {
+  const [contracts, setContracts] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+  const [viewDate, setViewDate] = useState(new Date());
+  const [selected, setSelected] = useState(todayISO());
+  const [erroLembrete, setErroLembrete] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await sb.from("contracts").select("*").eq("decoradora_id", userId).order("created_at", { ascending: false });
+      setContracts((data || []).map(contractFromDb));
+      setCarregando(false);
+    })();
+  }, [userId]);
+
+  const events = useMemo(() => buildEvents(contracts), [contracts]);
+  const eventsByDate = useMemo(() => { const map = {}; events.forEach((e) => { (map[e.date]=map[e.date]||[]).push(e); }); return map; }, [events]);
+  const doDia = (eventsByDate[selected] || []).sort((a,b) => (a.hora||"").localeCompare(b.hora||""));
+
+  const proximosAgrupados = useMemo(() => {
+    const hoje = todayISO();
+    const relevantes = events.filter((e) => e.date >= hoje).sort((a,b) => a.date.localeCompare(b.date) || (a.hora||"").localeCompare(b.hora||""));
+    const grupos = {};
+    relevantes.forEach((e) => { (grupos[e.date]=grupos[e.date]||[]).push(e); });
+    return Object.entries(grupos).slice(0,8);
+  }, [events]);
+
+  const lembretesAmanha = useMemo(() => { const amanha = tomorrowISO(); return events.filter((e) => e.tipo === "ida" && e.date === amanha); }, [events]);
+
+  function handleSendReminder(e) {
+    setErroLembrete("");
+    if (!e.whatsapp) { setErroLembrete(`${e.nome} não tem WhatsApp cadastrado nesse contrato.`); return; }
+    window.open(whatsappLink(e.whatsapp, buildReminderMessage(e, profile)), "_blank");
+  }
+
+  if (carregando) return <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">Carregando agenda...</div>;
+  if (contracts.length === 0) return <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">📅<p className="mt-3">Preencha um contrato e as datas aparecem aqui.</p></div>;
+
+  return (
+    <div className="max-w-5xl mx-auto px-5 py-7">
+      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Agenda</h2>
+      <p className="text-sm text-slate-400 mb-3">Retiradas e devoluções puxadas dos seus contratos.</p>
+
+      <div className="flex flex-wrap gap-3 mb-5">
+        {Object.entries(TIPO_SERVICO_LABELS).map(([key,label]) => (
+          <span key={key} className="text-xs font-semibold flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: tipoServicoColor(key) }} />{label}</span>
+        ))}
+        <span className="text-xs font-semibold flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: DEVOLUCAO_COLOR, border: `1.5px solid ${BRAND.rosa}` }} />Devolução (aro = tipo)</span>
+      </div>
+
+      {erroLembrete && <div className="text-sm font-semibold mb-4 px-3 py-2.5 rounded-xl" style={{ background: BRAND.rosa+"15", color: BRAND.rosa }}>⚠️ {erroLembrete}</div>}
+
+      {lembretesAmanha.length > 0 && (
+        <div className="rounded-2xl p-5 mb-5" style={{ background: BRAND.amarelo+"18", border: `2px solid ${BRAND.amarelo}55` }}>
+          <p className="font-bold text-sm mb-3" style={{ color: "#8a6400" }}>🎁 Lembretes para amanhã ({lembretesAmanha.length})</p>
+          <div className="space-y-2">
+            {lembretesAmanha.map((e) => (
+              <div key={e.id} className="flex items-center gap-3 bg-white rounded-xl p-3">
+                <div className="min-w-0 flex-1"><p className="font-semibold text-sm truncate" style={{ color: BRAND.tinta }}>{e.nome} · {e.kit}</p><p className="text-xs text-slate-400 truncate">{e.label} às {e.hora}</p></div>
+                <button onClick={() => handleSendReminder(e)} className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-lg shrink-0 cursor-pointer" style={{ color: "#22C35E", background: "#22C35E18" }}>📲 Enviar</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="grid lg:grid-cols-2 gap-5">
+        <MiniCalendar viewDate={viewDate} setViewDate={setViewDate} eventsByDate={eventsByDate} selected={selected} setSelected={setSelected} />
+        <div className="space-y-5">
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+            <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>{selected === todayISO() ? "Hoje" : formatDateLong(selected)}</p>
+            {doDia.length === 0 ? <p className="text-sm text-slate-400 mt-2">Nada marcado neste dia.</p> : (
+              <div className="mt-3 space-y-2">
+                {doDia.map((e) => (
+                  <div key={e.id} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: eventoCores(e).fill+"10", borderLeft: `3px solid ${tipoServicoColor(e.tipoServico)}` }}>
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center text-white shrink-0" style={{ background: eventoCores(e).fill }}>{e.tipo === "ida" ? "📦" : "✅"}</div>
+                    <div className="min-w-0 flex-1"><p className="font-semibold text-sm truncate" style={{ color: BRAND.tinta }}>{e.kit}</p><p className="text-xs text-slate-400 truncate">{e.nome} · {e.label} às {e.hora}</p></div>
+                    <button onClick={() => handleSendReminder(e)} className="p-2 rounded-lg shrink-0 cursor-pointer" style={{ color: "#22C35E", background: "#22C35E18" }}>📲</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+            <p className="font-bold text-sm mb-3" style={{ color: BRAND.tinta }}>Próximos compromissos</p>
+            <div className="space-y-3">
+              {proximosAgrupados.map(([data, evsDoDia]) => (
+                <div key={data}>
+                  <p className="text-xs font-bold mb-1.5" style={{ color: BRAND.azul }}>
+                    {data === todayISO() ? "Hoje" : data === tomorrowISO() ? "Amanhã" : formatDateBR(data)}
+                    {evsDoDia.length > 1 && <span className="text-slate-400 font-normal"> · {evsDoDia.length} compromissos</span>}
+                  </p>
+                  <div className="space-y-1">
+                    {evsDoDia.map((e) => (
+                      <button key={e.id} onClick={() => { setSelected(e.date); setViewDate(parseDateLocal(e.date)); }} className="w-full flex items-center gap-2 py-1.5 text-left hover:bg-slate-50 rounded-lg px-1.5 cursor-pointer">
+                        <span className="text-[10px] font-bold shrink-0 px-2 py-1 rounded-full text-white" style={{ background: eventoCores(e).fill, border: `1.5px solid ${eventoCores(e).border}` }}>{TIPO_SERVICO_LABELS[e.tipoServico] || "Serviço"}</span>
+                        <span className="text-sm truncate flex-1" style={{ color: BRAND.tinta }}>{e.nome} · {e.kit}</span>
+                        <span className="text-[11px] text-slate-400 shrink-0">{e.label} {e.hora}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {proximosAgrupados.length === 0 && <p className="text-sm text-slate-400">Nenhum compromisso futuro.</p>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [session, setSession] = useState(undefined); // undefined = carregando, null = deslogado
   const [profile, setProfile] = useState(null);
@@ -996,6 +1344,10 @@ function App() {
           <HomeDashboard setPage={setPage} contracts={Array(contractsCount).fill({})} />
         ) : page === "contrato" ? (
           <ContratoTab userId={session.user.id} profile={profile} />
+        ) : page === "financeiro" ? (
+          <FinanceiroTab userId={session.user.id} />
+        ) : page === "agenda" ? (
+          <AgendaTab userId={session.user.id} profile={profile} />
         ) : page === "perfil" ? (
           <PerfilTab profile={profile} userId={session.user.id} onSaved={setProfile} setPage={setPage} />
         ) : (
