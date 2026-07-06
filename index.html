@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PriFestasdecor · Painel Pegue &amp; Monte</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Poppins:wght@400;500;600;700&display=swap');
+  body { font-family: 'Poppins', sans-serif; margin: 0; }
+  .fredoka { font-family: 'Fredoka', sans-serif; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react" data-type="module">
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+/* ============================================================
+   CONEXÃO COM O SUPABASE
+   A anon key abaixo é pública por natureza (feita pra rodar no
+   navegador) — a proteção de verdade é a Row Level Security (RLS)
+   já configurada no banco. NUNCA coloque a chave "service_role" aqui.
+============================================================ */
+const SUPABASE_URL = "https://drizqsevvmyyrdgczjvf.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRyaXpxc2V2dm15eXJkZ2N6anZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzNDM0MzAsImV4cCI6MjA5ODkxOTQzMH0.uTzYirVcO-TFJ6BCyDY9A8_Etw4v32iWlOETWht_hxQ";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* ============================================================
+   MARCA / TEMA (idêntico ao app anterior, agora carregado do
+   perfil salvo no banco em vez do window.storage do Claude)
+============================================================ */
+let BRAND = {
+  azul: "#16308A", azulEscuro: "#0D1E5C", azulClaro: "#3D5AFE",
+  rosa: "#EC1E79", amarelo: "#FFC93C", turquesa: "#22C3C3", roxo: "#8B5CF6",
+  bg: "#F4F6FD", tinta: "#181A33",
+};
+
+function hexShade(hex, percent) {
+  try {
+    const h = hex.replace("#", "");
+    const num = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+    let r = (num >> 16) & 0xff, g = (num >> 8) & 0xff, b = num & 0xff;
+    const amt = Math.round(2.55 * percent);
+    r = Math.min(255, Math.max(0, r + amt)); g = Math.min(255, Math.max(0, g + amt)); b = Math.min(255, Math.max(0, b + amt));
+    return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
+  } catch (e) { return hex; }
+}
+
+function applyTheme(profile) {
+  const azul = profile.cor_principal || "#16308A";
+  BRAND.azul = azul;
+  BRAND.azulEscuro = hexShade(azul, -25);
+  BRAND.azulClaro = hexShade(azul, 30);
+  BRAND.rosa = profile.cor_destaque || "#EC1E79";
+  BRAND.amarelo = profile.cor_alerta || "#FFC93C";
+  BRAND.turquesa = profile.cor_sucesso || "#22C3C3";
+}
+
+const TIPO_SERVICO_LABELS = { pegue_monte: "Pegue e Monte", decoracao: "Decoração", baloes: "Balões", pecas_avulsas: "Peças avulsas" };
+function tipoServicoColor(tipo) {
+  if (tipo === "decoracao") return BRAND.roxo;
+  if (tipo === "baloes") return BRAND.amarelo;
+  if (tipo === "pecas_avulsas") return BRAND.turquesa;
+  return BRAND.rosa;
+}
+function labelData(tipoServico, qual) {
+  const isDecoracao = tipoServico === "decoracao";
+  if (qual === "ida") return isDecoracao ? "Data da montagem" : "Data de retirada";
+  return isDecoracao ? "Data da desmontagem/retirada" : "Data de devolução";
+}
+
+/* ============================================================
+   FUNÇÕES DE APOIO (iguais às da versão anterior)
+============================================================ */
+function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+function normalizeStr(s) { return (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim(); }
+function parseValorBR(v) {
+  if (typeof v === "number") return v;
+  if (!v) return 0;
+  let s = String(v).trim();
+  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+function formatBRL(v) { return parseValorBR(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
+function parseDateLocal(str) { if (!str) return null; const [y, m, d] = str.split("-").map(Number); return new Date(y, m - 1, d); }
+function formatDateBR(str) { const d = parseDateLocal(str); return d ? d.toLocaleDateString("pt-BR") : ""; }
+const MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+function formatDateLong(str) { const d = parseDateLocal(str); if (!d) return ""; return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`; }
+function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+function computeFinance(c) {
+  const valor = parseValorBR(c.valor);
+  let pago = 0;
+  if (c.statusPagamento === "pago") pago = valor;
+  else if (c.statusPagamento === "sinal") pago = valor * 0.5;
+  return { valor, pago, pendente: Math.max(valor - pago, 0) };
+}
+function onlyDigits(str) { return (str || "").replace(/\D/g, ""); }
+function whatsappLink(phoneRaw, message) {
+  let digits = onlyDigits(phoneRaw);
+  if (digits.length <= 11) digits = "55" + digits;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+}
+
+/* Conversão entre o formato do app (camelCase) e o formato do banco (snake_case) */
+function contractToDb(c, decoradoraId) {
+  return {
+    id: c.id, decoradora_id: decoradoraId, tipo_servico: c.tipoServico,
+    contratante_nome: c.contratanteNome, contratante_cpf: c.contratanteCPF,
+    contratante_endereco: c.contratanteEndereco, contratante_whatsapp: c.contratanteWhatsapp,
+    produto_nome: c.produtoNome, material_entregue: c.materialEntregue,
+    valor: parseValorBR(c.valor),
+    data_retirada: c.dataRetirada || null, hora_retirada_ini: c.horaRetiradaIni, hora_retirada_fim: c.horaRetiradaFim,
+    data_devolucao: c.dataDevolucao || null, hora_devolucao_ini: c.horaDevolucaoIni, hora_devolucao_fim: c.horaDevolucaoFim,
+    status_pagamento: c.statusPagamento,
+  };
+}
+function contractFromDb(r) {
+  return {
+    id: r.id, tipoServico: r.tipo_servico || "pegue_monte",
+    contratanteNome: r.contratante_nome || "", contratanteCPF: r.contratante_cpf || "",
+    contratanteEndereco: r.contratante_endereco || "", contratanteWhatsapp: r.contratante_whatsapp || "",
+    produtoNome: r.produto_nome || "", materialEntregue: r.material_entregue || "",
+    valor: r.valor || 0,
+    dataRetirada: r.data_retirada || "", horaRetiradaIni: r.hora_retirada_ini || "09:00", horaRetiradaFim: r.hora_retirada_fim || "13:00",
+    dataDevolucao: r.data_devolucao || "", horaDevolucaoIni: r.hora_devolucao_ini || "09:00", horaDevolucaoFim: r.hora_devolucao_fim || "19:00",
+    statusPagamento: r.status_pagamento || "sinal",
+    createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+  };
+}
+
+const PROFILE_DEFAULT = {
+  nome_loja: "Minha Loja", nome_responsavel: "", cnpj: "", endereco: "",
+  logo_data_url: "", assinatura_data_url: "",
+  cor_principal: "#16308A", cor_destaque: "#EC1E79", cor_alerta: "#FFC93C", cor_sucesso: "#22C3C3",
+  plano_status: "trial", trial_fim: todayISO(),
+};
+
+/* ============================================================
+   UI GENÉRICA
+============================================================ */
+function Field({ label, children, hint }) {
+  return (
+    <label className="block mb-4">
+      <span className="block text-sm font-semibold mb-1.5" style={{ color: BRAND.tinta }}>{label}</span>
+      {children}
+      {hint && <span className="block text-xs mt-1 text-slate-400">{hint}</span>}
+    </label>
+  );
+}
+const inputClass = "w-full rounded-xl border-2 border-slate-200 px-4 py-2.5 text-[15px] outline-none transition-colors focus:border-[#3D5AFE] bg-white";
+function Pill({ children, color }) {
+  return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold" style={{ background: color + "22", color }}>{children}</span>;
+}
+function ErrorBox({ children }) {
+  if (!children) return null;
+  return (
+    <div className="text-sm font-semibold mb-4 px-3 py-2.5 rounded-xl flex items-start gap-2" style={{ background: BRAND.rosa + "15", color: BRAND.rosa }}>
+      <span>⚠️</span><span>{children}</span>
+    </div>
+  );
+}
+function SuccessBox({ children }) {
+  if (!children) return null;
+  return (
+    <div className="text-sm font-semibold mb-4 px-3 py-2.5 rounded-xl flex items-center gap-2" style={{ background: BRAND.turquesa + "18", color: "#0E8E8E" }}>
+      <span>✅</span><span>{children}</span>
+    </div>
+  );
+}
+
+/* ============================================================
+   TELA DE LOGIN / CADASTRO (autenticação real via Supabase Auth)
+============================================================ */
+function AuthScreen({ onAuthed }) {
+  const [modo, setModo] = useState("login"); // login | cadastro
+  const [nomeLoja, setNomeLoja] = useState("");
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [aviso, setAviso] = useState("");
+
+  async function handleCadastro() {
+    setErro(""); setAviso("");
+    if (!nomeLoja.trim()) { setErro("Digite o nome da sua loja."); return; }
+    if (!email.trim()) { setErro("Digite seu e-mail."); return; }
+    if (senha.length < 6) { setErro("A senha precisa ter pelo menos 6 caracteres."); return; }
+    setCarregando(true);
+    try {
+      const { data, error } = await sb.auth.signUp({ email: email.trim(), password: senha });
+      if (error) { setErro(traduzErroAuth(error)); setCarregando(false); return; }
+      if (data.session) {
+        // Confirmação de e-mail desligada: já entra direto e cria o perfil da loja.
+        await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim() });
+        onAuthed();
+      } else {
+        setAviso("Conta criada! Verifique seu e-mail para confirmar o cadastro e depois faça login.");
+        setModo("login");
+      }
+    } catch (err) {
+      setErro("Erro inesperado: " + err.message);
+    }
+    setCarregando(false);
+  }
+
+  async function handleLogin() {
+    setErro(""); setAviso("");
+    if (!email.trim() || !senha) { setErro("Preencha e-mail e senha."); return; }
+    setCarregando(true);
+    try {
+      const { data, error } = await sb.auth.signInWithPassword({ email: email.trim(), password: senha });
+      if (error) { setErro(traduzErroAuth(error)); setCarregando(false); return; }
+      // Garante que existe uma linha de perfil pra essa decoradora (caso o cadastro
+      // tenha sido feito antes da confirmação de e-mail).
+      const { data: perfilExistente } = await sb.from("decoradoras").select("id").eq("id", data.user.id).maybeSingle();
+      if (!perfilExistente) {
+        await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim() || "Minha Loja" });
+      }
+      onAuthed();
+    } catch (err) {
+      setErro("Erro inesperado: " + err.message);
+    }
+    setCarregando(false);
+  }
+
+  function traduzErroAuth(error) {
+    const msg = error.message || "";
+    if (msg.includes("Invalid login credentials")) return "E-mail ou senha incorretos.";
+    if (msg.includes("already registered")) return "Já existe uma conta com esse e-mail. Tente entrar em vez de cadastrar.";
+    if (msg.includes("Password should be")) return "A senha precisa ter pelo menos 6 caracteres.";
+    return msg;
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden" style={{ background: `linear-gradient(160deg, ${BRAND.azul} 0%, ${BRAND.azulEscuro} 100%)` }}>
+      <div className="absolute -top-10 -left-10 w-40 h-40 rounded-full opacity-30" style={{ background: BRAND.rosa }} />
+      <div className="absolute top-24 right-10 w-24 h-24 rounded-full opacity-30" style={{ background: BRAND.amarelo }} />
+      <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl p-8">
+        <div className="flex flex-col items-center mb-6">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-3 rotate-3 text-3xl" style={{ background: `linear-gradient(135deg, ${BRAND.rosa}, ${BRAND.roxo})` }}>🎉</div>
+          <h1 className="fredoka text-2xl font-bold text-center" style={{ color: BRAND.azul }}>Pegue &amp; Monte</h1>
+          <p className="text-sm text-slate-400 text-center mt-1">Painel para decoradoras</p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 mb-5 p-1 rounded-xl" style={{ background: BRAND.bg }}>
+          <button onClick={() => { setModo("login"); setErro(""); setAviso(""); }} className="py-2 rounded-lg text-sm font-bold cursor-pointer" style={modo === "login" ? { background: "#fff", color: BRAND.azul } : { color: "#94a3b8" }}>Entrar</button>
+          <button onClick={() => { setModo("cadastro"); setErro(""); setAviso(""); }} className="py-2 rounded-lg text-sm font-bold cursor-pointer" style={modo === "cadastro" ? { background: "#fff", color: BRAND.azul } : { color: "#94a3b8" }}>Criar conta</button>
+        </div>
+
+        {modo === "cadastro" && (
+          <Field label="Nome da sua loja">
+            <input className={inputClass} value={nomeLoja} onChange={(e) => setNomeLoja(e.target.value)} placeholder="Ex: PriFestasdecor" />
+          </Field>
+        )}
+        <Field label="E-mail">
+          <input className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seuemail@exemplo.com" />
+        </Field>
+        <Field label="Senha" hint={modo === "cadastro" ? "Mínimo de 6 caracteres." : undefined}>
+          <input className={inputClass} type="password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="••••••" />
+        </Field>
+
+        <ErrorBox>{erro}</ErrorBox>
+        <SuccessBox>{aviso}</SuccessBox>
+
+        <button
+          type="button"
+          disabled={carregando}
+          onClick={modo === "cadastro" ? handleCadastro : handleLogin}
+          className="w-full py-3 rounded-xl font-bold text-white transition-transform active:scale-95 cursor-pointer disabled:opacity-60"
+          style={{ background: BRAND.rosa }}
+        >
+          {carregando ? "Só um instante..." : modo === "cadastro" ? "Criar conta e começar teste grátis de 7 dias" : "Entrar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   BLOQUEIO DE TRIAL / PLANO
+============================================================ */
+function TrialGate({ profile, onLogout, children }) {
+  const status = profile.plano_status;
+  const hoje = todayISO();
+  const trialValido = status === "trial" && profile.trial_fim >= hoje;
+  const acessoLiberado = status === "ativo" || status === "cortesia" || trialValido;
+
+  if (acessoLiberado) {
+    return (
+      <>
+        {status === "trial" && (
+          <div className="text-center text-xs font-bold py-2" style={{ background: BRAND.amarelo, color: "#5c4200" }}>
+            🎁 Teste grátis — termina em {formatDateBR(profile.trial_fim)}
+          </div>
+        )}
+        {children}
+      </>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: BRAND.bg }}>
+      <div className="max-w-sm bg-white rounded-3xl shadow-xl p-8 text-center">
+        <div className="text-4xl mb-3">⏰</div>
+        <h2 className="fredoka text-xl font-bold mb-2" style={{ color: BRAND.tinta }}>
+          {status === "trial" ? "Seu teste grátis acabou" : "Acesso indisponível"}
+        </h2>
+        <p className="text-sm text-slate-400 mb-6">
+          {status === "trial"
+            ? "Seus 7 dias grátis chegaram ao fim. Fale com a gente pra continuar usando o painel."
+            : "Sua conta está com o acesso pausado no momento. Fale com a gente pra regularizar."}
+        </p>
+        <button onClick={onLogout} className="w-full py-3 rounded-xl font-bold text-white cursor-pointer" style={{ background: BRAND.azul }}>Sair</button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   CABEÇALHO
+============================================================ */
+function Header({ userEmail, page, setPage, onLogout, profile }) {
+  const isHome = page === "home";
+  return (
+    <div className="sticky top-0 z-20 text-white" style={{ background: `linear-gradient(120deg, ${BRAND.azul}, ${BRAND.azulEscuro})` }}>
+      <div className="max-w-5xl mx-auto px-5 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          {!isHome && (
+            <button onClick={() => setPage("home")} className="p-2 -ml-2 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Voltar ao início">←</button>
+          )}
+          {profile.logo_data_url ? (
+            <img src={profile.logo_data_url} alt="Logo" className="w-9 h-9 rounded-xl object-cover bg-white" />
+          ) : (
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg" style={{ background: `linear-gradient(135deg, ${BRAND.rosa}, ${BRAND.roxo})` }}>🎉</div>
+          )}
+          <div className="min-w-0">
+            <p className="fredoka font-bold leading-none text-[15px] truncate">{profile.nome_loja}</p>
+            <p className="text-[11px] text-white/60 leading-none mt-1 truncate">{userEmail}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          <button onClick={() => setPage("perfil")} className="p-2 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Editar perfil">⚙️</button>
+          <button onClick={onLogout} className="p-2 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Sair">🚪</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HomeCard({ emoji, title, desc, color, onClick, stat }) {
+  return (
+    <button onClick={onClick} className="group w-full text-left bg-white rounded-3xl p-6 shadow-sm hover:shadow-xl transition-all active:scale-[0.98] border-2 border-transparent hover:border-current cursor-pointer" style={{ color }}>
+      <div className="flex items-start justify-between">
+        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4 text-2xl text-white" style={{ background: color }}>{emoji}</div>
+        {stat && <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: color + "18", color }}>{stat}</span>}
+      </div>
+      <h3 className="fredoka text-lg font-bold" style={{ color: BRAND.tinta }}>{title}</h3>
+      <p className="text-sm text-slate-400 mt-1 leading-snug">{desc}</p>
+    </button>
+  );
+}
+
+function HomeDashboard({ setPage, contracts }) {
+  const hoje = todayISO();
+  const entregasHoje = contracts.filter((c) => c.dataRetirada === hoje || c.dataDevolucao === hoje).length;
+  const aReceber = contracts.reduce((s, c) => s + computeFinance(c).pendente, 0);
+  return (
+    <div className="max-w-5xl mx-auto px-5 py-8">
+      <div className="mb-7">
+        <h2 className="fredoka text-2xl font-bold" style={{ color: BRAND.tinta }}>O que vamos fazer hoje?</h2>
+        <p className="text-slate-400 text-sm mt-1">Escolha um card para começar.</p>
+      </div>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        <HomeCard emoji="📄" title="Preencher contrato" desc="Gere o contrato já pronto, só preenchendo nome, produto, valor e data." color={BRAND.rosa} onClick={() => setPage("contrato")} stat={`${contracts.length} contrato${contracts.length === 1 ? "" : "s"}`} />
+        <HomeCard emoji="💰" title="Financeiro" desc="Em breve nesta versão web." color={BRAND.amarelo} onClick={() => setPage("financeiro")} stat={formatBRL(aReceber) + " a receber"} />
+        <HomeCard emoji="📅" title="Agenda" desc="Em breve nesta versão web." color={BRAND.turquesa} onClick={() => setPage("agenda")} stat={entregasHoje > 0 ? `${entregasHoje} hoje` : "Nada hoje"} />
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   ASSINATURA DIGITAL (canvas)
+============================================================ */
+function SignaturePad({ value, onChange }) {
+  const canvasRef = useRef(null);
+  const drawingRef = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
+  const hasDrawnRef = useRef(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = BRAND.tinta;
+    if (value) {
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      img.src = value;
+      hasDrawnRef.current = true;
+    }
+  }, []);
+
+  function getPos(e) {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return { x: (clientX - rect.left) * (canvas.width / rect.width), y: (clientY - rect.top) * (canvas.height / rect.height) };
+  }
+  function start(e) { e.preventDefault(); drawingRef.current = true; lastPos.current = getPos(e); }
+  function move(e) {
+    if (!drawingRef.current) return;
+    e.preventDefault();
+    const ctx = canvasRef.current.getContext("2d");
+    const pos = getPos(e);
+    ctx.beginPath(); ctx.moveTo(lastPos.current.x, lastPos.current.y); ctx.lineTo(pos.x, pos.y); ctx.stroke();
+    lastPos.current = pos; hasDrawnRef.current = true;
+  }
+  function end() {
+    if (!drawingRef.current) return;
+    drawingRef.current = false;
+    if (hasDrawnRef.current) onChange(canvasRef.current.toDataURL("image/png"));
+  }
+  function clear() {
+    const canvas = canvasRef.current;
+    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+    hasDrawnRef.current = false;
+    onChange("");
+  }
+
+  return (
+    <div>
+      <canvas ref={canvasRef} width={480} height={160} className="w-full rounded-xl bg-white" style={{ border: "2px dashed #e2e8f0", cursor: "crosshair", touchAction: "none" }}
+        onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
+        onTouchStart={start} onTouchMove={move} onTouchEnd={end} />
+      <button type="button" onClick={clear} className="text-xs font-semibold text-rose-400 hover:text-rose-500 mt-2 cursor-pointer">Limpar e assinar de novo</button>
+    </div>
+  );
+}
+
+/* ============================================================
+   PERFIL DA LOJA
+============================================================ */
+const MAX_LOGO_BYTES = 1.5 * 1024 * 1024;
+
+function PerfilTab({ profile, userId, onSaved, setPage }) {
+  const [form, setForm] = useState(profile);
+  const [erro, setErro] = useState("");
+  const [salvo, setSalvo] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+
+  function set(field, value) { setForm((f) => ({ ...f, [field]: value })); setSalvo(false); }
+
+  function handleLogo(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setErro("");
+    if (!file.type.startsWith("image/")) { setErro("Escolha um arquivo de imagem (PNG ou JPG)."); return; }
+    if (file.size > MAX_LOGO_BYTES) { setErro("Essa imagem é grande demais. Escolha uma logo com até 1,5MB."); return; }
+    const reader = new FileReader();
+    reader.onload = () => set("logo_data_url", reader.result);
+    reader.readAsDataURL(file);
+  }
+
+  async function handleSave() {
+    try {
+      setErro(""); setSalvando(true);
+      if (!form.nome_loja.trim()) { setErro("Digite o nome da loja."); setSalvando(false); return; }
+      const { error } = await sb.from("decoradoras").update({
+        nome_loja: form.nome_loja.trim(), nome_responsavel: form.nome_responsavel, cnpj: form.cnpj, endereco: form.endereco,
+        logo_data_url: form.logo_data_url, assinatura_data_url: form.assinatura_data_url,
+        cor_principal: form.cor_principal, cor_destaque: form.cor_destaque, cor_alerta: form.cor_alerta, cor_sucesso: form.cor_sucesso,
+      }).eq("id", userId);
+      if (error) { setErro("Erro ao salvar: " + error.message); setSalvando(false); return; }
+      applyTheme(form);
+      onSaved(form);
+      setSalvo(true);
+    } catch (err) {
+      setErro("Erro inesperado: " + err.message);
+    }
+    setSalvando(false);
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto px-5 py-7">
+      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Perfil da loja</h2>
+      <p className="text-sm text-slate-400 mb-5">Esses dados aparecem no cabeçalho e no contrato.</p>
+      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
+        <Field label="Logo da loja" hint="PNG ou JPG, até 1,5MB">
+          <div className="flex items-center gap-4">
+            <div className="w-20 h-20 rounded-2xl overflow-hidden flex items-center justify-center shrink-0" style={{ background: BRAND.bg, border: "2px dashed #e2e8f0" }}>
+              {form.logo_data_url ? <img src={form.logo_data_url} alt="Logo" className="w-full h-full object-cover" /> : <span className="text-2xl">🖼️</span>}
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-bold cursor-pointer w-fit" style={{ color: BRAND.azul, background: BRAND.azul + "12" }}>
+                {form.logo_data_url ? "Trocar logo" : "Enviar logo"}
+                <input type="file" accept="image/*" className="hidden" onChange={handleLogo} />
+              </label>
+              {form.logo_data_url && <button type="button" onClick={() => set("logo_data_url", "")} className="text-xs font-semibold text-rose-400 text-left cursor-pointer">Remover logo</button>}
+            </div>
+          </div>
+        </Field>
+        <Field label="Nome da loja"><input className={inputClass} value={form.nome_loja} onChange={(e) => set("nome_loja", e.target.value)} /></Field>
+        <Field label="Seu nome (responsável)"><input className={inputClass} value={form.nome_responsavel || ""} onChange={(e) => set("nome_responsavel", e.target.value)} /></Field>
+        <Field label="CNPJ"><input className={inputClass} value={form.cnpj || ""} onChange={(e) => set("cnpj", e.target.value)} placeholder="00.000.000/0000-00" /></Field>
+        <Field label="Endereço"><input className={inputClass} value={form.endereco || ""} onChange={(e) => set("endereco", e.target.value)} /></Field>
+
+        <div className="mt-2 mb-1 pt-4 border-t border-slate-100">
+          <p className="font-bold text-sm mb-0.5" style={{ color: BRAND.rosa }}>Assinatura digital</p>
+        </div>
+        <div className="mb-4"><SignaturePad value={form.assinatura_data_url} onChange={(url) => set("assinatura_data_url", url)} /></div>
+
+        <div className="mt-2 mb-1 pt-4 border-t border-slate-100">
+          <p className="font-bold text-sm mb-0.5" style={{ color: BRAND.rosa }}>Cores do app</p>
+        </div>
+        {[
+          { key: "cor_principal", label: "Cor principal", presets: ["#16308A", "#7C2D92", "#0F766E", "#B45309", "#1E293B", "#BE123C"] },
+          { key: "cor_destaque", label: "Cor de destaque", presets: ["#EC1E79", "#F97316", "#DB2777", "#6366F1", "#059669", "#DC2626"] },
+          { key: "cor_sucesso", label: "Cor de \"pago\"", presets: ["#22C3C3", "#22C55E", "#0EA5E9", "#14B8A6"] },
+          { key: "cor_alerta", label: "Cor de \"pendente\"", presets: ["#FFC93C", "#F59E0B", "#EAB308", "#FB923C"] },
+        ].map((campo) => (
+          <Field key={campo.key} label={campo.label}>
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="relative w-10 h-10 rounded-xl overflow-hidden border-2 border-slate-200 cursor-pointer shrink-0" style={{ background: form[campo.key] }}>
+                <input type="color" value={form[campo.key]} onChange={(e) => set(campo.key, e.target.value)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+              </label>
+              {campo.presets.map((cor) => (
+                <button type="button" key={cor} onClick={() => set(campo.key, cor)} className="w-7 h-7 rounded-full border-2 cursor-pointer" style={{ background: cor, borderColor: form[campo.key] === cor ? BRAND.tinta : "transparent" }} />
+              ))}
+            </div>
+          </Field>
+        ))}
+
+        <ErrorBox>{erro}</ErrorBox>
+        <SuccessBox>{salvo ? "Perfil salvo!" : ""}</SuccessBox>
+        <div className="flex gap-3">
+          <button type="button" disabled={salvando} onClick={handleSave} className="flex-1 py-3 rounded-xl font-bold text-white active:scale-95 transition cursor-pointer disabled:opacity-60" style={{ background: BRAND.rosa }}>
+            {salvando ? "Salvando..." : "Salvar perfil"}
+          </button>
+          <button type="button" onClick={() => setPage("home")} className="px-5 py-3 rounded-xl font-bold text-sm text-slate-400 hover:bg-slate-50 cursor-pointer">Voltar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   PRÉ-VISUALIZAÇÃO DO CONTRATO
+============================================================ */
+const CAMPOS_VAZIOS = {
+  tipoServico: "pegue_monte", contratanteNome: "", contratanteCPF: "", contratanteEndereco: "", contratanteWhatsapp: "",
+  produtoNome: "", materialEntregue: "", valor: "",
+  dataRetirada: "", horaRetiradaIni: "09:00", horaRetiradaFim: "13:00",
+  dataDevolucao: "", horaDevolucaoIni: "09:00", horaDevolucaoFim: "19:00",
+  statusPagamento: "sinal",
+};
+
+function ContratoPreview({ dados, profile }) {
+  const fin = computeFinance(dados);
+  return (
+    <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100">
+      <div className="px-6 py-5 text-white flex items-center gap-3" style={{ background: BRAND.azul }}>
+        {profile.logo_data_url && <img src={profile.logo_data_url} alt="Logo" className="w-12 h-12 rounded-xl object-cover bg-white shrink-0" />}
+        <div><p className="fredoka text-xl font-bold">Contrato</p><p className="text-xs text-white/70">{profile.nome_loja} · Pegue &amp; Monte</p></div>
+      </div>
+      <div className="p-6 text-[13px] leading-relaxed" style={{ color: BRAND.tinta }}>
+        <div className="grid sm:grid-cols-2 gap-5 mb-4">
+          <div>
+            <p className="inline-block text-white text-[11px] font-bold px-2 py-0.5 rounded mb-1" style={{ background: BRAND.azul }}>CONTRATANTE</p>
+            <p className="font-semibold">{dados.contratanteNome || "—"}</p>
+            <p>CPF: {dados.contratanteCPF || "—"}</p>
+            <p>Endereço: {dados.contratanteEndereco || "—"}</p>
+            <p>WhatsApp: {dados.contratanteWhatsapp || "—"}</p>
+          </div>
+          <div>
+            <p className="inline-block text-white text-[11px] font-bold px-2 py-0.5 rounded mb-1" style={{ background: BRAND.azul }}>CONTRATADA</p>
+            <p className="font-semibold">Empresa {profile.nome_loja}</p>
+            <p>CNPJ: {profile.cnpj || "—"}</p>
+            <p>{profile.endereco || "—"}</p>
+          </div>
+        </div>
+        <div className="text-center border-y-2 py-3 mb-4" style={{ borderColor: BRAND.azul + "22" }}>
+          <p className="font-bold">{dados.produtoNome || "Nome do produto"}</p>
+          {dados.materialEntregue && <p className="text-slate-500">Material entregue: {dados.materialEntregue}</p>}
+          <p className="font-bold mt-1">{formatBRL(dados.valor)}</p>
+        </div>
+        <p className="mb-4">
+          {dados.tipoServico === "decoracao" ? (
+            <>CONTRATANTE e CONTRATADA acordam a montagem da decoração no dia <b>{dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___"}</b>, das {dados.horaRetiradaIni} às {dados.horaRetiradaFim}, no endereço informado pela CONTRATANTE, e a desmontagem/retirada dos itens no dia <b>{dados.dataDevolucao ? formatDateLong(dados.dataDevolucao) : "___"}</b>, das {dados.horaDevolucaoIni} às {dados.horaDevolucaoFim}.</>
+          ) : (
+            <>CONTRATANTE e CONTRATADA acordam a retirada do produto no dia <b>{dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___"}</b>, das {dados.horaRetiradaIni} às {dados.horaRetiradaFim}, no endereço informado pela CONTRATADA, e a devolução no mesmo endereço no dia <b>{dados.dataDevolucao ? formatDateLong(dados.dataDevolucao) : "___"}</b>, das {dados.horaDevolucaoIni} às {dados.horaDevolucaoFim}. O atraso na devolução gera multa de 10% do valor por hora de atraso, podendo chegar ao valor integral do produto caso ultrapasse o dia combinado para a entrega.</>
+          )}
+        </p>
+        <p className="font-bold mb-0.5">1. OBJETO</p>
+        <p className="mb-3">1.1. Este contrato tem por objeto a prestação do serviço conforme solicitado na ordem de serviço, anexa a este documento.</p>
+        <p className="font-bold mb-0.5">2. VIGÊNCIA E RESCISÃO</p>
+        <p className="mb-3">2.1. Este contrato tem início na data de sua assinatura e termina na data de entrega do material ou de retirada da decoração, conforme o serviço contratado.</p>
+        <p className="font-bold mb-0.5">3. VALOR E FORMA DE PAGAMENTO</p>
+        <p>3.1. O valor total do serviço é de {formatBRL(dados.valor)}, a ser pago via Pix informado pela CONTRATADA.</p>
+        <p>3.2. É necessário pagar 50% do valor no ato do agendamento para garantir a data; sem esse sinal, a data não fica reservada.</p>
+        {dados.tipoServico !== "decoracao" && (
+          <>
+            <p>3.3. Será cobrada multa de 10% do valor por hora de atraso na devolução dos itens alugados/emprestados.</p>
+            <p className="mb-3">3.4. As peças locadas pelo serviço de Pegue e Monte e as peças avulsas deverão ser devolvidas na data e horário previamente acordados. Caso a devolução não ocorra no mesmo dia previsto, será cobrado o valor integral de uma nova locação das peças, sem prejuízo de outras cobranças decorrentes de danos ou extravio.</p>
+          </>
+        )}
+        <p className="font-bold mb-0.5">4. OBRIGAÇÕES DAS PARTES</p>
+        <div className="grid sm:grid-cols-2 gap-4 mb-3">
+          <div><p className="font-semibold text-[12px] mb-1">CONTRATANTE</p><ul className="list-disc pl-4 space-y-0.5 text-slate-600">
+            <li>Efetuar o pagamento no prazo combinado.</li><li>Fornecer as informações necessárias, incluindo o endereço correto.</li><li>Devolver as peças sem danos.</li>
+          </ul></div>
+          <div><p className="font-semibold text-[12px] mb-1">CONTRATADA</p><ul className="list-disc pl-4 space-y-0.5 text-slate-600">
+            <li>Executar os serviços previstos neste contrato.</li><li>Entregar a decoração conforme combinado, podendo haver pequenas variações (cláusula 8).</li>
+          </ul></div>
+        </div>
+        <p className="font-bold mb-0.5">5. CUIDADOS COM AS PEÇAS</p>
+        <p>5.1. Todas as peças alugadas devem ser devolvidas em perfeito estado. Caso voltem manchadas, molhadas ou quebradas, o valor da peça deverá ser pago integralmente pela CONTRATANTE.</p>
+        <p className="mb-5">5.2. Todas as peças serão conferidas na entrega e na devolução. Caso sejam devolvidas com qualquer dano que impeça seu uso, a CONTRATANTE será responsável pelo ressarcimento. O pagamento da multa por atraso não substitui a indenização por danos, sendo cumulativas quando aplicáveis.</p>
+        <p className="font-bold mb-0.5">6. FORO E RESPONSABILIDADES GERAIS</p>
+        <p>6.1. Em caso de cancelamento, o valor já pago fica como crédito na loja, válido por até 6 meses.</p>
+        <p className="mb-5">6.2. A retirada, montagem e entrega são de responsabilidade da CONTRATANTE, exceto em decoração completa, quando é da CONTRATADA.</p>
+        <p className="font-bold mb-0.5">7. SOBRE OS BALÕES</p>
+        <p>7.1. A CONTRATADA utiliza balões de alta qualidade, com durabilidade média de 5 a 6 dias em condições ideais.</p>
+        <p>7.2. A CONTRATADA não se responsabiliza pela redução da durabilidade quando o ambiente for informado incorretamente, ou por exposição a sol, chuva, vento ou calor excessivo.</p>
+        <p className="mb-5">7.3. Fotos e artes são meramente ilustrativas.</p>
+        <p className="font-bold mb-0.5">8. SOBRE O TEMA E A DECORAÇÃO</p>
+        <p>8.1. A decoração pode variar conforme o tema e a disponibilidade de peças.</p>
+        <p className="mb-5">8.2. Quando isso ocorrer, a CONTRATADA entrega uma composição equivalente ou superior, sem custo adicional.</p>
+        <p className="text-center text-[11px] text-slate-400 mb-6">ESTOU CIENTE E CONCORDO COM OS TERMOS ACIMA.</p>
+        <div className="grid sm:grid-cols-2 gap-6">
+          <div className="text-center">
+            <div className="w-full max-w-[220px] mx-auto h-16" />
+            <div className="w-full max-w-[220px] border-t border-slate-400 mx-auto mb-1" />
+            <p className="text-[12px]">{dados.contratanteNome || "Nome do contratante"}</p>
+            <p className="text-[11px] text-slate-400">CPF: {dados.contratanteCPF || "—"}</p>
+            <p className="text-[10px] text-slate-300 mt-0.5">CONTRATANTE</p>
+          </div>
+          <div className="text-center">
+            <div className="w-full max-w-[220px] mx-auto h-16 flex items-end justify-center">{profile.assinatura_data_url && <img src={profile.assinatura_data_url} className="max-h-16 object-contain" />}</div>
+            <div className="w-full max-w-[220px] border-t border-slate-400 mx-auto mb-1" />
+            <p className="text-[12px]">{profile.nome_responsavel || profile.nome_loja}</p>
+            <p className="text-[11px] text-slate-400">{profile.nome_loja}</p>
+            <p className="text-[10px] text-slate-300 mt-0.5">CONTRATADA</p>
+          </div>
+        </div>
+        <div className="mt-6 pt-4 border-t border-dashed border-slate-200 flex flex-wrap gap-2">
+          <Pill color={BRAND.azul}>Valor total {formatBRL(fin.valor)}</Pill>
+          <Pill color={BRAND.turquesa}>Pago {formatBRL(fin.pago)}</Pill>
+          <Pill color={BRAND.rosa}>Falta {formatBRL(fin.pendente)}</Pill>
+        </div>
+      </div>
+      <div className="h-2" style={{ background: BRAND.rosa }} />
+    </div>
+  );
+}
+
+/* ============================================================
+   GERA O HTML PADRÃO PRA ABRIR EM NOVA ABA (visualizar / imprimir)
+============================================================ */
+function buildContractHtml(dados, profile) {
+  const fin = computeFinance(dados);
+  const escapar = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const isDecoracao = dados.tipoServico === "decoracao";
+  const paragrafo = isDecoracao
+    ? `CONTRATANTE e CONTRATADA acordam a montagem da decoração no dia <b>${dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___"}</b>, das ${dados.horaRetiradaIni} às ${dados.horaRetiradaFim}, e a desmontagem no dia <b>${dados.dataDevolucao ? formatDateLong(dados.dataDevolucao) : "___"}</b>, das ${dados.horaDevolucaoIni} às ${dados.horaDevolucaoFim}.`
+    : `CONTRATANTE e CONTRATADA acordam a retirada do produto no dia <b>${dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___"}</b>, das ${dados.horaRetiradaIni} às ${dados.horaRetiradaFim}, e a devolução no dia <b>${dados.dataDevolucao ? formatDateLong(dados.dataDevolucao) : "___"}</b>, das ${dados.horaDevolucaoIni} às ${dados.horaDevolucaoFim}.`;
+  const clausula34 = !isDecoracao ? `<p>3.3. Multa de 10% do valor por hora de atraso na devolução.</p><p>3.4. Caso a devolução não ocorra no mesmo dia previsto, será cobrado o valor integral de nova locação, sem prejuízo de cobranças por danos.</p>` : "";
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/><title>Contrato - ${escapar(dados.contratanteNome)}</title>
+  <style>body{font-family:Arial,Helvetica,sans-serif;color:#181A33;max-width:780px;margin:0 auto;padding:0 0 40px}
+  .header{background:${BRAND.azul};color:#fff;padding:24px 28px;display:flex;align-items:center;gap:14px}
+  .header img{width:48px;height:48px;border-radius:12px;object-fit:cover;background:#fff}
+  .content{padding:24px 28px;font-size:13px;line-height:1.6} .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px}
+  .tag{display:inline-block;background:${BRAND.azul};color:#fff;font-size:11px;font-weight:bold;padding:2px 8px;border-radius:4px}
+  .produto{text-align:center;border-top:2px solid #eee;border-bottom:2px solid #eee;padding:12px 0;margin-bottom:16px}
+  h2{font-size:13px;margin:18px 0 2px} .assinaturas{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:30px;text-align:center}
+  .assinaturas img{max-height:64px} .linha{border-top:1px solid #999;margin:4px auto;max-width:220px}
+  .pill{display:inline-block;font-size:12px;font-weight:bold;padding:4px 10px;border-radius:999px;margin-right:6px}</style></head>
+  <body><div class="header">${profile.logo_data_url ? `<img src="${profile.logo_data_url}"/>` : ""}<div><h1>Contrato</h1><p>${escapar(profile.nome_loja)}</p></div></div>
+  <div class="content">
+    <div class="grid2"><div><span class="tag">CONTRATANTE</span><br/><b>${escapar(dados.contratanteNome)}</b><br/>CPF: ${escapar(dados.contratanteCPF)}<br/>Endereço: ${escapar(dados.contratanteEndereco)}<br/>WhatsApp: ${escapar(dados.contratanteWhatsapp)}</div>
+    <div><span class="tag">CONTRATADA</span><br/><b>Empresa ${escapar(profile.nome_loja)}</b><br/>CNPJ: ${escapar(profile.cnpj)}<br/>${escapar(profile.endereco)}</div></div>
+    <div class="produto"><b>${escapar(dados.produtoNome)}</b><br/>${dados.materialEntregue ? `Material: ${escapar(dados.materialEntregue)}<br/>` : ""}<b>${formatBRL(dados.valor)}</b></div>
+    <p>${paragrafo}</p>
+    <h2>1. OBJETO</h2><p>1.1. Prestação de serviço conforme ordem de serviço anexa.</p>
+    <h2>2. VIGÊNCIA</h2><p>2.1. Início na assinatura, término na entrega/retirada.</p>
+    <h2>3. VALOR E PAGAMENTO</h2><p>3.1. Valor total ${formatBRL(dados.valor)}, via Pix.</p><p>3.2. 50% no agendamento garante a data.</p>${clausula34}
+    <h2>4. OBRIGAÇÕES</h2><p>Contratante: pagar em dia, informar dados corretos, devolver sem danos. Contratada: executar o serviço, entregar conforme combinado.</p>
+    <h2>5. CUIDADOS COM AS PEÇAS</h2><p>5.1. Devolver em perfeito estado, sob pena de pagamento integral.</p><p>5.2. Peças conferidas na entrega/devolução; danos e atraso são cobranças cumulativas.</p>
+    <h2>6. FORO</h2><p>6.1. Cancelamento vira crédito por 6 meses.</p><p>6.2. Retirada/montagem é da contratante, exceto decoração completa.</p>
+    <h2>7. BALÕES</h2><p>Alta qualidade, durabilidade de 5 a 6 dias; contratada não responde por má exposição ou ambiente informado errado.</p>
+    <h2>8. TEMA E DECORAÇÃO</h2><p>Pode variar conforme disponibilidade, sempre entregando algo igual ou melhor.</p>
+    <p style="text-align:center;font-size:11px;color:#999;margin-top:24px">ESTOU CIENTE E CONCORDO COM OS TERMOS ACIMA.</p>
+    <div class="assinaturas"><div><div style="height:64px"></div><div class="linha"></div>${escapar(dados.contratanteNome)}<br/><span style="font-size:11px;color:#999">CPF: ${escapar(dados.contratanteCPF)}</span></div>
+    <div><div style="height:64px;display:flex;align-items:flex-end;justify-content:center">${profile.assinatura_data_url ? `<img src="${profile.assinatura_data_url}"/>` : ""}</div><div class="linha"></div>${escapar(profile.nome_responsavel || profile.nome_loja)}<br/><span style="font-size:11px;color:#999">${escapar(profile.nome_loja)}</span></div></div>
+    <div style="margin-top:20px;padding-top:14px;border-top:1px dashed #ddd">
+      <span class="pill" style="background:${BRAND.azul}22;color:${BRAND.azul}">Total ${formatBRL(fin.valor)}</span>
+      <span class="pill" style="background:${BRAND.turquesa}22;color:${BRAND.turquesa}">Pago ${formatBRL(fin.pago)}</span>
+      <span class="pill" style="background:${BRAND.rosa}22;color:${BRAND.rosa}">Falta ${formatBRL(fin.pendente)}</span>
+    </div>
+  </div></body></html>`;
+}
+
+/* ============================================================
+   ABA DE CONTRATO (ligada ao Supabase)
+============================================================ */
+function buildReminderMessage(nomeCliente, kit, tipoServico, data, hora, horaFim, profile) {
+  const isDecoracao = tipoServico === "decoracao";
+  if (isDecoracao) return `Oi, ${nomeCliente}! Aqui é da ${profile.nome_loja}. Passando pra lembrar que amanhã, ${formatDateLong(data)}, é a montagem da decoração, das ${hora} às ${horaFim}. Qualquer coisa, me chama! 🎈`;
+  return `Oi, ${nomeCliente}! Aqui é da ${profile.nome_loja}. Passando pra lembrar que amanhã, ${formatDateLong(data)}, é a retirada do seu produto ${kit}, das ${hora} às ${horaFim}. Venha com um carro adequado pra levar tudo bem acomodado! 🎉`;
+}
+
+function ContratoTab({ userId, profile }) {
+  const [contracts, setContracts] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+  const [form, setForm] = useState(CAMPOS_VAZIOS);
+  const [editingId, setEditingId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [erro, setErro] = useState("");
+  const [salvo, setSalvo] = useState(false);
+  const [busca, setBusca] = useState("");
+  const [mostrarSugestoes, setMostrarSugestoes] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+
+  const carregarContratos = useCallback(async () => {
+    setCarregando(true);
+    const { data, error } = await sb.from("contracts").select("*").eq("decoradora_id", userId).order("created_at", { ascending: false });
+    if (!error && data) setContracts(data.map(contractFromDb));
+    setCarregando(false);
+    if (!data || data.length === 0) setShowForm(true);
+  }, [userId]);
+
+  useEffect(() => { carregarContratos(); }, [carregarContratos]);
+
+  function set(field, value) { setForm((f) => ({ ...f, [field]: value })); }
+
+  const clientesAnteriores = useMemo(() => {
+    const map = {};
+    contracts.forEach((c) => {
+      if (editingId && c.id === editingId) return;
+      const key = normalizeStr(c.contratanteNome);
+      if (!key) return;
+      if (!map[key]) map[key] = { nome: c.contratanteNome, cpf: c.contratanteCPF, endereco: c.contratanteEndereco, whatsapp: c.contratanteWhatsapp, count: 0, lastCreatedAt: 0 };
+      map[key].count += 1;
+      if ((c.createdAt || 0) >= map[key].lastCreatedAt) {
+        map[key].lastCreatedAt = c.createdAt || 0;
+        map[key].cpf = c.contratanteCPF; map[key].endereco = c.contratanteEndereco; map[key].whatsapp = c.contratanteWhatsapp;
+      }
+    });
+    return map;
+  }, [contracts, editingId]);
+
+  const sugestoesNome = useMemo(() => {
+    const termo = normalizeStr(form.contratanteNome);
+    if (!termo || termo.length < 2) return [];
+    return Object.values(clientesAnteriores).filter((cl) => normalizeStr(cl.nome).includes(termo) && normalizeStr(cl.nome) !== termo).slice(0, 5);
+  }, [form.contratanteNome, clientesAnteriores]);
+
+  const clienteRepetido = clientesAnteriores[normalizeStr(form.contratanteNome)];
+
+  useEffect(() => {
+    if (editingId) return;
+    const match = clientesAnteriores[normalizeStr(form.contratanteNome)];
+    if (!match) return;
+    setForm((f) => {
+      if (f.contratanteCPF.trim() || f.contratanteEndereco.trim() || f.contratanteWhatsapp.trim()) return f;
+      return { ...f, contratanteCPF: match.cpf || f.contratanteCPF, contratanteEndereco: match.endereco || f.contratanteEndereco, contratanteWhatsapp: match.whatsapp || f.contratanteWhatsapp };
+    });
+  }, [form.contratanteNome, clientesAnteriores, editingId]);
+
+  function selecionarCliente(cl) {
+    setForm((f) => ({ ...f, contratanteNome: cl.nome, contratanteCPF: cl.cpf || f.contratanteCPF, contratanteEndereco: cl.endereco || f.contratanteEndereco, contratanteWhatsapp: cl.whatsapp || f.contratanteWhatsapp }));
+    setMostrarSugestoes(false);
+  }
+
+  function startNew() { setForm(CAMPOS_VAZIOS); setEditingId(null); setErro(""); setSalvo(false); setShowForm(true); }
+  function editContract(c) { setForm({ ...CAMPOS_VAZIOS, ...c }); setEditingId(c.id); setErro(""); setSalvo(false); setShowForm(true); }
+
+  async function handleSave() {
+    setErro(""); setSalvo(false);
+    const faltando = [];
+    if (!form.contratanteNome.trim()) faltando.push("nome do contratante");
+    if (!form.produtoNome.trim()) faltando.push("nome do produto");
+    if (!String(form.valor).trim()) faltando.push("valor");
+    if (!form.dataRetirada) faltando.push("data de retirada");
+    if (faltando.length > 0) { setErro("Preencha antes: " + faltando.join(", ") + "."); return; }
+    setSalvando(true);
+    const id = editingId || uid();
+    const row = contractToDb({ ...form, id }, userId);
+    const { error } = await sb.from("contracts").upsert(row);
+    setSalvando(false);
+    if (error) { setErro("Erro ao salvar: " + error.message); return; }
+    await carregarContratos();
+    setSalvo(true); setShowForm(false);
+  }
+
+  async function removeContract(id) {
+    const { error } = await sb.from("contracts").delete().eq("id", id);
+    if (error) { setErro("Erro ao excluir: " + error.message); return; }
+    await carregarContratos();
+  }
+
+  function handlePrint() {
+    try {
+      const html = buildContractHtml(form, profile);
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) { setErro("Não consegui gerar o contrato: " + err.message); }
+  }
+
+  function handleSendWhatsapp(c) {
+    if (!c.contratanteWhatsapp) { setErro("Esse contrato não tem WhatsApp cadastrado."); return; }
+    const fin = computeFinance(c);
+    const msg = [
+      `Olá, ${c.contratanteNome}! Aqui é da ${profile.nome_loja}.`,
+      `Segue o resumo do seu contrato:`, `Produto: ${c.produtoNome}`,
+      `Valor: ${formatBRL(fin.valor)} (pago: ${formatBRL(fin.pago)} · falta: ${formatBRL(fin.pendente)})`,
+      `${labelData(c.tipoServico, "ida")}: ${c.dataRetirada ? formatDateLong(c.dataRetirada) : "-"} das ${c.horaRetiradaIni} às ${c.horaRetiradaFim}`,
+      `${labelData(c.tipoServico, "volta")}: ${c.dataDevolucao ? formatDateLong(c.dataDevolucao) : "-"} das ${c.horaDevolucaoIni} às ${c.horaDevolucaoFim}`,
+      ``, `Vou te enviar o PDF do contrato em seguida. Qualquer dúvida, me chama! 🎉`,
+    ].join("\n");
+    window.open(whatsappLink(c.contratanteWhatsapp, msg), "_blank");
+  }
+
+  const ordered = [...contracts].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).filter((c) => !busca.trim() || normalizeStr(c.contratanteNome).includes(normalizeStr(busca)));
+
+  if (carregando) return <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">Carregando contratos...</div>;
+
+  return (
+    <div className="max-w-5xl mx-auto px-5 py-7">
+      <div className="flex items-center justify-between mb-5">
+        <div><h2 className="fredoka text-xl font-bold" style={{ color: BRAND.tinta }}>Preencher contrato</h2>
+        <p className="text-sm text-slate-400">O texto já vem pronto — você só troca os campos que mudam.</p></div>
+        {!showForm && <button onClick={startNew} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-white text-sm active:scale-95 transition cursor-pointer" style={{ background: BRAND.rosa }}>+ Novo</button>}
+      </div>
+
+      {showForm ? (
+        <div className="grid lg:grid-cols-2 gap-6">
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 h-fit">
+            <p className="font-bold text-sm mb-4" style={{ color: BRAND.rosa }}>Dados que mudam a cada contrato</p>
+            <Field label="Tipo de serviço">
+              <div className="grid grid-cols-2 gap-2">
+                {[{ v: "pegue_monte", l: "Pegue e Monte" }, { v: "decoracao", l: "Decoração" }, { v: "baloes", l: "Balões" }, { v: "pecas_avulsas", l: "Peças avulsas" }].map((op) => (
+                  <button type="button" key={op.v} onClick={() => set("tipoServico", op.v)} className="py-2 rounded-xl text-sm font-bold border-2 transition cursor-pointer" style={form.tipoServico === op.v ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>{op.l}</button>
+                ))}
+              </div>
+            </Field>
+            <Field label="Nome do contratante">
+              <div className="relative">
+                <input className={inputClass} value={form.contratanteNome} onChange={(e) => { set("contratanteNome", e.target.value); setMostrarSugestoes(true); }} onFocus={() => setMostrarSugestoes(true)} onBlur={() => setTimeout(() => setMostrarSugestoes(false), 150)} autoComplete="off" />
+                {mostrarSugestoes && sugestoesNome.length > 0 && (
+                  <div className="absolute z-10 left-0 right-0 mt-1 bg-white rounded-xl shadow-lg border border-slate-100 overflow-hidden">
+                    {sugestoesNome.map((cl) => (
+                      <button type="button" key={cl.nome} onMouseDown={(e) => { e.preventDefault(); selecionarCliente(cl); }} className="w-full text-left px-4 py-2.5 hover:bg-slate-50 flex items-center justify-between gap-2 cursor-pointer">
+                        <span className="text-sm font-medium truncate" style={{ color: BRAND.tinta }}>{cl.nome}</span>
+                        <span className="text-[11px] font-bold shrink-0 px-2 py-0.5 rounded-full" style={{ background: BRAND.turquesa + "20", color: BRAND.turquesa }}>{cl.count} festa{cl.count > 1 ? "s" : ""}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {clienteRepetido && <p className="text-xs font-semibold mt-1.5" style={{ color: BRAND.turquesa }}>🎉 Esse cliente já fechou {clienteRepetido.count} festa{clienteRepetido.count > 1 ? "s" : ""} com a gente!</p>}
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="CPF"><input className={inputClass} value={form.contratanteCPF} onChange={(e) => set("contratanteCPF", e.target.value)} /></Field>
+              <Field label="Valor do produto"><input className={inputClass} value={form.valor} onChange={(e) => set("valor", e.target.value.replace(/[^0-9.,]/g, ""))} placeholder="90,00" /></Field>
+            </div>
+            <Field label="Endereço do contratante"><input className={inputClass} value={form.contratanteEndereco} onChange={(e) => set("contratanteEndereco", e.target.value)} /></Field>
+            <Field label="WhatsApp do contratante" hint="Com DDD"><input className={inputClass} value={form.contratanteWhatsapp} onChange={(e) => set("contratanteWhatsapp", e.target.value)} placeholder="(61) 99999-8888" /></Field>
+            <Field label="Nome do produto"><input className={inputClass} value={form.produtoNome} onChange={(e) => set("produtoNome", e.target.value)} /></Field>
+            <Field label="Material entregue"><input className={inputClass} value={form.materialEntregue} onChange={(e) => set("materialEntregue", e.target.value)} /></Field>
+            <div className="grid grid-cols-3 gap-3">
+              <Field label={labelData(form.tipoServico, "ida")}><input type="date" className={inputClass} value={form.dataRetirada} onChange={(e) => set("dataRetirada", e.target.value)} /></Field>
+              <Field label="Hora início"><input type="time" className={inputClass} value={form.horaRetiradaIni} onChange={(e) => set("horaRetiradaIni", e.target.value)} /></Field>
+              <Field label="Hora fim"><input type="time" className={inputClass} value={form.horaRetiradaFim} onChange={(e) => set("horaRetiradaFim", e.target.value)} /></Field>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <Field label={labelData(form.tipoServico, "volta")}><input type="date" className={inputClass} value={form.dataDevolucao} onChange={(e) => set("dataDevolucao", e.target.value)} /></Field>
+              <Field label="Hora início"><input type="time" className={inputClass} value={form.horaDevolucaoIni} onChange={(e) => set("horaDevolucaoIni", e.target.value)} /></Field>
+              <Field label="Hora fim"><input type="time" className={inputClass} value={form.horaDevolucaoFim} onChange={(e) => set("horaDevolucaoFim", e.target.value)} /></Field>
+            </div>
+            <Field label="Status do pagamento">
+              <div className="grid grid-cols-3 gap-2">
+                {[{ v: "pendente", l: "Pendente" }, { v: "sinal", l: "Sinal (50%)" }, { v: "pago", l: "Pago" }].map((op) => (
+                  <button type="button" key={op.v} onClick={() => set("statusPagamento", op.v)} className="py-2 rounded-xl text-sm font-bold border-2 transition cursor-pointer" style={form.statusPagamento === op.v ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>{op.l}</button>
+                ))}
+              </div>
+            </Field>
+            <ErrorBox>{erro}</ErrorBox>
+            <div className="flex gap-3 mt-3">
+              <button type="button" disabled={salvando} onClick={handleSave} className="flex-1 py-3 rounded-xl font-bold text-white active:scale-95 transition cursor-pointer disabled:opacity-60" style={{ background: BRAND.rosa }}>{salvando ? "Salvando..." : editingId ? "Salvar alterações" : "Salvar contrato"}</button>
+              {contracts.length > 0 && <button type="button" onClick={() => setShowForm(false)} className="px-5 py-3 rounded-xl font-bold text-sm text-slate-400 hover:bg-slate-50 cursor-pointer">Cancelar</button>}
+            </div>
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <p className="font-bold text-sm" style={{ color: BRAND.azul }}>Pré-visualização</p>
+              <div className="flex gap-2">
+                <button onClick={handlePrint} className="flex items-center gap-1.5 text-sm font-bold px-3 py-1.5 rounded-lg cursor-pointer" style={{ color: BRAND.azul, background: BRAND.azul + "12" }}>👁 Ver / Baixar</button>
+                <button onClick={() => handleSendWhatsapp(form)} className="flex items-center gap-1.5 text-sm font-bold px-3 py-1.5 rounded-lg cursor-pointer" style={{ color: "#22C35E", background: "#22C35E18" }}>📲 WhatsApp</button>
+              </div>
+            </div>
+            <ContratoPreview dados={form} profile={profile} />
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="relative">
+            <input className={inputClass + " pl-10"} value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="🔎 Pesquisar pelo nome do cliente..." />
+          </div>
+          <SuccessBox>{salvo ? "Contrato salvo! Já está na lista abaixo." : ""}</SuccessBox>
+          {ordered.map((c) => {
+            const fin = computeFinance(c);
+            return (
+              <div key={c.id} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white shrink-0 text-xl" style={{ background: BRAND.rosa }}>📄</div>
+                  <div className="flex-1 min-w-0"><p className="font-bold text-xl leading-tight truncate fredoka" style={{ color: BRAND.tinta }}>{c.contratanteNome}</p><p className="text-sm text-slate-400 truncate">{c.produtoNome} · {labelData(c.tipoServico, "ida").toLowerCase()} {formatDateBR(c.dataRetirada)}</p></div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Pill color={c.statusPagamento === "pago" ? BRAND.turquesa : c.statusPagamento === "sinal" ? BRAND.amarelo : BRAND.rosa}>{c.statusPagamento === "pago" ? "Pago" : c.statusPagamento === "sinal" ? "Sinal pago" : "Pendente"}</Pill>
+                    <span className="font-bold text-sm" style={{ color: BRAND.azul }}>{formatBRL(fin.valor)}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-50 flex-wrap">
+                  <button onClick={() => handleSendWhatsapp(c)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold cursor-pointer" style={{ color: "#22C35E", background: "#22C35E18" }}>📲 WhatsApp</button>
+                  <button onClick={() => editContract(c)} className="px-3 py-2 rounded-lg text-xs font-bold hover:bg-slate-50 cursor-pointer" style={{ color: BRAND.azul }}>Abrir / editar</button>
+                  <button onClick={() => removeContract(c.id)} className="p-2 rounded-lg hover:bg-rose-50 text-rose-400 ml-auto cursor-pointer">🗑</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   APP PRINCIPAL
+============================================================ */
+function App() {
+  const [session, setSession] = useState(undefined); // undefined = carregando, null = deslogado
+  const [profile, setProfile] = useState(null);
+  const [page, setPage] = useState("home");
+  const [contractsCount, setContractsCount] = useState(0);
+
+  useEffect(() => {
+    sb.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: listener } = sb.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  const carregarPerfil = useCallback(async (userId) => {
+    const { data } = await sb.from("decoradoras").select("*").eq("id", userId).maybeSingle();
+    if (data) { setProfile(data); applyTheme(data); }
+  }, []);
+
+  useEffect(() => {
+    if (session === null) { setProfile(null); return; }
+    if (session && session.user) carregarPerfil(session.user.id);
+  }, [session, carregarPerfil]);
+
+  useEffect(() => {
+    if (!session || !session.user) return;
+    sb.from("contracts").select("id", { count: "exact", head: true }).eq("decoradora_id", session.user.id).then(({ count }) => setContractsCount(count || 0));
+  }, [session, page]);
+
+  async function handleLogout() { await sb.auth.signOut(); setPage("home"); }
+
+  if (session === undefined) {
+    return <div className="min-h-screen flex items-center justify-center" style={{ background: BRAND.azul }}><span className="text-white">Carregando...</span></div>;
+  }
+  if (!session) return <AuthScreen onAuthed={() => {}} />;
+  if (!profile) {
+    return <div className="min-h-screen flex items-center justify-center" style={{ background: BRAND.azul }}><span className="text-white">Preparando seu painel...</span></div>;
+  }
+
+  return (
+    <TrialGate profile={profile} onLogout={handleLogout}>
+      <div className="min-h-screen" style={{ background: BRAND.bg }}>
+        <Header userEmail={session.user.email} page={page} setPage={setPage} onLogout={handleLogout} profile={profile} />
+        {page === "home" ? (
+          <HomeDashboard setPage={setPage} contracts={Array(contractsCount).fill({})} />
+        ) : page === "contrato" ? (
+          <ContratoTab userId={session.user.id} profile={profile} />
+        ) : page === "perfil" ? (
+          <PerfilTab profile={profile} userId={session.user.id} onSaved={setProfile} setPage={setPage} />
+        ) : (
+          <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">Em breve nesta versão web.</div>
+        )}
+        <div className="h-10" />
+      </div>
+    </TrialGate>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
