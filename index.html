@@ -146,6 +146,7 @@ const PROFILE_DEFAULT = {
   cor_principal: "#16308A", cor_destaque: "#EC1E79", cor_alerta: "#FFC93C", cor_sucesso: "#22C3C3",
   plano_status: "trial", trial_fim: todayISO(),
   oferece_brinde: false, texto_brinde: "Cadastre até 3 aniversariantes da família e ganhe um brinde especial na sua próxima locação! 🎁",
+  tipos_customizados: [], clausulas_extras: "",
 };
 
 /* ============================================================
@@ -546,8 +547,22 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
   const [erro, setErro] = useState("");
   const [salvo, setSalvo] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [novoTipo, setNovoTipo] = useState("");
 
   function set(field, value) { setForm((f) => ({ ...f, [field]: value })); setSalvo(false); }
+
+  function adicionarTipoCustomizado() {
+    const nome = novoTipo.trim();
+    if (!nome) return;
+    if ((form.tipos_customizados || []).some((t) => t.toLowerCase() === nome.toLowerCase())) { setErro("Você já tem um tipo com esse nome."); return; }
+    setErro("");
+    set("tipos_customizados", [...(form.tipos_customizados || []), nome]);
+    setNovoTipo("");
+  }
+
+  function removerTipoCustomizado(nome) {
+    set("tipos_customizados", (form.tipos_customizados || []).filter((t) => t !== nome));
+  }
 
   function handleLogo(e) {
     const file = e.target.files && e.target.files[0];
@@ -568,6 +583,7 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
         nome_loja: form.nome_loja.trim(), nome_responsavel: form.nome_responsavel, cnpj: form.cnpj, endereco: form.endereco,
         logo_data_url: form.logo_data_url, assinatura_data_url: form.assinatura_data_url, sinal_percentual: Number(form.sinal_percentual) || 50,
         cor_principal: form.cor_principal, cor_destaque: form.cor_destaque, cor_alerta: form.cor_alerta, cor_sucesso: form.cor_sucesso,
+        tipos_customizados: form.tipos_customizados || [], clausulas_extras: form.clausulas_extras || "",
       }).eq("id", userId);
       if (error) { setErro("Erro ao salvar: " + error.message); setSalvando(false); return; }
       applyTheme(form);
@@ -607,6 +623,33 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
             <input type="number" min="0" max="100" className={inputClass} value={form.sinal_percentual} onChange={(e) => set("sinal_percentual", e.target.value.replace(/[^0-9]/g,""))} />
             <span className="font-bold text-slate-400">%</span>
           </div>
+        </Field>
+
+        <div className="mt-2 mb-1 pt-4 border-t border-slate-100">
+          <p className="font-bold text-sm mb-0.5" style={{ color: BRAND.rosa }}>Tipos de contrato personalizados</p>
+          <p className="text-xs text-slate-400 mb-3">Além de Pegue e Monte, Decoração, Balões e Peças avulsas, crie os seus próprios (ex: "Espaço de festa").</p>
+        </div>
+        <div className="flex gap-2 mb-3">
+          <input className={inputClass} placeholder="Ex: Espaço de festa" value={novoTipo} onChange={(e) => setNovoTipo(e.target.value)} onKeyDown={(e) => e.key === "Enter" && adicionarTipoCustomizado()} />
+          <button type="button" onClick={adicionarTipoCustomizado} className="px-4 py-2.5 rounded-xl font-bold text-white text-sm cursor-pointer shrink-0" style={{ background: BRAND.azul }}>+ Adicionar</button>
+        </div>
+        {(form.tipos_customizados || []).length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {form.tipos_customizados.map((tipo) => (
+              <span key={tipo} className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full" style={{ background: "#8B5CF618", color: "#8B5CF6" }}>
+                {tipo}
+                <button type="button" onClick={() => removerTipoCustomizado(tipo)} className="cursor-pointer" style={{ color: "#8B5CF6" }}>✕</button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-2 mb-1 pt-4 border-t border-slate-100">
+          <p className="font-bold text-sm mb-0.5" style={{ color: BRAND.rosa }}>Cláusulas adicionais do contrato</p>
+          <p className="text-xs text-slate-400 mb-3">Escreva regras específicas do seu espaço/negócio. Elas entram automaticamente no final de todo contrato, incluindo o link que a cliente assina.</p>
+        </div>
+        <Field label="Cláusulas adicionais" hint="Opcional. Ex: regras de uso do salão, horário de silêncio, política de cancelamento própria, etc.">
+          <textarea className={inputClass} rows={4} value={form.clausulas_extras} onChange={(e) => set("clausulas_extras", e.target.value)} placeholder="Ex: 9.1. O uso do espaço é limitado a X convidados. 9.2. É proibido som após as 22h..." />
         </Field>
 
         <div className="mt-2 mb-1 pt-4 border-t border-slate-100">
@@ -730,6 +773,12 @@ function ContratoPreview({ dados, profile }) {
         <p className="font-bold mb-0.5">8. SOBRE O TEMA E A DECORAÇÃO</p>
         <p>8.1. A decoração pode variar conforme o tema e a disponibilidade de peças.</p>
         <p className="mb-5">8.2. Quando isso ocorrer, a CONTRATADA entrega uma composição equivalente ou superior, sem custo adicional.</p>
+        {profile.clausulas_extras && profile.clausulas_extras.trim() && (
+          <>
+            <p className="font-bold mb-0.5">9. CLÁUSULAS ADICIONAIS</p>
+            <p className="mb-5 whitespace-pre-line">{profile.clausulas_extras}</p>
+          </>
+        )}
         <p className="text-center text-[11px] text-slate-400 mb-6">ESTOU CIENTE E CONCORDO COM OS TERMOS ACIMA.</p>
         <div className="grid sm:grid-cols-2 gap-6">
           <div className="text-center">
@@ -793,6 +842,7 @@ function buildContractHtml(dados, profile) {
     <h2>6. FORO</h2><p>6.1. Cancelamento vira crédito por 6 meses.</p><p>6.2. Retirada/montagem é da contratante, exceto decoração completa.</p>
     <h2>7. BALÕES</h2><p>Alta qualidade, durabilidade de 3 a 5 dias; contratada não responde por má exposição ou ambiente informado errado.</p>
     <h2>8. TEMA E DECORAÇÃO</h2><p>Pode variar conforme disponibilidade, sempre entregando algo igual ou melhor.</p>
+    ${profile.clausulas_extras && profile.clausulas_extras.trim() ? `<h2>9. CLÁUSULAS ADICIONAIS</h2><p style="white-space:pre-line">${escapar(profile.clausulas_extras)}</p>` : ""}
     <p style="text-align:center;font-size:11px;color:#999;margin-top:24px">ESTOU CIENTE E CONCORDO COM OS TERMOS ACIMA.</p>
     <div class="assinaturas"><div><div style="height:64px"></div><div class="linha"></div>${escapar(dados.contratanteNome)}<br/><span style="font-size:11px;color:#999">CPF: ${escapar(dados.contratanteCPF)}</span></div>
     <div><div style="height:64px;display:flex;align-items:flex-end;justify-content:center">${profile.assinatura_data_url ? `<img src="${profile.assinatura_data_url}"/>` : ""}</div><div class="linha"></div>${escapar(profile.nome_responsavel || profile.nome_loja)}<br/><span style="font-size:11px;color:#999">${escapar(profile.nome_loja)}</span></div></div>
@@ -1080,7 +1130,11 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
             <p className="font-bold text-sm mb-4" style={{ color: BRAND.rosa }}>Dados que mudam a cada contrato</p>
             <Field label="Tipo de serviço">
               <div className="grid grid-cols-2 gap-2">
-                {[{ v: "pegue_monte", l: "Pegue e Monte" }, { v: "decoracao", l: "Decoração" }, { v: "baloes", l: "Balões" }, { v: "pecas_avulsas", l: "Peças avulsas" }].map((op) => (
+                {[
+                  { v: "pegue_monte", l: "Pegue e Monte" }, { v: "decoracao", l: "Decoração" },
+                  { v: "baloes", l: "Balões" }, { v: "pecas_avulsas", l: "Peças avulsas" },
+                  ...(profile.tipos_customizados || []).map((t) => ({ v: t, l: t })),
+                ].map((op) => (
                   <button type="button" key={op.v} onClick={() => set("tipoServico", op.v)} className="py-2 rounded-xl text-sm font-bold border-2 transition cursor-pointer" style={form.tipoServico === op.v ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>{op.l}</button>
                 ))}
               </div>
@@ -1913,7 +1967,7 @@ function AgendaTab({ userId, profile }) {
       <p className="text-sm text-slate-400 mb-3">O calendário marca as datas de retirada/montagem. As devoluções aparecem nas listas abaixo.</p>
 
       <div className="flex flex-wrap gap-3 mb-5">
-        {Object.entries(TIPO_SERVICO_LABELS).map(([key,label]) => (
+        {[...Object.entries(TIPO_SERVICO_LABELS), ...(profile.tipos_customizados || []).map((t) => [t, t])].map(([key,label]) => (
           <span key={key} className="text-xs font-semibold flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: tipoServicoColor(key) }} />{label}</span>
         ))}
       </div>
