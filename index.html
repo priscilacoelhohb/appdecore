@@ -134,6 +134,7 @@ function contractFromDb(r) {
     dataDevolucao: r.data_devolucao || "", horaDevolucaoIni: r.hora_devolucao_ini || "09:00", horaDevolucaoFim: r.hora_devolucao_fim || "19:00",
     statusPagamento: r.status_pagamento || "sinal",
     assinadoEm: r.assinado_em || null,
+    devolvido: r.devolvido || false,
     observacoes: r.observacoes || "",
     createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
   };
@@ -468,6 +469,7 @@ function HomeDashboard({ setPage, contracts, profile }) {
         <HomeCard emoji="💰" title="Financeiro" desc="Faturamento do mês, produto mais vendido e valores a receber." color={BRAND.amarelo} onClick={() => setPage("financeiro")} stat={formatBRL(aReceber) + " a receber"} />
         <HomeCard emoji="📅" title="Agenda" desc="Veja o que precisa entregar e retirar em cada dia." color={BRAND.turquesa} onClick={() => setPage("agenda")} stat={entregasHoje > 0 ? `${entregasHoje} hoje` : "Nada hoje"} />
         <HomeCard emoji="🎯" title="Oportunidades" desc="Aniversários e clientes antigos pra reconquistar." color="#8B5CF6" onClick={() => setPage("oportunidades")} />
+        <HomeCard emoji="📦" title="Estoque" desc="Seus materiais, com quantidade sempre atualizada." color="#F97316" onClick={() => setPage("estoque")} />
       </div>
     </div>
   );
@@ -816,6 +818,13 @@ function ContratoTab({ userId, profile }) {
   const [busca, setBusca] = useState("");
   const [mostrarSugestoes, setMostrarSugestoes] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [estoqueItens, setEstoqueItens] = useState([]);
+  const [itensSelecionados, setItensSelecionados] = useState([]); // ids do estoque marcados agora
+  const [itensSelecionadosOriginais, setItensSelecionadosOriginais] = useState([]); // como estava quando abriu (pra saber o que mudou)
+
+  useEffect(() => {
+    sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true }).then(({ data }) => setEstoqueItens(data || []));
+  }, [userId]);
 
   const carregarContratos = useCallback(async () => {
     setCarregando(true);
@@ -828,6 +837,16 @@ function ContratoTab({ userId, profile }) {
   useEffect(() => { carregarContratos(); }, [carregarContratos]);
 
   function set(field, value) { setForm((f) => ({ ...f, [field]: value })); }
+
+  function toggleItemEstoque(item) {
+    setItensSelecionados((sel) => {
+      const jaTem = sel.includes(item.id);
+      const novaSelecao = jaTem ? sel.filter((id) => id !== item.id) : [...sel, item.id];
+      const rotulos = estoqueItens.filter((it) => novaSelecao.includes(it.id)).map((it) => `${it.material} (${it.modelo})`);
+      set("materialEntregue", rotulos.join(", "));
+      return novaSelecao;
+    });
+  }
 
   const clientesAnteriores = useMemo(() => {
     const map = {};
@@ -868,8 +887,13 @@ function ContratoTab({ userId, profile }) {
     setMostrarSugestoes(false);
   }
 
-  function startNew() { setForm(CAMPOS_VAZIOS); setEditingId(null); setErro(""); setSalvo(false); setShowForm(true); }
-  function editContract(c) { setForm({ ...CAMPOS_VAZIOS, ...c }); setEditingId(c.id); setErro(""); setSalvo(false); setShowForm(true); }
+  function startNew() { setForm(CAMPOS_VAZIOS); setEditingId(null); setErro(""); setSalvo(false); setShowForm(true); setItensSelecionados([]); setItensSelecionadosOriginais([]); }
+  async function editContract(c) {
+    setForm({ ...CAMPOS_VAZIOS, ...c }); setEditingId(c.id); setErro(""); setSalvo(false); setShowForm(true);
+    const { data } = await sb.from("contract_estoque_itens").select("estoque_item_id").eq("contract_id", c.id);
+    const ids = (data || []).map((r) => r.estoque_item_id);
+    setItensSelecionados(ids); setItensSelecionadosOriginais(ids);
+  }
 
   async function handleSave() {
     setErro(""); setSalvo(false);
@@ -885,13 +909,38 @@ function ContratoTab({ userId, profile }) {
     const { error } = await sb.from("contracts").upsert(row);
     if (error) { setSalvando(false); setErro("Erro ao salvar: " + error.message); return; }
 
+    // Ajusta o estoque conforme o que mudou na seleção de materiais.
+    const removidos = itensSelecionadosOriginais.filter((iid) => !itensSelecionados.includes(iid));
+    const adicionados = itensSelecionados.filter((iid) => !itensSelecionadosOriginais.includes(iid));
+    for (const itemId of removidos) {
+      const item = estoqueItens.find((it) => it.id === itemId);
+      if (item) await sb.from("estoque_itens").update({ quantidade: item.quantidade + 1 }).eq("id", itemId);
+      await sb.from("contract_estoque_itens").delete().eq("contract_id", id).eq("estoque_item_id", itemId);
+    }
+    for (const itemId of adicionados) {
+      const item = estoqueItens.find((it) => it.id === itemId);
+      if (item) await sb.from("estoque_itens").update({ quantidade: Math.max(0, item.quantidade - 1) }).eq("id", itemId);
+      await sb.from("contract_estoque_itens").insert({ id: uid(), contract_id: id, decoradora_id: userId, estoque_item_id: itemId, quantidade: 1 });
+    }
+    if (removidos.length > 0 || adicionados.length > 0) {
+      const { data: estoqueAtualizado } = await sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true });
+      setEstoqueItens(estoqueAtualizado || []);
+    }
+
     setSalvando(false);
     await carregarContratos();
     setSalvo(true); setShowForm(false);
   }
 
-  async function removeContract(id) {
-    const { error } = await sb.from("contracts").delete().eq("id", id);
+  async function removeContract(c) {
+    if (!c.devolvido) {
+      const { data: links } = await sb.from("contract_estoque_itens").select("*").eq("contract_id", c.id);
+      for (const link of links || []) {
+        const { data: item } = await sb.from("estoque_itens").select("quantidade").eq("id", link.estoque_item_id).maybeSingle();
+        if (item) await sb.from("estoque_itens").update({ quantidade: item.quantidade + link.quantidade }).eq("id", link.estoque_item_id);
+      }
+    }
+    const { error } = await sb.from("contracts").delete().eq("id", c.id);
     if (error) { setErro("Erro ao excluir: " + error.message); return; }
     await carregarContratos();
   }
@@ -969,7 +1018,32 @@ function ContratoTab({ userId, profile }) {
             <Field label="Endereço do contratante"><input className={inputClass} value={form.contratanteEndereco} onChange={(e) => set("contratanteEndereco", e.target.value)} /></Field>
             <Field label="WhatsApp do contratante" hint="Com DDD"><input className={inputClass} value={form.contratanteWhatsapp} onChange={(e) => set("contratanteWhatsapp", e.target.value)} placeholder="(61) 99999-8888" /></Field>
             <Field label="Nome do produto"><input className={inputClass} value={form.produtoNome} onChange={(e) => set("produtoNome", e.target.value)} /></Field>
-            <Field label="Material entregue"><input className={inputClass} value={form.materialEntregue} onChange={(e) => set("materialEntregue", e.target.value)} /></Field>
+            <Field label="Material entregue" hint="Selecione do seu estoque">
+              {estoqueItens.length === 0 ? (
+                <p className="text-xs text-slate-400 bg-slate-50 rounded-xl px-3 py-2.5">Você ainda não cadastrou nada no Estoque. Vá no card "📦 Estoque" pra cadastrar seus materiais primeiro.</p>
+              ) : (
+                <div className="bg-slate-50 rounded-xl p-3 max-h-56 overflow-y-auto space-y-1">
+                  {estoqueItens.map((item) => {
+                    const semEstoque = item.quantidade <= 0;
+                    const marcado = itensSelecionados.includes(item.id);
+                    return (
+                      <button
+                        type="button"
+                        key={item.id}
+                        disabled={semEstoque}
+                        onClick={() => toggleItemEstoque(item)}
+                        className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left disabled:cursor-not-allowed cursor-pointer"
+                        style={marcado ? { background: BRAND.azul + "18" } : { background: "transparent" }}
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corEstoque(item.quantidade) }} />
+                        <span className="text-sm flex-1 truncate" style={{ color: semEstoque ? "#94a3b8" : BRAND.tinta }}>{item.material} — {item.modelo}{semEstoque ? " (sem estoque)" : ` (${item.quantidade})`}</span>
+                        {marcado && <span style={{ color: BRAND.azul }}>✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </Field>
             <div className="grid grid-cols-3 gap-3">
               <Field label={labelData(form.tipoServico, "ida")}><input type="date" className={inputClass} value={form.dataRetirada} onChange={(e) => set("dataRetirada", e.target.value)} /></Field>
               <Field label="Hora início"><input type="time" className={inputClass} value={form.horaRetiradaIni} onChange={(e) => set("horaRetiradaIni", e.target.value)} /></Field>
@@ -1027,7 +1101,7 @@ function ContratoTab({ userId, profile }) {
                 <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-50 flex-wrap">
                   <button onClick={() => handleSendWhatsapp(c)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold cursor-pointer" style={{ color: "#22C35E", background: "#22C35E18" }}>📲 WhatsApp</button>
                   <button onClick={() => editContract(c)} className="px-3 py-2 rounded-lg text-xs font-bold hover:bg-slate-50 cursor-pointer" style={{ color: BRAND.azul }}>Abrir / editar</button>
-                  <button onClick={() => removeContract(c.id)} className="p-2 rounded-lg hover:bg-rose-50 text-rose-400 ml-auto cursor-pointer">🗑</button>
+                  <button onClick={() => removeContract(c)} className="p-2 rounded-lg hover:bg-rose-50 text-rose-400 ml-auto cursor-pointer">🗑</button>
                 </div>
               </div>
             );
@@ -1208,6 +1282,130 @@ function OportunidadesTab({ userId, profile }) {
           </div>
         )
       )}
+    </div>
+  );
+}
+
+/* ============================================================
+   MÓDULO ESTOQUE
+============================================================ */
+const ESTOQUE_PADRAO = [
+  { material: "Cilindro", modelo: "Grande" },
+  { material: "Cilindro", modelo: "Pequeno" },
+  { material: "Cilindro", modelo: "Médio" },
+  { material: "Kit completo", modelo: "Padrão" },
+  { material: "Mesa", modelo: "Padrão" },
+  { material: "Bandeja", modelo: "Padrão" },
+  { material: "Painel", modelo: "Padrão" },
+  { material: "Tapete", modelo: "Padrão" },
+  { material: "Arranjo", modelo: "Padrão" },
+  { material: "Display", modelo: "Padrão" },
+  { material: "Personagem", modelo: "Padrão" },
+  { material: "Vaso", modelo: "Padrão" },
+];
+
+function corEstoque(qtd) {
+  if (qtd <= 0) return "#DC2626";
+  if (qtd <= 3) return "#F97316";
+  return "#22C55E";
+}
+
+function EstoqueTab({ userId }) {
+  const [itens, setItens] = useState(null);
+  const [erro, setErro] = useState("");
+  const [novoMaterial, setNovoMaterial] = useState("");
+  const [novoModelo, setNovoModelo] = useState("Padrão");
+  const [novaQtd, setNovaQtd] = useState("");
+  const [salvandoNovo, setSalvandoNovo] = useState(false);
+
+  const carregar = useCallback(async () => {
+    const { data } = await sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true });
+    if (data && data.length === 0) {
+      // primeira vez: já deixa o estoque com os principais materiais pré-cadastrados
+      const seed = ESTOQUE_PADRAO.map((it) => ({ id: uid(), decoradora_id: userId, material: it.material, modelo: it.modelo, quantidade: 0 }));
+      await sb.from("estoque_itens").insert(seed);
+      const { data: data2 } = await sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true });
+      setItens(data2 || []);
+    } else {
+      setItens(data || []);
+    }
+  }, [userId]);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  async function atualizarQuantidade(item, novaQuantidade) {
+    const q = Math.max(0, Number(novaQuantidade) || 0);
+    setItens((lista) => lista.map((i) => i.id === item.id ? { ...i, quantidade: q } : i));
+    await sb.from("estoque_itens").update({ quantidade: q }).eq("id", item.id);
+  }
+
+  async function excluirItem(id) {
+    setItens((lista) => lista.filter((i) => i.id !== id));
+    await sb.from("estoque_itens").delete().eq("id", id);
+  }
+
+  async function adicionarItem() {
+    setErro("");
+    if (!novoMaterial.trim()) { setErro("Digite o nome do material."); return; }
+    setSalvandoNovo(true);
+    const row = { id: uid(), decoradora_id: userId, material: novoMaterial.trim(), modelo: novoModelo.trim() || "Padrão", quantidade: Math.max(0, Number(novaQtd) || 0) };
+    const { error } = await sb.from("estoque_itens").insert(row);
+    setSalvandoNovo(false);
+    if (error) { setErro("Erro ao salvar: " + error.message); return; }
+    setNovoMaterial(""); setNovoModelo("Padrão"); setNovaQtd("");
+    await carregar();
+  }
+
+  if (itens === null) return <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">Carregando estoque...</div>;
+
+  const agrupado = {};
+  itens.forEach((it) => { (agrupado[it.material] = agrupado[it.material] || []).push(it); });
+
+  return (
+    <div className="max-w-5xl mx-auto px-5 py-7">
+      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>📦 Estoque</h2>
+      <p className="text-sm text-slate-400 mb-3">Cadastre e edite os materiais que você tem disponível.</p>
+
+      <div className="flex flex-wrap gap-3 mb-5">
+        <span className="text-xs font-semibold flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: "#DC2626" }} />Sem estoque</span>
+        <span className="text-xs font-semibold flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: "#F97316" }} />Pouco (1 a 3)</span>
+        <span className="text-xs font-semibold flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: "#22C55E" }} />Bom estoque (4+)</span>
+      </div>
+
+      <div className="bg-slate-50 rounded-2xl p-4 mb-5">
+        <p className="font-bold text-xs mb-3" style={{ color: BRAND.azul }}>+ Adicionar novo material</p>
+        <div className="grid sm:grid-cols-4 gap-2 mb-3">
+          <input className={inputClass + " sm:col-span-2"} placeholder="Material (ex: Arco de balões)" value={novoMaterial} onChange={(e) => setNovoMaterial(e.target.value)} />
+          <input className={inputClass} placeholder="Modelo (ex: Grande)" value={novoModelo} onChange={(e) => setNovoModelo(e.target.value)} />
+          <input className={inputClass} type="number" min="0" placeholder="Quantidade" value={novaQtd} onChange={(e) => setNovaQtd(e.target.value)} />
+        </div>
+        {erro && <div className="text-xs font-semibold mb-3 px-3 py-2 rounded-lg" style={{ background: BRAND.rosa+"18", color: BRAND.rosa }}>⚠️ {erro}</div>}
+        <button disabled={salvandoNovo} onClick={adicionarItem} className="px-4 py-2 rounded-xl font-bold text-white text-sm cursor-pointer disabled:opacity-60" style={{ background: BRAND.azul }}>
+          {salvandoNovo ? "Salvando..." : "+ Adicionar"}
+        </button>
+      </div>
+
+      <div className="space-y-4">
+        {Object.entries(agrupado).map(([material, lista]) => (
+          <div key={material} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+            <p className="font-bold text-sm mb-3" style={{ color: BRAND.tinta }}>{material}</p>
+            <div className="space-y-2">
+              {lista.map((item) => (
+                <div key={item.id} className="flex items-center gap-3 rounded-xl p-2.5" style={{ background: corEstoque(item.quantidade) + "10" }}>
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corEstoque(item.quantidade) }} />
+                  <span className="text-sm flex-1 truncate" style={{ color: BRAND.tinta }}>{item.modelo}</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => atualizarQuantidade(item, item.quantidade - 1)} className="w-7 h-7 rounded-lg font-bold cursor-pointer" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>−</button>
+                    <input type="number" className="w-14 text-center rounded-lg border-2 border-slate-200 py-1 text-sm font-bold" value={item.quantidade} onChange={(e) => atualizarQuantidade(item, e.target.value)} />
+                    <button onClick={() => atualizarQuantidade(item, item.quantidade + 1)} className="w-7 h-7 rounded-lg font-bold cursor-pointer" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>+</button>
+                  </div>
+                  <button onClick={() => excluirItem(item.id)} className="p-1.5 rounded-lg hover:bg-rose-50 text-rose-400 cursor-pointer shrink-0">🗑</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1556,6 +1754,19 @@ function AgendaTab({ userId, profile }) {
     }
   }
 
+  const [marcandoDevolucao, setMarcandoDevolucao] = useState(null);
+  async function marcarDevolucao(evento) {
+    setMarcandoDevolucao(evento.id);
+    const { data: links } = await sb.from("contract_estoque_itens").select("*").eq("contract_id", evento.contractId);
+    for (const link of links || []) {
+      const { data: item } = await sb.from("estoque_itens").select("quantidade").eq("id", link.estoque_item_id).maybeSingle();
+      if (item) await sb.from("estoque_itens").update({ quantidade: item.quantidade + link.quantidade }).eq("id", link.estoque_item_id);
+    }
+    await sb.from("contracts").update({ devolvido: true }).eq("id", evento.contractId);
+    setContracts((cs) => cs.map((c) => c.id === evento.contractId ? { ...c, devolvido: true } : c));
+    setMarcandoDevolucao(null);
+  }
+
   const events = useMemo(() => buildEvents(contracts), [contracts]);
   const eventsByDate = useMemo(() => { const map = {}; events.forEach((e) => { (map[e.date]=map[e.date]||[]).push(e); }); return map; }, [events]);
   const eventsByDateIda = useMemo(() => { const map = {}; events.filter((e) => e.tipo === "ida").forEach((e) => { (map[e.date]=map[e.date]||[]).push(e); }); return map; }, [events]);
@@ -1628,6 +1839,15 @@ function AgendaTab({ userId, profile }) {
                         <button onClick={() => abrirObservacao(e)} className="p-2 rounded-lg shrink-0 cursor-pointer relative" style={{ color: BRAND.azul, background: BRAND.azul+"14" }} title="Observação">
                           📝{temObs && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style={{ background: "#F97316" }} />}
                         </button>
+                        {e.tipo === "volta" && (
+                          contratoDoEvento && contratoDoEvento.devolvido ? (
+                            <span className="text-xs font-bold px-2.5 py-2 rounded-lg shrink-0" style={{ color: "#22C55E", background: "#22C55E18" }}>✅ Devolvido</span>
+                          ) : (
+                            <button disabled={marcandoDevolucao === e.id} onClick={() => marcarDevolucao(e)} className="text-xs font-bold px-2.5 py-2 rounded-lg shrink-0 cursor-pointer disabled:opacity-60" style={{ color: "#22C55E", background: "#22C55E18" }} title="Marcar devolução e devolver pro estoque">
+                              {marcandoDevolucao === e.id ? "..." : "✅ Marcar devolução"}
+                            </button>
+                          )
+                        )}
                         <button onClick={() => handleSendReminder(e)} className="p-2 rounded-lg shrink-0 cursor-pointer" style={{ color: "#22C35E", background: "#22C35E18" }}>📲</button>
                       </div>
                       {obsAberta === e.id && (
@@ -1759,6 +1979,8 @@ function App() {
           <AgendaTab userId={session.user.id} profile={profile} />
         ) : page === "oportunidades" ? (
           <OportunidadesTab userId={session.user.id} profile={profile} />
+        ) : page === "estoque" ? (
+          <EstoqueTab userId={session.user.id} />
         ) : page === "perfil" ? (
           <PerfilTab profile={profile} userId={session.user.id} onSaved={setProfile} setPage={setPage} />
         ) : (
