@@ -214,6 +214,16 @@ function AuthScreen({ onAuthed }) {
     setCarregando(false);
   }
 
+  async function handleEsqueciSenha() {
+    setErro(""); setAviso("");
+    if (!email.trim()) { setErro("Digite seu e-mail ali em cima primeiro, aí clique em \"Esqueci minha senha\" de novo."); return; }
+    setCarregando(true);
+    const { error } = await sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.href });
+    setCarregando(false);
+    if (error) { setErro("Erro ao enviar: " + error.message); return; }
+    setAviso("Te mandamos um e-mail com um link pra você criar uma senha nova. Pode demorar alguns minutos e olhar o spam também.");
+  }
+
   async function handleLogin() {
     setErro(""); setAviso("");
     if (!email.trim() || !senha) { setErro("Preencha e-mail e senha."); return; }
@@ -272,6 +282,9 @@ function AuthScreen({ onAuthed }) {
         <Field label="Senha" hint={modo === "cadastro" ? "Mínimo de 6 caracteres." : undefined}>
           <input className={inputClass} type="password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="••••••" />
         </Field>
+        {modo === "login" && (
+          <button type="button" onClick={handleEsqueciSenha} className="text-xs font-semibold mb-4 -mt-2 block cursor-pointer" style={{ color: BRAND.azul }}>Esqueci minha senha</button>
+        )}
 
         <ErrorBox>{erro}</ErrorBox>
         <SuccessBox>{aviso}</SuccessBox>
@@ -293,6 +306,48 @@ function AuthScreen({ onAuthed }) {
 /* ============================================================
    BLOQUEIO DE TRIAL / PLANO
 ============================================================ */
+/* ============================================================
+   TELA DE NOVA SENHA (aberta quando a pessoa clica no link do e-mail)
+============================================================ */
+function ResetPasswordScreen({ onDone }) {
+  const [senha, setSenha] = useState("");
+  const [senha2, setSenha2] = useState("");
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  async function handleSalvar() {
+    setErro("");
+    if (senha.length < 6) { setErro("A senha precisa ter pelo menos 6 caracteres."); return; }
+    if (senha !== senha2) { setErro("As duas senhas digitadas são diferentes."); return; }
+    setCarregando(true);
+    const { error } = await sb.auth.updateUser({ password: senha });
+    setCarregando(false);
+    if (error) { setErro("Erro ao salvar: " + error.message); return; }
+    onDone();
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: `linear-gradient(160deg, ${BRAND.azul} 0%, ${BRAND.azulEscuro} 100%)` }}>
+      <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-8">
+        <div className="flex flex-col items-center mb-6">
+          <div className="text-3xl mb-2">🔑</div>
+          <h1 className="fredoka text-xl font-bold text-center" style={{ color: BRAND.azul }}>Crie sua nova senha</h1>
+        </div>
+        <Field label="Nova senha" hint="Mínimo de 6 caracteres.">
+          <input className={inputClass} type="password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="••••••" />
+        </Field>
+        <Field label="Confirme a nova senha">
+          <input className={inputClass} type="password" value={senha2} onChange={(e) => setSenha2(e.target.value)} placeholder="••••••" />
+        </Field>
+        <ErrorBox>{erro}</ErrorBox>
+        <button disabled={carregando} onClick={handleSalvar} className="w-full py-3 rounded-xl font-bold text-white cursor-pointer active:scale-95 transition disabled:opacity-60" style={{ background: BRAND.rosa }}>
+          {carregando ? "Salvando..." : "Salvar nova senha"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TrialGate({ profile, onLogout, children }) {
   const status = profile.plano_status;
   const hoje = todayISO();
@@ -333,8 +388,9 @@ function TrialGate({ profile, onLogout, children }) {
 /* ============================================================
    CABEÇALHO
 ============================================================ */
-function Header({ userEmail, page, setPage, onLogout, profile }) {
+function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, userId }) {
   const isHome = page === "home";
+  const [sinoAberto, setSinoAberto] = useState(false);
   return (
     <div className="sticky top-0 z-20 text-white" style={{ background: `linear-gradient(120deg, ${BRAND.azul}, ${BRAND.azulEscuro})` }}>
       <div className="max-w-5xl mx-auto px-5 py-4 flex items-center justify-between">
@@ -353,6 +409,29 @@ function Header({ userEmail, page, setPage, onLogout, profile }) {
           </div>
         </div>
         <div className="flex items-center gap-1">
+          <div className="relative">
+            <button onClick={() => setSinoAberto((v) => !v)} className="p-2 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer relative" aria-label="Notificações">
+              🔔
+              {notificacoes && notificacoes.length > 0 && (
+                <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center" style={{ background: "#DC2626", color: "#fff" }}>{notificacoes.length}</span>
+              )}
+            </button>
+            {sinoAberto && (
+              <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden text-slate-800 z-30">
+                <div className="px-4 py-3 border-b border-slate-50"><p className="font-bold text-sm" style={{ color: BRAND.tinta }}>Notificações</p></div>
+                <div className="max-h-80 overflow-y-auto">
+                  {(!notificacoes || notificacoes.length === 0) ? (
+                    <p className="text-sm text-slate-400 text-center py-6 px-4">Nada novo por aqui.</p>
+                  ) : notificacoes.map((n, i) => (
+                    <button key={i} onClick={() => { setPage("oportunidades"); setSinoAberto(false); }} className="w-full text-left px-4 py-2.5 hover:bg-slate-50 flex items-start gap-2 border-b border-slate-50 last:border-0 cursor-pointer">
+                      <span className="text-lg shrink-0">{n.icone}</span>
+                      <span className="text-xs text-slate-600">{n.texto}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           <button onClick={() => setPage("perfil")} className="p-2 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Editar perfil">⚙️</button>
           <button onClick={onLogout} className="p-2 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Sair">🚪</button>
         </div>
@@ -388,6 +467,7 @@ function HomeDashboard({ setPage, contracts }) {
         <HomeCard emoji="📄" title="Preencher contrato" desc="Gere o contrato já pronto, só preenchendo nome, produto, valor e data." color={BRAND.rosa} onClick={() => setPage("contrato")} stat={`${contracts.length} contrato${contracts.length === 1 ? "" : "s"}`} />
         <HomeCard emoji="💰" title="Financeiro" desc="Faturamento do mês, produto mais vendido e valores a receber." color={BRAND.amarelo} onClick={() => setPage("financeiro")} stat={formatBRL(aReceber) + " a receber"} />
         <HomeCard emoji="📅" title="Agenda" desc="Veja o que precisa entregar e retirar em cada dia." color={BRAND.turquesa} onClick={() => setPage("agenda")} stat={entregasHoje > 0 ? `${entregasHoje} hoje` : "Nada hoje"} />
+        <HomeCard emoji="🎯" title="Oportunidades" desc="Aniversários e clientes antigos pra reconquistar." color="#8B5CF6" onClick={() => setPage("oportunidades")} />
       </div>
     </div>
   );
@@ -574,6 +654,7 @@ const CAMPOS_VAZIOS = {
   dataRetirada: "", horaRetiradaIni: "09:00", horaRetiradaFim: "13:00",
   dataDevolucao: "", horaDevolucaoIni: "09:00", horaDevolucaoFim: "19:00",
   statusPagamento: "sinal",
+  datasEspeciais: [{ nome: "", parentesco: "", dia: "", mes: "" }, { nome: "", parentesco: "", dia: "", mes: "" }, { nome: "", parentesco: "", dia: "", mes: "" }],
 };
 
 function ContratoPreview({ dados, profile }) {
@@ -789,7 +870,16 @@ function ContratoTab({ userId, profile }) {
   }
 
   function startNew() { setForm(CAMPOS_VAZIOS); setEditingId(null); setErro(""); setSalvo(false); setShowForm(true); }
-  function editContract(c) { setForm({ ...CAMPOS_VAZIOS, ...c }); setEditingId(c.id); setErro(""); setSalvo(false); setShowForm(true); }
+  async function editContract(c) {
+    setForm({ ...CAMPOS_VAZIOS, ...c });
+    setEditingId(c.id); setErro(""); setSalvo(false); setShowForm(true);
+    const { data } = await sb.from("special_dates").select("*").eq("contract_id", c.id).order("created_at", { ascending: true });
+    if (data && data.length > 0) {
+      const slots = [{ nome: "", parentesco: "", dia: "", mes: "" }, { nome: "", parentesco: "", dia: "", mes: "" }, { nome: "", parentesco: "", dia: "", mes: "" }];
+      data.slice(0, 3).forEach((p, i) => { slots[i] = { nome: p.person_name || "", parentesco: p.relationship || "", dia: String(p.birthday_day), mes: String(p.birthday_month) }; });
+      setForm((f) => ({ ...f, datasEspeciais: slots }));
+    }
+  }
 
   async function handleSave() {
     setErro(""); setSalvo(false);
@@ -803,8 +893,20 @@ function ContratoTab({ userId, profile }) {
     const id = editingId || uid();
     const row = contractToDb({ ...form, id }, userId);
     const { error } = await sb.from("contracts").upsert(row);
+    if (error) { setSalvando(false); setErro("Erro ao salvar: " + error.message); return; }
+
+    // Datas especiais: apaga as antigas desse contrato e grava as preenchidas agora.
+    await sb.from("special_dates").delete().eq("contract_id", id);
+    const pessoasPreenchidas = (form.datasEspeciais || []).filter((p) => p.nome.trim() && p.dia && p.mes);
+    if (pessoasPreenchidas.length > 0) {
+      await sb.from("special_dates").insert(pessoasPreenchidas.map((p) => ({
+        id: uid(), decoradora_id: userId, contract_id: id,
+        person_name: p.nome.trim(), relationship: p.parentesco.trim(),
+        birthday_day: Number(p.dia), birthday_month: Number(p.mes),
+      })));
+    }
+
     setSalvando(false);
-    if (error) { setErro("Erro ao salvar: " + error.message); return; }
     await carregarContratos();
     setSalvo(true); setShowForm(false);
   }
@@ -899,6 +1001,27 @@ function ContratoTab({ userId, profile }) {
               <Field label="Hora início"><input type="time" className={inputClass} value={form.horaDevolucaoIni} onChange={(e) => set("horaDevolucaoIni", e.target.value)} /></Field>
               <Field label="Hora fim"><input type="time" className={inputClass} value={form.horaDevolucaoFim} onChange={(e) => set("horaDevolucaoFim", e.target.value)} /></Field>
             </div>
+
+            <div className="mt-2 mb-1 pt-4 border-t border-slate-100">
+              <p className="font-bold text-sm mb-0.5" style={{ color: "#8B5CF6" }}>🎂 Datas especiais (opcional)</p>
+              <p className="text-xs text-slate-400 mb-3">Aniversário de até 3 pessoas da família — o app lembra você de mandar uma mensagem quando chegar perto.</p>
+            </div>
+            {form.datasEspeciais.map((pessoa, idx) => (
+              <div key={idx} className="grid grid-cols-6 gap-2 mb-2">
+                <input className={inputClass + " col-span-3"} placeholder={`Nome da pessoa ${idx+1}`} value={pessoa.nome} onChange={(e) => {
+                  const novas = [...form.datasEspeciais]; novas[idx] = { ...novas[idx], nome: e.target.value }; set("datasEspeciais", novas);
+                }} />
+                <input className={inputClass + " col-span-2"} placeholder="Parentesco" value={pessoa.parentesco} onChange={(e) => {
+                  const novas = [...form.datasEspeciais]; novas[idx] = { ...novas[idx], parentesco: e.target.value }; set("datasEspeciais", novas);
+                }} />
+                <input className={inputClass + " col-span-1"} placeholder="DD/MM" maxLength={5} value={pessoa.dia && pessoa.mes ? `${pessoa.dia}/${pessoa.mes}` : ""} onChange={(e) => {
+                  const v = e.target.value.replace(/[^0-9/]/g, "");
+                  const [dia, mes] = v.split("/");
+                  const novas = [...form.datasEspeciais]; novas[idx] = { ...novas[idx], dia: dia || "", mes: mes || "" }; set("datasEspeciais", novas);
+                }} />
+              </div>
+            ))}
+
             <Field label="Status do pagamento">
               <div className="grid grid-cols-3 gap-2">
                 {[{ v: "pendente", l: "Pendente" }, { v: "sinal", l: `Sinal (${profile.sinal_percentual}%)` }, { v: "pago", l: "Pago" }].map((op) => (
@@ -987,6 +1110,146 @@ function StatCard({ emoji, label, value, color, onClick, active }) {
       <p className="text-2xl font-bold fredoka" style={{ color: BRAND.tinta }}>{value}</p>
       <p className="text-xs text-slate-400 mt-0.5">{label}</p>
     </button>
+  );
+}
+
+/* ============================================================
+   MÓDULO OPORTUNIDADES (Aniversários + Vale a pena lembrar)
+============================================================ */
+function diaDoAno2024(mes, dia) {
+  try { return Math.round(new Date(2024, mes - 1, dia).getTime() / 86400000); } catch (e) { return 0; }
+}
+function diasAteAniversario(mes, dia) {
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  let proximo = new Date(hoje.getFullYear(), mes - 1, dia);
+  if (proximo < hoje) proximo = new Date(hoje.getFullYear() + 1, mes - 1, dia);
+  return Math.round((proximo - hoje) / 86400000);
+}
+function corAniversario(dias) {
+  if (dias === 0) return "#DC2626"; // hoje
+  if (dias <= 3) return "#22C55E";
+  if (dias <= 7) return BRAND.amarelo;
+  return "#94a3b8";
+}
+function textoDiasAte(dias) {
+  if (dias === 0) return "É hoje! 🎉";
+  if (dias === 1) return "Amanhã";
+  return `Em ${dias} dias`;
+}
+
+async function buscarOportunidadesAniversarios(userId) {
+  const { data } = await sb.from("special_dates").select("*, contracts(contratante_nome, contratante_whatsapp)").eq("decoradora_id", userId);
+  if (!data) return [];
+  return data
+    .map((p) => ({
+      id: p.id, nome: p.person_name, parentesco: p.relationship,
+      cliente: p.contracts ? p.contracts.contratante_nome : "", whatsapp: p.contracts ? p.contracts.contratante_whatsapp : "",
+      dia: p.birthday_day, mes: p.birthday_month, diasAte: diasAteAniversario(p.birthday_month, p.birthday_day),
+    }))
+    .sort((a, b) => a.diasAte - b.diasAte);
+}
+
+async function buscarValeAPenaLembrar(userId) {
+  const { data } = await sb.from("contracts").select("*").eq("decoradora_id", userId);
+  if (!data) return [];
+  const hoje = new Date();
+  const anoAtual = hoje.getFullYear();
+  const diaHoje = diaDoAno2024(hoje.getMonth() + 1, hoje.getDate());
+  return data
+    .map(contractFromDb)
+    .filter((c) => c.dataRetirada)
+    .map((c) => {
+      const d = parseDateLocal(c.dataRetirada);
+      return { c, d, anoContrato: d.getFullYear(), diaContrato: diaDoAno2024(d.getMonth() + 1, d.getDate()) };
+    })
+    .filter(({ anoContrato, diaContrato }) => {
+      if (anoContrato >= anoAtual) return false;
+      const diff = Math.abs(diaContrato - diaHoje);
+      return Math.min(diff, 366 - diff) <= 3;
+    })
+    .map(({ c, anoContrato }) => ({
+      id: c.id, cliente: c.contratanteNome, whatsapp: c.contratanteWhatsapp, tema: c.produtoNome,
+      data: c.dataRetirada, anosAtras: anoAtual - anoContrato,
+    }))
+    .sort((a, b) => a.anosAtras - b.anosAtras);
+}
+
+function OportunidadesTab({ userId, profile }) {
+  const [aba, setAba] = useState("aniversarios");
+  const [aniversarios, setAniversarios] = useState(null);
+  const [valeLembrar, setValeLembrar] = useState(null);
+
+  useEffect(() => {
+    buscarOportunidadesAniversarios(userId).then(setAniversarios);
+    buscarValeAPenaLembrar(userId).then(setValeLembrar);
+  }, [userId]);
+
+  function enviarAniversario(item) {
+    if (!item.whatsapp) return;
+    const msg = `Olá, ${item.cliente}! 😊\n\nVi que o aniversário do(a) ${item.nome} está chegando.\n\nComo você já é nossa cliente, preparei um desconto especial para essa comemoração.\n\nPosso te mostrar algumas opções de kits? 🎈`;
+    window.open(whatsappLink(item.whatsapp, msg), "_blank");
+  }
+  function enviarValeLembrar(item) {
+    if (!item.whatsapp) return;
+    const msg = `Olá, ${item.cliente}! 😊\n\nEstava organizando minha agenda e lembrei que, nesta época do ano passado, tive a alegria de participar da festa de vocês.\n\nComo cliente especial, preparei uma condição exclusiva para a próxima locação.\n\nSe estiver planejando uma nova comemoração, será um prazer atender vocês novamente! 🎉`;
+    window.open(whatsappLink(item.whatsapp, msg), "_blank");
+  }
+
+  return (
+    <div className="max-w-5xl mx-auto px-5 py-7">
+      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>🎯 Oportunidades</h2>
+      <p className="text-sm text-slate-400 mb-5">Lembretes automáticos pra manter contato com clientes antigos.</p>
+
+      <div className="flex gap-2 mb-5">
+        <button onClick={() => setAba("aniversarios")} className="px-4 py-2 rounded-xl text-sm font-bold cursor-pointer" style={aba === "aniversarios" ? { background: BRAND.azul, color: "#fff" } : { background: "#fff", color: BRAND.tinta }}>🎂 Aniversários</button>
+        <button onClick={() => setAba("lembrar")} className="px-4 py-2 rounded-xl text-sm font-bold cursor-pointer" style={aba === "lembrar" ? { background: BRAND.azul, color: "#fff" } : { background: "#fff", color: BRAND.tinta }}>⭐ Vale a pena lembrar</button>
+      </div>
+
+      {aba === "aniversarios" ? (
+        aniversarios === null ? <p className="text-sm text-slate-400 text-center py-10">Carregando...</p> :
+        aniversarios.length === 0 ? (
+          <div className="bg-white rounded-2xl p-8 text-center border border-slate-100">
+            <p className="text-3xl mb-2">🎂</p>
+            <p className="text-sm text-slate-400">Nenhuma data especial cadastrada ainda. Adicione no formulário de contrato, na seção "Datas especiais".</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {aniversarios.map((item) => (
+              <div key={item.id} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-3">
+                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corAniversario(item.diasAte) }} />
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-sm truncate" style={{ color: BRAND.tinta }}>{item.nome} <span className="font-normal text-slate-400">· {item.parentesco}</span></p>
+                  <p className="text-xs text-slate-400 truncate">de {item.cliente} · {String(item.dia).padStart(2,"0")}/{String(item.mes).padStart(2,"0")}</p>
+                </div>
+                <span className="text-xs font-bold px-2.5 py-1 rounded-full shrink-0" style={{ background: corAniversario(item.diasAte)+"18", color: corAniversario(item.diasAte) }}>{textoDiasAte(item.diasAte)}</span>
+                <button onClick={() => enviarAniversario(item)} disabled={!item.whatsapp} className="flex items-center gap-1 text-xs font-bold px-3 py-2 rounded-lg shrink-0 cursor-pointer disabled:opacity-40" style={{ color: "#22C35E", background: "#22C35E18" }}>📲</button>
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        valeLembrar === null ? <p className="text-sm text-slate-400 text-center py-10">Carregando...</p> :
+        valeLembrar.length === 0 ? (
+          <div className="bg-white rounded-2xl p-8 text-center border border-slate-100">
+            <p className="text-3xl mb-2">⭐</p>
+            <p className="text-sm text-slate-400">Nada por aqui agora. Quando algum contrato antigo cair perto da data de hoje, ele aparece aqui sozinho.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {valeLembrar.map((item) => (
+              <div key={item.id} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white shrink-0" style={{ background: "#8B5CF6" }}>⭐</div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-sm truncate" style={{ color: BRAND.tinta }}>{item.cliente}</p>
+                  <p className="text-xs text-slate-400 truncate">Tema: {item.tema} · {formatDateBR(item.data)} · há {item.anosAtras} ano{item.anosAtras > 1 ? "s" : ""}</p>
+                </div>
+                <button onClick={() => enviarValeLembrar(item)} disabled={!item.whatsapp} className="flex items-center gap-1 text-xs font-bold px-3 py-2 rounded-lg shrink-0 cursor-pointer disabled:opacity-40" style={{ color: "#22C35E", background: "#22C35E18" }}>📲</button>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+    </div>
   );
 }
 
@@ -1465,10 +1728,15 @@ function App() {
   const [profile, setProfile] = useState(null);
   const [page, setPage] = useState("home");
   const [contractsCount, setContractsCount] = useState(0);
+  const [notificacoes, setNotificacoes] = useState([]);
+  const [modoRecuperacao, setModoRecuperacao] = useState(false);
 
   useEffect(() => {
     sb.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: listener } = sb.auth.onAuthStateChange((_event, s) => setSession(s));
+    const { data: listener } = sb.auth.onAuthStateChange((event, s) => {
+      setSession(s);
+      if (event === "PASSWORD_RECOVERY") setModoRecuperacao(true);
+    });
     return () => listener.subscription.unsubscribe();
   }, []);
 
@@ -1487,8 +1755,29 @@ function App() {
     sb.from("contracts").select("id", { count: "exact", head: true }).eq("decoradora_id", session.user.id).then(({ count }) => setContractsCount(count || 0));
   }, [session, page]);
 
+  useEffect(() => {
+    if (!session || !session.user) return;
+    (async () => {
+      const [aniversarios, valeLembrar] = await Promise.all([
+        buscarOportunidadesAniversarios(session.user.id),
+        buscarValeAPenaLembrar(session.user.id),
+      ]);
+      const lista = [];
+      aniversarios.filter((a) => a.diasAte <= 3).forEach((a) => {
+        lista.push({ icone: "🎂", texto: `${a.nome} (${a.parentesco.toLowerCase()} de ${a.cliente}) ${a.diasAte === 0 ? "faz aniversário hoje!" : `faz aniversário em ${a.diasAte} dia${a.diasAte > 1 ? "s" : ""}.`}` });
+      });
+      valeLembrar.forEach((v) => {
+        lista.push({ icone: "⭐", texto: `${v.cliente} alugou "${v.tema}" nesta época há ${v.anosAtras} ano${v.anosAtras > 1 ? "s" : ""}.` });
+      });
+      setNotificacoes(lista);
+    })();
+  }, [session, page]);
+
   async function handleLogout() { await sb.auth.signOut(); setPage("home"); }
 
+  if (modoRecuperacao) {
+    return <ResetPasswordScreen onDone={() => setModoRecuperacao(false)} />;
+  }
   if (session === undefined) {
     return <div className="min-h-screen flex items-center justify-center" style={{ background: BRAND.azul }}><span className="text-white">Carregando...</span></div>;
   }
@@ -1500,7 +1789,7 @@ function App() {
   return (
     <TrialGate profile={profile} onLogout={handleLogout}>
       <div className="min-h-screen" style={{ background: BRAND.bg }}>
-        <Header userEmail={session.user.email} page={page} setPage={setPage} onLogout={handleLogout} profile={profile} />
+        <Header userEmail={session.user.email} page={page} setPage={setPage} onLogout={handleLogout} profile={profile} notificacoes={notificacoes} userId={session.user.id} />
         {page === "home" ? (
           <HomeDashboard setPage={setPage} contracts={Array(contractsCount).fill({})} />
         ) : page === "contrato" ? (
@@ -1509,6 +1798,8 @@ function App() {
           <FinanceiroTab userId={session.user.id} profile={profile} />
         ) : page === "agenda" ? (
           <AgendaTab userId={session.user.id} profile={profile} />
+        ) : page === "oportunidades" ? (
+          <OportunidadesTab userId={session.user.id} profile={profile} />
         ) : page === "perfil" ? (
           <PerfilTab profile={profile} userId={session.user.id} onSaved={setProfile} setPage={setPage} />
         ) : (
