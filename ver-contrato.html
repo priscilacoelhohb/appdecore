@@ -97,7 +97,7 @@ function App() {
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState(false);
-  const [pessoas, setPessoas] = useState([{ nome: "", parentesco: "", dia: "", mes: "" }, { nome: "", parentesco: "", dia: "", mes: "" }, { nome: "", parentesco: "", dia: "", mes: "" }]);
+  const [pessoas, setPessoas] = useState([{ nome: "", parentesco: "", dataTexto: "" }, { nome: "", parentesco: "", dataTexto: "" }, { nome: "", parentesco: "", dataTexto: "" }]);
 
   const params = new URLSearchParams(window.location.search);
   const contratoId = params.get("id");
@@ -128,11 +128,18 @@ function App() {
     if (error) { setEnviando(false); setErro("Erro ao enviar: " + error.message); return; }
     if (data === false) { setEnviando(false); setErro("Esse contrato já foi assinado anteriormente."); setSucesso(true); return; }
 
-    const pessoasPreenchidas = pessoas.filter((p) => p.nome.trim() && p.dia && p.mes);
+    const pessoasPreenchidas = pessoas
+      .map((p) => {
+        const [diaStr, mesStr] = (p.dataTexto || "").split("/");
+        const dia = parseInt(diaStr, 10);
+        const mes = parseInt(mesStr, 10);
+        return { nome: p.nome.trim(), parentesco: p.parentesco.trim(), dia, mes };
+      })
+      .filter((p) => p.nome && p.dia >= 1 && p.dia <= 31 && p.mes >= 1 && p.mes <= 12);
     if (pessoasPreenchidas.length > 0) {
       await sb.rpc("salvar_datas_especiais_publico", {
         p_contract_id: contratoId,
-        p_pessoas: pessoasPreenchidas.map((p) => ({ nome: p.nome.trim(), parentesco: p.parentesco.trim(), dia: p.dia, mes: p.mes })),
+        p_pessoas: pessoasPreenchidas.map((p) => ({ nome: p.nome, parentesco: p.parentesco, dia: p.dia, mes: p.mes })),
       });
     }
     setEnviando(false);
@@ -203,6 +210,12 @@ function App() {
             <p className="mb-3">As peças devem ser devolvidas em perfeito estado. Danos, quebras ou extravio geram cobrança do valor da peça — cobrança cumulativa com eventual multa por atraso.</p>
             <p className="font-bold mb-0.5">4. Balões e decoração</p>
             <p className="mb-3">Balões de alta qualidade, durabilidade de 3 a 5 dias em condições ideais; a contratada não responde por má exposição (sol, chuva, vento) ou ambiente informado incorretamente. Pequenas variações no tema podem ocorrer conforme disponibilidade, sempre entregando algo igual ou melhor.</p>
+            {c.loja_clausulas_extras && c.loja_clausulas_extras.trim() && (
+              <>
+                <p className="font-bold mb-0.5">5. Cláusulas adicionais</p>
+                <p className="mb-3" style={{ whiteSpace: "pre-line" }}>{c.loja_clausulas_extras}</p>
+              </>
+            )}
             <div className="mt-4 pt-3 border-t border-dashed border-slate-200 flex flex-wrap gap-2">
               <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: corPrincipal + "18", color: corPrincipal }}>Total {formatBRL(valor)}</span>
               <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: "#22C3C318", color: "#0E8E8E" }}>Pago {formatBRL(pago)}</span>
@@ -236,10 +249,9 @@ function App() {
                 <div key={idx} className="grid grid-cols-6 gap-2 mb-2">
                   <input className="col-span-3 rounded-xl border-2 border-slate-200 px-3 py-2 text-sm" placeholder={`Nome ${idx + 1}`} value={pessoa.nome} onChange={(e) => setPessoa(idx, "nome", e.target.value)} />
                   <input className="col-span-2 rounded-xl border-2 border-slate-200 px-3 py-2 text-sm" placeholder="Parentesco" value={pessoa.parentesco} onChange={(e) => setPessoa(idx, "parentesco", e.target.value)} />
-                  <input className="col-span-1 rounded-xl border-2 border-slate-200 px-2 py-2 text-sm" placeholder="DD/MM" maxLength={5} value={pessoa.dia && pessoa.mes ? `${pessoa.dia}/${pessoa.mes}` : ""} onChange={(e) => {
+                  <input className="col-span-1 rounded-xl border-2 border-slate-200 px-2 py-2 text-sm" placeholder="DD/MM" maxLength={5} value={pessoa.dataTexto} onChange={(e) => {
                     const v = e.target.value.replace(/[^0-9/]/g, "");
-                    const [dia, mes] = v.split("/");
-                    const novas = [...pessoas]; novas[idx] = { ...novas[idx], dia: dia || "", mes: mes || "" }; setPessoas(novas);
+                    const novas = [...pessoas]; novas[idx] = { ...novas[idx], dataTexto: v }; setPessoas(novas);
                   }} />
                 </div>
               ))}
