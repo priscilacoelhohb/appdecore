@@ -103,6 +103,12 @@ function computeFinance(c, percentualSinal) {
   else if (c.statusPagamento === "sinal") pago = valor * (pct / 100);
   return { valor, pago, pendente: Math.max(valor - pago, 0) };
 }
+// Cada contrato pode ter o próprio percentual de sinal; se não tiver, usa o padrão da loja.
+function pctSinalEfetivo(c, profile) {
+  return (c.sinalPercentualContrato !== undefined && c.sinalPercentualContrato !== null && c.sinalPercentualContrato !== "")
+    ? Number(c.sinalPercentualContrato)
+    : Number(profile.sinal_percentual) || 50;
+}
 function onlyDigits(str) { return (str || "").replace(/\D/g, ""); }
 function whatsappLink(phoneRaw, message) {
   let digits = onlyDigits(phoneRaw);
@@ -120,7 +126,7 @@ function contractToDb(c, decoradoraId) {
     valor: parseValorBR(c.valor),
     data_retirada: c.dataRetirada || null, hora_retirada_ini: c.horaRetiradaIni, hora_retirada_fim: c.horaRetiradaFim,
     data_devolucao: c.dataDevolucao || null, hora_devolucao_ini: c.horaDevolucaoIni, hora_devolucao_fim: c.horaDevolucaoFim,
-    status_pagamento: c.statusPagamento,
+    status_pagamento: c.statusPagamento, sinal_percentual_contrato: c.sinalPercentualContrato ? Number(c.sinalPercentualContrato) : null,
   };
 }
 function contractFromDb(r) {
@@ -132,7 +138,7 @@ function contractFromDb(r) {
     valor: r.valor || 0,
     dataRetirada: r.data_retirada || "", horaRetiradaIni: r.hora_retirada_ini || "09:00", horaRetiradaFim: r.hora_retirada_fim || "13:00",
     dataDevolucao: r.data_devolucao || "", horaDevolucaoIni: r.hora_devolucao_ini || "09:00", horaDevolucaoFim: r.hora_devolucao_fim || "19:00",
-    statusPagamento: r.status_pagamento || "sinal",
+    statusPagamento: r.status_pagamento || "sinal", sinalPercentualContrato: r.sinal_percentual_contrato || "",
     assinadoEm: r.assinado_em || null,
     devolvido: r.devolvido || false,
     observacoes: r.observacoes || "",
@@ -165,6 +171,15 @@ const inputClass = "w-full rounded-xl border-2 border-slate-200 px-4 py-2.5 text
 function Pill({ children, color }) {
   return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold" style={{ background: color + "22", color }}>{children}</span>;
 }
+function Carregando({ texto }) {
+  return (
+    <div className="max-w-5xl mx-auto px-5 py-16 flex flex-col items-center justify-center gap-3">
+      <div className="w-9 h-9 rounded-full animate-spin" style={{ border: `3px solid ${BRAND.azul}22`, borderTopColor: BRAND.azul }} />
+      <p className="text-sm text-slate-400">{texto || "Carregando..."}</p>
+    </div>
+  );
+}
+
 function ErrorBox({ children }) {
   if (!children) return null;
   return (
@@ -456,16 +471,57 @@ function HomeCard({ emoji, title, desc, color, onClick, stat }) {
   );
 }
 
-function HomeDashboard({ setPage, contracts, profile }) {
+function saudacaoPorHorario() {
+  const h = new Date().getHours();
+  if (h < 12) return "Bom dia";
+  if (h < 18) return "Boa tarde";
+  return "Boa noite";
+}
+
+function PrimeirosPassos({ setPage, profile, contracts, userId }) {
+  const [temEstoque, setTemEstoque] = useState(null);
+  useEffect(() => {
+    sb.from("estoque_itens").select("id", { count: "exact", head: true }).eq("decoradora_id", userId).gt("quantidade", 0)
+      .then(({ count }) => setTemEstoque((count || 0) > 0));
+  }, [userId]);
+
+  const perfilPronto = !!(profile.logo_data_url || profile.cnpj);
+  const primeiroContrato = contracts.length > 0;
+  if (temEstoque === null) return null; // ainda carregando, evita piscar
+  const passos = [
+    { ok: perfilPronto, label: "Personalize sua loja (logo, cores, assinatura)", page: "perfil" },
+    { ok: temEstoque, label: "Cadastre seus materiais no Estoque", page: "estoque" },
+    { ok: primeiroContrato, label: "Preencha seu primeiro contrato", page: "contrato" },
+  ];
+  if (passos.every((p) => p.ok)) return null; // já configurou tudo, não precisa mais mostrar
+
+  return (
+    <div className="rounded-2xl p-5 mb-6" style={{ background: "#8B5CF610", border: "2px solid #8B5CF635" }}>
+      <p className="fredoka font-bold text-sm mb-3" style={{ color: "#6D28D9" }}>✨ Primeiros passos</p>
+      <div className="space-y-2">
+        {passos.map((p) => (
+          <button key={p.page} onClick={() => setPage(p.page)} className="w-full flex items-center gap-2.5 text-left cursor-pointer group">
+            <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs shrink-0" style={p.ok ? { background: "#22C55E", color: "#fff" } : { border: "2px solid #cbd5e1" }}>{p.ok ? "✓" : ""}</span>
+            <span className="text-sm group-hover:underline" style={{ color: p.ok ? "#94a3b8" : BRAND.tinta, textDecoration: p.ok ? "line-through" : "none" }}>{p.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HomeDashboard({ setPage, contracts, profile, userId }) {
   const hoje = todayISO();
   const entregasHoje = contracts.filter((c) => c.dataRetirada === hoje || c.dataDevolucao === hoje).length;
-  const aReceber = contracts.reduce((s, c) => s + computeFinance(c, profile.sinal_percentual).pendente, 0);
+  const aReceber = contracts.reduce((s, c) => s + computeFinance(c, pctSinalEfetivo(c, profile)).pendente, 0);
+  const primeiroNome = (profile.nome_responsavel || "").trim().split(" ")[0];
   return (
     <div className="max-w-5xl mx-auto px-5 py-8">
       <div className="mb-7">
-        <h2 className="fredoka text-2xl font-bold" style={{ color: BRAND.tinta }}>O que vamos fazer hoje?</h2>
-        <p className="text-slate-400 text-sm mt-1">Escolha um card para começar.</p>
+        <h2 className="fredoka text-2xl font-bold" style={{ color: BRAND.tinta }}>{saudacaoPorHorario()}{primeiroNome ? `, ${primeiroNome}` : ""}! 👋</h2>
+        <p className="text-slate-400 text-sm mt-1">O que vamos fazer hoje?</p>
       </div>
+      <PrimeirosPassos setPage={setPage} profile={profile} contracts={contracts} userId={userId} />
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
         <HomeCard emoji="📄" title="Preencher contrato" desc="Gere o contrato já pronto, só preenchendo nome, produto, valor e data." color={BRAND.rosa} onClick={() => setPage("contrato")} stat={`${contracts.length} contrato${contracts.length === 1 ? "" : "s"}`} />
         <HomeCard emoji="💰" title="Financeiro" desc="Faturamento do mês, produto mais vendido e valores a receber." color={BRAND.amarelo} onClick={() => setPage("financeiro")} stat={formatBRL(aReceber) + " a receber"} />
@@ -541,6 +597,31 @@ function SignaturePad({ value, onChange }) {
    PERFIL DA LOJA
 ============================================================ */
 const MAX_LOGO_BYTES = 1.5 * 1024 * 1024;
+
+// Redimensiona uma imagem no navegador antes de guardar, pra fotos de
+// estoque não pesarem o banco de dados (várias peças = várias fotos).
+function redimensionarImagem(file, larguraMaxima) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const escala = Math.min(1, larguraMaxima / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width * escala;
+        canvas.height = img.height * escala;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.8));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 
 function PerfilTab({ profile, userId, onSaved, setPage }) {
   const [form, setForm] = useState(profile);
@@ -699,11 +780,11 @@ const CAMPOS_VAZIOS = {
   produtoNome: "", materialEntregue: "", materialObservacoes: "", valor: "",
   dataRetirada: "", horaRetiradaIni: "09:00", horaRetiradaFim: "13:00",
   dataDevolucao: "", horaDevolucaoIni: "09:00", horaDevolucaoFim: "19:00",
-  statusPagamento: "sinal",
+  statusPagamento: "sinal", sinalPercentualContrato: "", valorSinal: "",
 };
 
 function ContratoPreview({ dados, profile }) {
-  const fin = computeFinance(dados);
+  const fin = computeFinance(dados, pctSinalEfetivo(dados, profile));
   return (
     <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100">
       <div className="px-6 py-5 text-white flex items-center gap-3" style={{ background: BRAND.azul }}>
@@ -744,7 +825,7 @@ function ContratoPreview({ dados, profile }) {
         <p className="mb-3">2.1. Este contrato tem início na data de sua assinatura e termina na data de entrega do material ou de retirada da decoração, conforme o serviço contratado.</p>
         <p className="font-bold mb-0.5">3. VALOR E FORMA DE PAGAMENTO</p>
         <p>3.1. O valor total do serviço é de {formatBRL(dados.valor)}, a ser pago via Pix informado pela CONTRATADA.</p>
-        <p>3.2. É necessário pagar {profile.sinal_percentual}% do valor no ato do agendamento para garantir a data; sem esse sinal, a data não fica reservada.</p>
+        <p>3.2. É necessário pagar {pctSinalEfetivo(dados, profile)}% do valor no ato do agendamento para garantir a data; sem esse sinal, a data não fica reservada.</p>
         {dados.tipoServico !== "decoracao" && (
           <>
             <p>3.3. Será cobrada multa de 10% do valor por hora de atraso na devolução dos itens alugados/emprestados.</p>
@@ -811,7 +892,7 @@ function ContratoPreview({ dados, profile }) {
    GERA O HTML PADRÃO PRA ABRIR EM NOVA ABA (visualizar / imprimir)
 ============================================================ */
 function buildContractHtml(dados, profile) {
-  const fin = computeFinance(dados);
+  const fin = computeFinance(dados, pctSinalEfetivo(dados, profile));
   const escapar = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const isDecoracao = dados.tipoServico === "decoracao";
   const paragrafo = isDecoracao
@@ -836,7 +917,7 @@ function buildContractHtml(dados, profile) {
     <p>${paragrafo}</p>
     <h2>1. OBJETO</h2><p>1.1. Prestação de serviço conforme ordem de serviço anexa.</p>
     <h2>2. VIGÊNCIA</h2><p>2.1. Início na assinatura, término na entrega/retirada.</p>
-    <h2>3. VALOR E PAGAMENTO</h2><p>3.1. Valor total ${formatBRL(dados.valor)}, via Pix.</p><p>3.2. ${profile.sinal_percentual}% no agendamento garante a data.</p>${clausula34}
+    <h2>3. VALOR E PAGAMENTO</h2><p>3.1. Valor total ${formatBRL(dados.valor)}, via Pix.</p><p>3.2. ${pctSinalEfetivo(dados, profile)}% no agendamento garante a data.</p>${clausula34}
     <h2>4. OBRIGAÇÕES</h2><p>Contratante: pagar em dia, informar dados corretos, devolver sem danos. Contratada: executar o serviço, entregar conforme combinado.</p>
     <h2>5. CUIDADOS COM AS PEÇAS</h2><p>5.1. Devolver em perfeito estado, sob pena de pagamento integral.</p><p>5.2. Peças conferidas na entrega/devolução; danos e atraso são cobranças cumulativas.</p>
     <h2>6. FORO</h2><p>6.1. Cancelamento vira crédito por 6 meses.</p><p>6.2. Retirada/montagem é da contratante, exceto decoração completa.</p>
@@ -940,11 +1021,16 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
   const [mostrarSugestoes, setMostrarSugestoes] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [estoqueItens, setEstoqueItens] = useState([]);
+  const [modoMaterial, setModoMaterial] = useState("estoque"); // 'estoque' | 'manual'
   const [itensSelecionados, setItensSelecionados] = useState({}); // { estoqueItemId: quantidade }
   const [itensSelecionadosOriginais, setItensSelecionadosOriginais] = useState({}); // como estava quando abriu (pra saber o que mudou)
 
   useEffect(() => {
-    sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true }).then(({ data }) => setEstoqueItens(data || []));
+    sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true }).then(({ data }) => {
+      const itens = data || [];
+      setEstoqueItens(itens);
+      if (itens.length === 0) setModoMaterial("manual"); // sem estoque cadastrado, já começa no modo digitado
+    });
   }, [userId]);
 
   const carregarContratos = useCallback(async () => {
@@ -1018,13 +1104,15 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
     setMostrarSugestoes(false);
   }
 
-  function startNew() { setForm(CAMPOS_VAZIOS); setEditingId(null); setErro(""); setSalvo(false); setShowForm(true); setItensSelecionados({}); setItensSelecionadosOriginais({}); }
+  function startNew() { setForm(CAMPOS_VAZIOS); setEditingId(null); setErro(""); setSalvo(false); setShowForm(true); setItensSelecionados({}); setItensSelecionadosOriginais({}); setModoMaterial(estoqueItens.length > 0 ? "estoque" : "manual"); }
   async function editContract(c) {
-    setForm({ ...CAMPOS_VAZIOS, ...c }); setEditingId(c.id); setErro(""); setSalvo(false); setShowForm(true);
+    const valorSinalCalculado = c.sinalPercentualContrato ? (parseValorBR(c.valor) * Number(c.sinalPercentualContrato) / 100).toFixed(2).replace(".", ",") : "";
+    setForm({ ...CAMPOS_VAZIOS, ...c, valorSinal: valorSinalCalculado }); setEditingId(c.id); setErro(""); setSalvo(false); setShowForm(true);
     const { data } = await sb.from("contract_estoque_itens").select("estoque_item_id, quantidade").eq("contract_id", c.id);
     const mapa = {};
     (data || []).forEach((r) => { mapa[r.estoque_item_id] = r.quantidade; });
     setItensSelecionados(mapa); setItensSelecionadosOriginais(mapa);
+    setModoMaterial(Object.keys(mapa).length > 0 ? "estoque" : "manual");
   }
 
   async function handleSave() {
@@ -1094,7 +1182,7 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
 
   function handleSendWhatsapp(c) {
     if (!c.contratanteWhatsapp) { setErro("Esse contrato não tem WhatsApp cadastrado."); return; }
-    const fin = computeFinance(c, profile.sinal_percentual);
+    const fin = computeFinance(c, pctSinalEfetivo(c, profile));
     const base = window.location.href.replace(/[^/]*$/, "");
     const link = `${base}ver-contrato.html?id=${encodeURIComponent(c.id)}`;
     const msg = [
@@ -1111,7 +1199,7 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
 
   const ordered = [...contracts].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).filter((c) => !busca.trim() || normalizeStr(c.contratanteNome).includes(normalizeStr(busca)));
 
-  if (carregando) return <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">Carregando contratos...</div>;
+  if (carregando) return <Carregando texto="Carregando contratos..." />;
 
   return (
     <div className="max-w-5xl mx-auto px-5 py-7">
@@ -1159,12 +1247,34 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
               <Field label="CPF"><input className={inputClass} value={form.contratanteCPF} onChange={(e) => set("contratanteCPF", e.target.value)} /></Field>
               <Field label="Valor do produto"><input className={inputClass} value={form.valor} onChange={(e) => set("valor", e.target.value.replace(/[^0-9.,]/g, ""))} placeholder="90,00" /></Field>
             </div>
+            <Field label="Valor do sinal (R$)" hint={form.valorSinal && parseValorBR(form.valor) > 0 ? `= ${Math.round((parseValorBR(form.valorSinal) / parseValorBR(form.valor)) * 100)}% do valor do produto` : "Opcional — deixe em branco pra usar o percentual padrão da loja"}>
+              <input
+                className={inputClass}
+                value={form.valorSinal}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/[^0-9.,]/g, "");
+                  const novo = { ...form, valorSinal: v };
+                  const valorTotal = parseValorBR(form.valor);
+                  if (v && valorTotal > 0) novo.sinalPercentualContrato = String(Math.round((parseValorBR(v) / valorTotal) * 100));
+                  else novo.sinalPercentualContrato = "";
+                  setForm(novo);
+                }}
+                placeholder="Ex: 45,00"
+              />
+            </Field>
             <Field label="Endereço do contratante"><input className={inputClass} value={form.contratanteEndereco} onChange={(e) => set("contratanteEndereco", e.target.value)} /></Field>
             <Field label="WhatsApp do contratante" hint="Com DDD"><input className={inputClass} value={form.contratanteWhatsapp} onChange={(e) => set("contratanteWhatsapp", e.target.value)} placeholder="(61) 99999-8888" /></Field>
             <Field label="Nome do produto"><input className={inputClass} value={form.produtoNome} onChange={(e) => set("produtoNome", e.target.value)} /></Field>
-            <Field label="Material entregue" hint="Selecione do seu estoque e a quantidade de cada um">
-              {estoqueItens.length === 0 ? (
-                <p className="text-xs text-slate-400 bg-slate-50 rounded-xl px-3 py-2.5">Você ainda não cadastrou nada no Estoque. Vá no card "📦 Estoque" pra cadastrar seus materiais primeiro.</p>
+            <Field label="Material entregue">
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <button type="button" onClick={() => { setModoMaterial("estoque"); set("materialEntregue", ""); }} className="py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer" style={modoMaterial === "estoque" ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>📦 Usar do estoque</button>
+                <button type="button" onClick={() => { setModoMaterial("manual"); setItensSelecionados({}); }} className="py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer" style={modoMaterial === "manual" ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>✏️ Digitar manualmente</button>
+              </div>
+
+              {modoMaterial === "manual" ? (
+                <input className={inputClass} value={form.materialEntregue} onChange={(e) => set("materialEntregue", e.target.value)} placeholder="Ex: Painel redondo 50x50, mini arco de balões..." />
+              ) : estoqueItens.length === 0 ? (
+                <p className="text-xs text-slate-400 bg-slate-50 rounded-xl px-3 py-2.5">Você ainda não cadastrou nada no Estoque. Vá no card "📦 Estoque" pra cadastrar seus materiais, ou use "Digitar manualmente" acima.</p>
               ) : (
                 <div className="bg-slate-50 rounded-xl p-3 max-h-64 overflow-y-auto space-y-1">
                   {estoqueItens.map((item) => {
@@ -1173,7 +1283,11 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
                     const qtdSelecionada = itensSelecionados[item.id] || 0;
                     return (
                       <div key={item.id} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg" style={qtdSelecionada > 0 ? { background: BRAND.azul + "18" } : { background: "transparent" }}>
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corEstoque(item.quantidade) }} />
+                        {item.foto_data_url ? (
+                          <img src={item.foto_data_url} className="w-7 h-7 rounded object-cover shrink-0" />
+                        ) : (
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corEstoque(item.quantidade) }} />
+                        )}
                         <span className="text-sm flex-1 truncate" style={{ color: semEstoque ? "#94a3b8" : BRAND.tinta }}>{item.material} — {item.modelo}{semEstoque ? " (sem estoque)" : ` (${disponivel} disponíveis)`}</span>
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button type="button" disabled={qtdSelecionada <= 0} onClick={() => mudarQuantidadeItem(item, -1)} className="w-6 h-6 rounded-md font-bold text-xs cursor-pointer disabled:opacity-30" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>−</button>
@@ -1202,10 +1316,19 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
 
             <Field label="Status do pagamento">
               <div className="grid grid-cols-3 gap-2">
-                {[{ v: "pendente", l: "Pendente" }, { v: "sinal", l: `Sinal (${profile.sinal_percentual}%)` }, { v: "pago", l: "Pago" }].map((op) => (
+                {[{ v: "pendente", l: "Pendente" }, { v: "sinal", l: `Sinal (${pctSinalEfetivo(form, profile)}%)` }, { v: "pago", l: "Pago" }].map((op) => (
                   <button type="button" key={op.v} onClick={() => set("statusPagamento", op.v)} className="py-2 rounded-xl text-sm font-bold border-2 transition cursor-pointer" style={form.statusPagamento === op.v ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>{op.l}</button>
                 ))}
               </div>
+              {form.statusPagamento === "sinal" && (
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-xs text-slate-400">
+                    {form.valorSinal ? `Sinal de ${formatBRL(form.valorSinal)} = ` : "Usando o padrão da loja: "}
+                    <b style={{ color: BRAND.tinta }}>{pctSinalEfetivo(form, profile)}%</b>
+                    {!form.valorSinal && " (preencha \"Valor do sinal\" ali em cima pra usar um valor diferente)"}
+                  </span>
+                </div>
+              )}
             </Field>
             <ErrorBox>{erro}</ErrorBox>
             <div className="flex gap-3 mt-3">
@@ -1231,7 +1354,7 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
           </div>
           <SuccessBox>{salvo ? "Contrato salvo! Já está na lista abaixo." : ""}</SuccessBox>
           {ordered.map((c) => {
-            const fin = computeFinance(c, profile.sinal_percentual);
+            const fin = computeFinance(c, pctSinalEfetivo(c, profile));
             return (
               <div key={c.id} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
@@ -1465,7 +1588,9 @@ function EstoqueTab({ userId }) {
   const [novoModelo, setNovoModelo] = useState("Padrão");
   const [novaQtd, setNovaQtd] = useState("");
   const [salvandoNovo, setSalvandoNovo] = useState(false);
+  const [novaFoto, setNovaFoto] = useState("");
   const [observacoesMateriais, setObservacoesMateriais] = useState([]);
+  const [enviandoFotoId, setEnviandoFotoId] = useState(null);
 
   const carregar = useCallback(async () => {
     const { data } = await sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true });
@@ -1495,6 +1620,30 @@ function EstoqueTab({ userId }) {
     await sb.from("estoque_itens").update({ quantidade: q }).eq("id", item.id);
   }
 
+  async function handleFotoNovoItem(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setErro("Escolha um arquivo de imagem."); return; }
+    const foto = await redimensionarImagem(file, 500);
+    setNovaFoto(foto);
+  }
+
+  async function handleFotoItemExistente(item, e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setErro("Escolha um arquivo de imagem."); return; }
+    setEnviandoFotoId(item.id);
+    const foto = await redimensionarImagem(file, 500);
+    setItens((lista) => lista.map((i) => i.id === item.id ? { ...i, foto_data_url: foto } : i));
+    await sb.from("estoque_itens").update({ foto_data_url: foto }).eq("id", item.id);
+    setEnviandoFotoId(null);
+  }
+
+  async function removerFotoItem(item) {
+    setItens((lista) => lista.map((i) => i.id === item.id ? { ...i, foto_data_url: null } : i));
+    await sb.from("estoque_itens").update({ foto_data_url: null }).eq("id", item.id);
+  }
+
   async function excluirItem(id) {
     setItens((lista) => lista.filter((i) => i.id !== id));
     await sb.from("estoque_itens").delete().eq("id", id);
@@ -1504,15 +1653,15 @@ function EstoqueTab({ userId }) {
     setErro("");
     if (!novoMaterial.trim()) { setErro("Digite o nome do material."); return; }
     setSalvandoNovo(true);
-    const row = { id: uid(), decoradora_id: userId, material: novoMaterial.trim(), modelo: novoModelo.trim() || "Padrão", quantidade: Math.max(0, Number(novaQtd) || 0) };
+    const row = { id: uid(), decoradora_id: userId, material: novoMaterial.trim(), modelo: novoModelo.trim() || "Padrão", quantidade: Math.max(0, Number(novaQtd) || 0), foto_data_url: novaFoto || null };
     const { error } = await sb.from("estoque_itens").insert(row);
     setSalvandoNovo(false);
     if (error) { setErro("Erro ao salvar: " + error.message); return; }
-    setNovoMaterial(""); setNovoModelo("Padrão"); setNovaQtd("");
+    setNovoMaterial(""); setNovoModelo("Padrão"); setNovaQtd(""); setNovaFoto("");
     await carregar();
   }
 
-  if (itens === null) return <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">Carregando estoque...</div>;
+  if (itens === null) return <Carregando texto="Carregando estoque..." />;
 
   const agrupado = {};
   itens.forEach((it) => { (agrupado[it.material] = agrupado[it.material] || []).push(it); });
@@ -1544,10 +1693,16 @@ function EstoqueTab({ userId }) {
 
       <div className="bg-slate-50 rounded-2xl p-4 mb-5">
         <p className="font-bold text-xs mb-3" style={{ color: BRAND.azul }}>+ Adicionar novo material</p>
-        <div className="grid sm:grid-cols-4 gap-2 mb-3">
-          <input className={inputClass + " sm:col-span-2"} placeholder="Material (ex: Arco de balões)" value={novoMaterial} onChange={(e) => setNovoMaterial(e.target.value)} />
-          <input className={inputClass} placeholder="Modelo (ex: Grande)" value={novoModelo} onChange={(e) => setNovoModelo(e.target.value)} />
-          <input className={inputClass} type="number" min="0" placeholder="Quantidade" value={novaQtd} onChange={(e) => setNovaQtd(e.target.value)} />
+        <div className="flex gap-3 mb-3">
+          <label className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center shrink-0 cursor-pointer" style={{ background: "#fff", border: "2px dashed #e2e8f0" }}>
+            {novaFoto ? <img src={novaFoto} className="w-full h-full object-cover" /> : <span className="text-xl">📷</span>}
+            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFotoNovoItem} />
+          </label>
+          <div className="grid sm:grid-cols-3 gap-2 flex-1">
+            <input className={inputClass} placeholder="Material (ex: Arco de balões)" value={novoMaterial} onChange={(e) => setNovoMaterial(e.target.value)} />
+            <input className={inputClass} placeholder="Modelo (ex: Grande)" value={novoModelo} onChange={(e) => setNovoModelo(e.target.value)} />
+            <input className={inputClass} type="number" min="0" placeholder="Quantidade" value={novaQtd} onChange={(e) => setNovaQtd(e.target.value)} />
+          </div>
         </div>
         {erro && <div className="text-xs font-semibold mb-3 px-3 py-2 rounded-lg" style={{ background: BRAND.rosa+"18", color: BRAND.rosa }}>⚠️ {erro}</div>}
         <button disabled={salvandoNovo} onClick={adicionarItem} className="px-4 py-2 rounded-xl font-bold text-white text-sm cursor-pointer disabled:opacity-60" style={{ background: BRAND.azul }}>
@@ -1562,6 +1717,16 @@ function EstoqueTab({ userId }) {
             <div className="space-y-2">
               {lista.map((item) => (
                 <div key={item.id} className="flex items-center gap-3 rounded-xl p-2.5" style={{ background: corEstoque(item.quantidade) + "10" }}>
+                  <label className="w-10 h-10 rounded-lg overflow-hidden flex items-center justify-center shrink-0 cursor-pointer relative" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>
+                    {enviandoFotoId === item.id ? (
+                      <span className="text-[9px] text-slate-400">...</span>
+                    ) : item.foto_data_url ? (
+                      <img src={item.foto_data_url} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-sm">📷</span>
+                    )}
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleFotoItemExistente(item, e)} />
+                  </label>
                   <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corEstoque(item.quantidade) }} />
                   <span className="text-sm flex-1 truncate" style={{ color: BRAND.tinta }}>{item.modelo}</span>
                   <div className="flex items-center gap-1 shrink-0">
@@ -1569,6 +1734,7 @@ function EstoqueTab({ userId }) {
                     <input type="number" className="w-14 text-center rounded-lg border-2 border-slate-200 py-1 text-sm font-bold" value={item.quantidade} onChange={(e) => atualizarQuantidade(item, e.target.value)} />
                     <button onClick={() => atualizarQuantidade(item, item.quantidade + 1)} className="w-7 h-7 rounded-lg font-bold cursor-pointer" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>+</button>
                   </div>
+                  {item.foto_data_url && <button onClick={() => removerFotoItem(item)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 cursor-pointer shrink-0" title="Remover foto">🖼️✕</button>}
                   <button onClick={() => excluirItem(item.id)} className="p-1.5 rounded-lg hover:bg-rose-50 text-rose-400 cursor-pointer shrink-0">🗑</button>
                 </div>
               ))}
@@ -1625,7 +1791,7 @@ function FinanceiroTab({ userId, profile }) {
 
   const totals = useMemo(() => {
     let recebido = 0, pendente = 0, faturado = 0;
-    contracts.forEach((c) => { const f = computeFinance(c, profile.sinal_percentual); recebido += f.pago; pendente += f.pendente; faturado += f.valor; });
+    contracts.forEach((c) => { const f = computeFinance(c, pctSinalEfetivo(c, profile)); recebido += f.pago; pendente += f.pendente; faturado += f.valor; });
     return { recebido, pendente, faturado };
   }, [contracts, profile.sinal_percentual]);
 
@@ -1670,13 +1836,13 @@ function FinanceiroTab({ userId, profile }) {
     return Object.entries(map).map(([name,value]) => ({name,value})).sort((a,b)=>b.value-a.value).slice(0,6);
   }, [contracts]);
 
-  const aReceberLista = useMemo(() => contracts.filter((c) => computeFinance(c, profile.sinal_percentual).pendente > 0).sort((a,b) => (a.dataRetirada||"").localeCompare(b.dataRetirada||"")), [contracts, profile.sinal_percentual]);
-  const recebidoLista = useMemo(() => contracts.filter((c) => computeFinance(c, profile.sinal_percentual).pago > 0).sort((a,b) => (b.createdAt||0)-(a.createdAt||0)), [contracts, profile.sinal_percentual]);
+  const aReceberLista = useMemo(() => contracts.filter((c) => computeFinance(c, pctSinalEfetivo(c, profile)).pendente > 0).sort((a,b) => (a.dataRetirada||"").localeCompare(b.dataRetirada||"")), [contracts, profile.sinal_percentual]);
+  const recebidoLista = useMemo(() => contracts.filter((c) => computeFinance(c, pctSinalEfetivo(c, profile)).pago > 0).sort((a,b) => (b.createdAt||0)-(a.createdAt||0)), [contracts, profile.sinal_percentual]);
   const faturadoLista = useMemo(() => [...contracts].sort((a,b) => (b.createdAt||0)-(a.createdAt||0)), [contracts]);
 
   const PIE_CORES = [BRAND.rosa, BRAND.amarelo, BRAND.turquesa, BRAND.roxo, "#3D5AFE", "#F97316"];
 
-  if (carregando) return <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">Carregando financeiro...</div>;
+  if (carregando) return <Carregando texto="Carregando financeiro..." />;
   if (contracts.length === 0) return <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">💰<p className="mt-3">Preencha um contrato pro financeiro começar a aparecer.</p></div>;
 
   const listaAtiva = activeDetail === "recebido" ? recebidoLista : activeDetail === "pendente" ? aReceberLista : faturadoLista;
@@ -1710,7 +1876,7 @@ function FinanceiroTab({ userId, profile }) {
           </div>
           <div className="space-y-2">
             {listaAtiva.map((c) => {
-              const f = computeFinance(c, profile.sinal_percentual);
+              const f = computeFinance(c, pctSinalEfetivo(c, profile));
               const valorMostrado = activeDetail === "recebido" ? f.pago : activeDetail === "pendente" ? f.pendente : f.valor;
               const cor = activeDetail === "pendente" ? BRAND.rosa : activeDetail === "recebido" ? BRAND.turquesa : BRAND.azul;
               return (
@@ -1898,12 +2064,27 @@ function AgendaTab({ userId, profile }) {
   const [obsAberta, setObsAberta] = useState(null); // id do evento com a observação aberta
   const [obsTexto, setObsTexto] = useState("");
   const [salvandoObs, setSalvandoObs] = useState(false);
+  const [fotosPorContrato, setFotosPorContrato] = useState({});
 
   useEffect(() => {
     (async () => {
       const { data } = await sb.from("contracts").select("*").eq("decoradora_id", userId).order("created_at", { ascending: false });
       setContracts((data || []).map(contractFromDb));
       setCarregando(false);
+    })();
+  }, [userId]);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await sb.from("contract_estoque_itens")
+        .select("contract_id, estoque_itens(material, modelo, foto_data_url)")
+        .eq("decoradora_id", userId);
+      const mapa = {};
+      (data || []).forEach((r) => {
+        if (!r.estoque_itens || !r.estoque_itens.foto_data_url) return;
+        (mapa[r.contract_id] = mapa[r.contract_id] || []).push(r.estoque_itens);
+      });
+      setFotosPorContrato(mapa);
     })();
   }, [userId]);
 
@@ -1958,7 +2139,7 @@ function AgendaTab({ userId, profile }) {
     window.open(whatsappLink(e.whatsapp, buildReminderMessage(e, profile)), "_blank");
   }
 
-  if (carregando) return <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">Carregando agenda...</div>;
+  if (carregando) return <Carregando texto="Carregando agenda..." />;
   if (contracts.length === 0) return <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">📅<p className="mt-3">Preencha um contrato e as datas aparecem aqui.</p></div>;
 
   return (
@@ -2020,6 +2201,21 @@ function AgendaTab({ userId, profile }) {
                         )}
                         <button onClick={() => handleSendReminder(e)} className="p-2 rounded-lg shrink-0 cursor-pointer" style={{ color: "#22C35E", background: "#22C35E18" }}>📲</button>
                       </div>
+                      {e.tipo === "ida" && contratoDoEvento && (contratoDoEvento.materialEntregue || contratoDoEvento.materialObservacoes || (fotosPorContrato[e.contractId] || []).length > 0) && (
+                        <div className="px-3 pb-3">
+                          {contratoDoEvento.materialEntregue && <p className="text-xs text-slate-500 mb-1"><b>Levar:</b> {contratoDoEvento.materialEntregue}</p>}
+                          {contratoDoEvento.materialObservacoes && (
+                            <div className="rounded-lg px-2.5 py-2 mb-2 text-xs font-semibold" style={{ background: "#F97316" + "15", color: "#B45309" }}>📝 {contratoDoEvento.materialObservacoes}</div>
+                          )}
+                          {(fotosPorContrato[e.contractId] || []).length > 0 && (
+                            <div className="flex gap-1.5 flex-wrap">
+                              {fotosPorContrato[e.contractId].map((f, i) => (
+                                <img key={i} src={f.foto_data_url} title={`${f.material} — ${f.modelo}`} className="w-12 h-12 rounded-lg object-cover" style={{ border: "1px solid #e2e8f0" }} />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {obsAberta === e.id && (
                         <div className="px-3 pb-3">
                           <textarea
@@ -2140,7 +2336,7 @@ function App() {
       <div className="min-h-screen" style={{ background: BRAND.bg }}>
         <Header userEmail={session.user.email} page={page} setPage={setPage} onLogout={handleLogout} profile={profile} notificacoes={notificacoes} userId={session.user.id} />
         {page === "home" ? (
-          <HomeDashboard setPage={setPage} contracts={homeContracts} profile={profile} />
+          <HomeDashboard setPage={setPage} contracts={homeContracts} profile={profile} userId={session.user.id} />
         ) : page === "contrato" ? (
           <ContratoTab userId={session.user.id} profile={profile} onProfileUpdate={setProfile} />
         ) : page === "financeiro" ? (
