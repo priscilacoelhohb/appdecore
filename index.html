@@ -180,6 +180,29 @@ function Carregando({ texto }) {
   );
 }
 
+/* ============================================================
+   ÍCONES (SVG, não emoji — consistentes em qualquer aparelho)
+============================================================ */
+function Icon({ children, size = 20, ...props }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      {children}
+    </svg>
+  );
+}
+const IconMenu = (p) => <Icon {...p}><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></Icon>;
+const IconClose = (p) => <Icon {...p}><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></Icon>;
+const IconChat = (p) => <Icon {...p}><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></Icon>;
+const IconPuzzle = (p) => <Icon {...p}><path d="M4 7h4a1 1 0 0 0 1-1V5a2 2 0 1 1 4 0v1a1 1 0 0 0 1 1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-1a2 2 0 1 0 0 4h1a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-1a2 2 0 1 0-4 0v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h1a2 2 0 1 0 0-4H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1"/></Icon>;
+const IconPlay = (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><polygon points="10 8 16 12 10 16 10 8"/></Icon>;
+const IconMap = (p) => <Icon {...p}><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></Icon>;
+const IconChevronDown = (p) => <Icon {...p}><polyline points="6 9 12 15 18 9"/></Icon>;
+const IconChevronRight = (p) => <Icon {...p}><polyline points="9 18 15 12 9 6"/></Icon>;
+const IconLogout = (p) => <Icon {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></Icon>;
+const IconBack = (p) => <Icon {...p}><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></Icon>;
+const IconBell = (p) => <Icon {...p}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></Icon>;
+const IconSettings = (p) => <Icon {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></Icon>;
+
 function ErrorBox({ children }) {
   if (!children) return null;
   return (
@@ -371,8 +394,14 @@ function ResetPasswordScreen({ onDone }) {
 ============================================================ */
 function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout }) {
   const [secaoAberta, setSecaoAberta] = useState(null); // 'faq' | 'videos' | null
+  const [montado, setMontado] = useState(false);
 
-  if (!aberto) return null;
+  useEffect(() => {
+    if (aberto) { setMontado(true); }
+    else { const t = setTimeout(() => setMontado(false), 300); return () => clearTimeout(t); }
+  }, [aberto]);
+
+  if (!montado) return null;
 
   function enviarSuporte() {
     if (!config || !config.suporte_whatsapp) return;
@@ -384,24 +413,31 @@ function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout }) 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex">
-      <div className="absolute inset-0" style={{ background: "rgba(0,0,0,.4)" }} onClick={onClose} />
-      <div className="relative w-72 max-w-[85vw] h-full bg-white shadow-2xl flex flex-col">
+    <div className="fixed inset-0 z-50 flex" role="dialog" aria-label="Menu" aria-modal="true">
+      <div
+        className="absolute inset-0 transition-opacity duration-300"
+        style={{ background: "rgba(0,0,0,.5)", opacity: aberto ? 1 : 0 }}
+        onClick={onClose}
+      />
+      <div
+        className="relative w-72 max-w-[85vw] h-full bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out"
+        style={{ transform: aberto ? "translateX(0)" : "translateX(-100%)" }}
+      >
         <div className="flex items-center justify-between px-5 py-4" style={{ background: `linear-gradient(120deg, ${BRAND.azul}, ${BRAND.azulEscuro})` }}>
           <p className="fredoka font-bold text-white">Menu</p>
-          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-white/10 text-white cursor-pointer">✕</button>
+          <button onClick={onClose} aria-label="Fechar menu" className="p-2.5 rounded-full hover:bg-white/10 text-white cursor-pointer" style={{ minWidth: 44, minHeight: 44 }}><IconClose size={18} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-          <button onClick={enviarSuporte} disabled={!config || !config.suporte_whatsapp} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer disabled:opacity-40">
-            <span className="text-xl">💬</span>
+          <button onClick={enviarSuporte} disabled={!config || !config.suporte_whatsapp} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer disabled:opacity-40" style={{ minHeight: 44 }}>
+            <span style={{ color: BRAND.azul }}><IconChat /></span>
             <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>Suporte</span>
           </button>
 
-          <button onClick={() => setSecaoAberta(secaoAberta === "faq" ? null : "faq")} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer">
-            <span className="text-xl">🧩</span>
+          <button onClick={() => setSecaoAberta(secaoAberta === "faq" ? null : "faq")} aria-expanded={secaoAberta === "faq"} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer" style={{ minHeight: 44 }}>
+            <span style={{ color: BRAND.azul }}><IconPuzzle /></span>
             <span className="font-semibold text-sm flex-1" style={{ color: BRAND.tinta }}>Problemas e Soluções</span>
-            <span className="text-slate-300 text-xs">{secaoAberta === "faq" ? "▾" : "▸"}</span>
+            <span className="text-slate-400">{secaoAberta === "faq" ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}</span>
           </button>
           {secaoAberta === "faq" && (
             <div className="pl-11 pr-3 pb-2 space-y-2">
@@ -416,23 +452,23 @@ function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout }) 
             </div>
           )}
 
-          <button onClick={() => setSecaoAberta(secaoAberta === "videos" ? null : "videos")} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer">
-            <span className="text-xl">🎬</span>
+          <button onClick={() => setSecaoAberta(secaoAberta === "videos" ? null : "videos")} aria-expanded={secaoAberta === "videos"} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer" style={{ minHeight: 44 }}>
+            <span style={{ color: BRAND.azul }}><IconPlay /></span>
             <span className="font-semibold text-sm flex-1" style={{ color: BRAND.tinta }}>Aprenda mais</span>
-            <span className="text-slate-300 text-xs">{secaoAberta === "videos" ? "▾" : "▸"}</span>
+            <span className="text-slate-400">{secaoAberta === "videos" ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}</span>
           </button>
           {secaoAberta === "videos" && (
             <div className="pl-11 pr-3 pb-2 space-y-1.5">
               {(!config || !config.videos || config.videos.length === 0) ? (
                 <p className="text-xs text-slate-400">Nada cadastrado ainda.</p>
               ) : config.videos.map((v, i) => (
-                <a key={i} href={v.url} target="_blank" rel="noreferrer" className="block text-xs font-semibold hover:underline" style={{ color: BRAND.azul }}>▶ {v.titulo}</a>
+                <a key={i} href={v.url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-xs font-semibold hover:underline" style={{ color: BRAND.azul }}><IconPlay size={12} /> {v.titulo}</a>
               ))}
             </div>
           )}
 
-          <button onClick={abrirComunidade} disabled={!config || !config.comunidade_link} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer disabled:opacity-40">
-            <span className="text-xl">🗺️</span>
+          <button onClick={abrirComunidade} disabled={!config || !config.comunidade_link} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer disabled:opacity-40" style={{ minHeight: 44 }}>
+            <span style={{ color: BRAND.azul }}><IconMap /></span>
             <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>Comunidade</span>
           </button>
         </div>
@@ -445,7 +481,7 @@ function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout }) 
             <p className="text-sm font-semibold truncate" style={{ color: BRAND.tinta }}>{profile.nome_responsavel || "Minha conta"}</p>
             <p className="text-xs text-slate-400 truncate">{userEmail}</p>
           </div>
-          <button onClick={onLogout} className="text-xs font-bold px-2 py-1.5 rounded-lg cursor-pointer" style={{ color: BRAND.rosa, background: BRAND.rosa + "15" }}>Sair</button>
+          <button onClick={onLogout} className="text-xs font-bold px-2.5 py-2 rounded-lg cursor-pointer" style={{ color: BRAND.rosa, background: BRAND.rosa + "15" }}>Sair</button>
         </div>
       </div>
     </div>
@@ -498,13 +534,13 @@ function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, use
   return (
     <div className="sticky top-0 z-20 text-white" style={{ background: `linear-gradient(120deg, ${BRAND.azul}, ${BRAND.azulEscuro})` }}>
       <div className="max-w-5xl mx-auto px-5 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={onOpenMenu} className="p-2 -ml-2 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Abrir menu">☰</button>
+        <div className="flex items-center gap-2">
+          <button onClick={onOpenMenu} className="p-2.5 -ml-2 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Abrir menu" style={{ minWidth: 44, minHeight: 44 }}><IconMenu /></button>
           {!isHome && (
-            <button onClick={() => setPage("home")} className="p-2 -ml-2 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Voltar ao início">←</button>
+            <button onClick={() => setPage("home")} className="p-2.5 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Voltar ao início" style={{ minWidth: 44, minHeight: 44 }}><IconBack /></button>
           )}
           {profile.logo_data_url ? (
-            <img src={profile.logo_data_url} alt="Logo" className="w-9 h-9 rounded-xl object-cover bg-white" />
+            <img src={profile.logo_data_url} alt={`Logo ${profile.nome_loja}`} className="w-9 h-9 rounded-xl object-cover bg-white" />
           ) : (
             <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg" style={{ background: `linear-gradient(135deg, ${BRAND.rosa}, ${BRAND.roxo})` }}>🎉</div>
           )}
@@ -515,8 +551,8 @@ function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, use
         </div>
         <div className="flex items-center gap-1">
           <div className="relative">
-            <button onClick={() => setSinoAberto((v) => !v)} className="p-2 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer relative" aria-label="Notificações">
-              🔔
+            <button onClick={() => setSinoAberto((v) => !v)} className="p-2.5 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer relative" aria-label="Notificações" style={{ minWidth: 44, minHeight: 44 }}>
+              <IconBell />
               {notificacoes && notificacoes.length > 0 && (
                 <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center" style={{ background: "#DC2626", color: "#fff" }}>{notificacoes.length}</span>
               )}
@@ -537,8 +573,8 @@ function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, use
               </div>
             )}
           </div>
-          <button onClick={() => setPage("perfil")} className="p-2 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Editar perfil">⚙️</button>
-          <button onClick={onLogout} className="p-2 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Sair">🚪</button>
+          <button onClick={() => setPage("perfil")} className="p-2.5 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Editar perfil" style={{ minWidth: 44, minHeight: 44 }}><IconSettings /></button>
+          <button onClick={onLogout} className="p-2.5 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Sair" style={{ minWidth: 44, minHeight: 44 }}><IconLogout /></button>
         </div>
       </div>
     </div>
