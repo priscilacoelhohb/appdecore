@@ -161,9 +161,10 @@ function App() {
   const corPrincipal = c.loja_cor_principal || "#16308A";
   const corDestaque = c.loja_cor_destaque || "#EC1E79";
   const valor = Number(c.valor) || 0;
+  const pctEfetivo = (c.sinal_percentual_contrato !== null && c.sinal_percentual_contrato !== undefined) ? Number(c.sinal_percentual_contrato) : (Number(c.loja_sinal_percentual) || 50);
   let pago = 0;
   if (c.status_pagamento === "pago") pago = valor;
-  else if (c.status_pagamento === "sinal") pago = valor * ((Number(c.loja_sinal_percentual) || 50) / 100);
+  else if (c.status_pagamento === "sinal") pago = valor * (pctEfetivo / 100);
   const falta = Math.max(valor - pago, 0);
   const isDecoracao = c.tipo_servico === "decoracao";
 
@@ -205,7 +206,7 @@ function App() {
             <p className="font-bold mb-0.5">1. Objeto</p>
             <p className="mb-3">Prestação de serviço conforme ordem de serviço combinada entre as partes.</p>
             <p className="font-bold mb-0.5">2. Pagamento</p>
-            <p className="mb-3">Valor total {formatBRL(valor)}, via Pix. {c.loja_sinal_percentual || 50}% no agendamento garante a data.{!isDecoracao && " Multa de 10% por hora de atraso na devolução; se não devolver no mesmo dia, cobra-se o valor de nova locação."}</p>
+            <p className="mb-3">Valor total {formatBRL(valor)}, via Pix. {pctEfetivo}% no agendamento garante a data.{!isDecoracao && " Multa de 10% por hora de atraso na devolução; se não devolver no mesmo dia, cobra-se o valor de nova locação."}</p>
             <p className="font-bold mb-0.5">3. Cuidados com as peças</p>
             <p className="mb-3">As peças devem ser devolvidas em perfeito estado. Danos, quebras ou extravio geram cobrança do valor da peça — cobrança cumulativa com eventual multa por atraso.</p>
             <p className="font-bold mb-0.5">4. Balões e decoração</p>
