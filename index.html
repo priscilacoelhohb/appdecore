@@ -366,6 +366,92 @@ function ResetPasswordScreen({ onDone }) {
   );
 }
 
+/* ============================================================
+   MENU LATERAL (Suporte, Problemas e Soluções, Aprenda mais, Comunidade)
+============================================================ */
+function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout }) {
+  const [secaoAberta, setSecaoAberta] = useState(null); // 'faq' | 'videos' | null
+
+  if (!aberto) return null;
+
+  function enviarSuporte() {
+    if (!config || !config.suporte_whatsapp) return;
+    window.open(whatsappLink(config.suporte_whatsapp, config.suporte_mensagem || "Olá! Preciso de ajuda com o app."), "_blank");
+  }
+
+  function abrirComunidade() {
+    if (config && config.comunidade_link) window.open(config.comunidade_link, "_blank");
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex">
+      <div className="absolute inset-0" style={{ background: "rgba(0,0,0,.4)" }} onClick={onClose} />
+      <div className="relative w-72 max-w-[85vw] h-full bg-white shadow-2xl flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4" style={{ background: `linear-gradient(120deg, ${BRAND.azul}, ${BRAND.azulEscuro})` }}>
+          <p className="fredoka font-bold text-white">Menu</p>
+          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-white/10 text-white cursor-pointer">✕</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+          <button onClick={enviarSuporte} disabled={!config || !config.suporte_whatsapp} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer disabled:opacity-40">
+            <span className="text-xl">💬</span>
+            <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>Suporte</span>
+          </button>
+
+          <button onClick={() => setSecaoAberta(secaoAberta === "faq" ? null : "faq")} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer">
+            <span className="text-xl">🧩</span>
+            <span className="font-semibold text-sm flex-1" style={{ color: BRAND.tinta }}>Problemas e Soluções</span>
+            <span className="text-slate-300 text-xs">{secaoAberta === "faq" ? "▾" : "▸"}</span>
+          </button>
+          {secaoAberta === "faq" && (
+            <div className="pl-11 pr-3 pb-2 space-y-2">
+              {(!config || !config.faq || config.faq.length === 0) ? (
+                <p className="text-xs text-slate-400">Nada cadastrado ainda.</p>
+              ) : config.faq.map((item, i) => (
+                <details key={i} className="text-xs">
+                  <summary className="font-semibold cursor-pointer" style={{ color: BRAND.azul }}>{item.pergunta}</summary>
+                  <p className="text-slate-500 mt-1">{item.resposta}</p>
+                </details>
+              ))}
+            </div>
+          )}
+
+          <button onClick={() => setSecaoAberta(secaoAberta === "videos" ? null : "videos")} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer">
+            <span className="text-xl">🎬</span>
+            <span className="font-semibold text-sm flex-1" style={{ color: BRAND.tinta }}>Aprenda mais</span>
+            <span className="text-slate-300 text-xs">{secaoAberta === "videos" ? "▾" : "▸"}</span>
+          </button>
+          {secaoAberta === "videos" && (
+            <div className="pl-11 pr-3 pb-2 space-y-1.5">
+              {(!config || !config.videos || config.videos.length === 0) ? (
+                <p className="text-xs text-slate-400">Nada cadastrado ainda.</p>
+              ) : config.videos.map((v, i) => (
+                <a key={i} href={v.url} target="_blank" rel="noreferrer" className="block text-xs font-semibold hover:underline" style={{ color: BRAND.azul }}>▶ {v.titulo}</a>
+              ))}
+            </div>
+          )}
+
+          <button onClick={abrirComunidade} disabled={!config || !config.comunidade_link} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer disabled:opacity-40">
+            <span className="text-xl">🗺️</span>
+            <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>Comunidade</span>
+          </button>
+        </div>
+
+        <div className="border-t border-slate-100 px-4 py-3 flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0" style={{ background: BRAND.rosa }}>
+            {(profile.nome_responsavel || userEmail || "?").charAt(0).toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold truncate" style={{ color: BRAND.tinta }}>{profile.nome_responsavel || "Minha conta"}</p>
+            <p className="text-xs text-slate-400 truncate">{userEmail}</p>
+          </div>
+          <button onClick={onLogout} className="text-xs font-bold px-2 py-1.5 rounded-lg cursor-pointer" style={{ color: BRAND.rosa, background: BRAND.rosa + "15" }}>Sair</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TrialGate({ profile, onLogout, children }) {
   const status = profile.plano_status;
   const hoje = todayISO();
@@ -406,13 +492,14 @@ function TrialGate({ profile, onLogout, children }) {
 /* ============================================================
    CABEÇALHO
 ============================================================ */
-function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, userId }) {
+function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, userId, onOpenMenu }) {
   const isHome = page === "home";
   const [sinoAberto, setSinoAberto] = useState(false);
   return (
     <div className="sticky top-0 z-20 text-white" style={{ background: `linear-gradient(120deg, ${BRAND.azul}, ${BRAND.azulEscuro})` }}>
       <div className="max-w-5xl mx-auto px-5 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
+          <button onClick={onOpenMenu} className="p-2 -ml-2 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Abrir menu">☰</button>
           {!isHome && (
             <button onClick={() => setPage("home")} className="p-2 -ml-2 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Voltar ao início">←</button>
           )}
@@ -2312,6 +2399,13 @@ function App() {
   const [homeContracts, setHomeContracts] = useState([]);
   const [notificacoes, setNotificacoes] = useState([]);
   const [modoRecuperacao, setModoRecuperacao] = useState(false);
+  const [menuAberto, setMenuAberto] = useState(false);
+  const [appConfig, setAppConfig] = useState(null);
+
+  useEffect(() => {
+    if (!session || !session.user) return;
+    sb.from("app_config").select("*").eq("id", 1).maybeSingle().then(({ data }) => setAppConfig(data));
+  }, [session]);
 
   useEffect(() => {
     sb.auth.getSession().then(({ data }) => setSession(data.session));
@@ -2371,7 +2465,8 @@ function App() {
   return (
     <TrialGate profile={profile} onLogout={handleLogout}>
       <div className="min-h-screen" style={{ background: BRAND.bg }}>
-        <Header userEmail={session.user.email} page={page} setPage={setPage} onLogout={handleLogout} profile={profile} notificacoes={notificacoes} userId={session.user.id} />
+        <Header userEmail={session.user.email} page={page} setPage={setPage} onLogout={handleLogout} profile={profile} notificacoes={notificacoes} userId={session.user.id} onOpenMenu={() => setMenuAberto(true)} />
+        <SidebarMenu aberto={menuAberto} onClose={() => setMenuAberto(false)} config={appConfig} userEmail={session.user.email} profile={profile} onLogout={handleLogout} />
         {page === "home" ? (
           <HomeDashboard setPage={setPage} contracts={homeContracts} profile={profile} userId={session.user.id} />
         ) : page === "contrato" ? (
