@@ -126,7 +126,7 @@ function contractToDb(c, decoradoraId) {
     valor: parseValorBR(c.valor),
     data_retirada: c.dataRetirada || null, hora_retirada_ini: c.horaRetiradaIni, hora_retirada_fim: c.horaRetiradaFim,
     data_devolucao: c.dataDevolucao || null, hora_devolucao_ini: c.horaDevolucaoIni, hora_devolucao_fim: c.horaDevolucaoFim,
-    status_pagamento: c.statusPagamento, sinal_percentual_contrato: c.sinalPercentualContrato ? Number(c.sinalPercentualContrato) : null,
+    status_pagamento: c.statusPagamento, forma_pagamento: c.formaPagamento || "Pix", sinal_percentual_contrato: c.sinalPercentualContrato ? Number(c.sinalPercentualContrato) : null,
   };
 }
 function contractFromDb(r) {
@@ -138,7 +138,7 @@ function contractFromDb(r) {
     valor: r.valor || 0,
     dataRetirada: r.data_retirada || "", horaRetiradaIni: r.hora_retirada_ini || "09:00", horaRetiradaFim: r.hora_retirada_fim || "13:00",
     dataDevolucao: r.data_devolucao || "", horaDevolucaoIni: r.hora_devolucao_ini || "09:00", horaDevolucaoFim: r.hora_devolucao_fim || "19:00",
-    statusPagamento: r.status_pagamento || "sinal", sinalPercentualContrato: r.sinal_percentual_contrato || "",
+    statusPagamento: r.status_pagamento || "sinal", formaPagamento: r.forma_pagamento || "Pix", sinalPercentualContrato: r.sinal_percentual_contrato || "",
     assinadoEm: r.assinado_em || null,
     devolvido: r.devolvido || false,
     observacoes: r.observacoes || "",
@@ -471,6 +471,35 @@ function HomeCard({ emoji, title, desc, color, onClick, stat }) {
   );
 }
 
+function LockedHomeCard({ emoji, title, desc }) {
+  const [mostrarInfo, setMostrarInfo] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setMostrarInfo(true)}
+        title={desc}
+        className="group w-full text-left bg-slate-50 rounded-3xl p-6 border-2 border-dashed border-slate-200 cursor-pointer relative overflow-hidden"
+      >
+        <div className="absolute top-4 right-4 text-lg">🔒</div>
+        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4 text-2xl text-white" style={{ background: "#94a3b8" }}>{emoji}</div>
+        <h3 className="fredoka text-lg font-bold text-slate-400">{title}</h3>
+        <p className="text-sm text-slate-400 mt-1 leading-snug">{desc}</p>
+        <span className="inline-block mt-2 text-[11px] font-bold px-2.5 py-1 rounded-full" style={{ background: "#94a3b818", color: "#64748b" }}>Em breve</span>
+      </button>
+      {mostrarInfo && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.5)" }} onClick={() => setMostrarInfo(false)}>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="text-3xl mb-2">🔒{emoji}</div>
+            <p className="fredoka text-lg font-bold mb-2" style={{ color: BRAND.tinta }}>{title}</p>
+            <p className="text-sm text-slate-500 leading-relaxed">{desc}</p>
+            <button onClick={() => setMostrarInfo(false)} className="w-full mt-4 py-2.5 rounded-xl font-bold text-sm cursor-pointer" style={{ background: BRAND.bg, color: BRAND.tinta }}>Entendi</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function saudacaoPorHorario() {
   const h = new Date().getHours();
   if (h < 12) return "Bom dia";
@@ -528,6 +557,7 @@ function HomeDashboard({ setPage, contracts, profile, userId }) {
         <HomeCard emoji="📅" title="Agenda" desc="Veja o que precisa entregar e retirar em cada dia." color={BRAND.turquesa} onClick={() => setPage("agenda")} stat={entregasHoje > 0 ? `${entregasHoje} hoje` : "Nada hoje"} />
         <HomeCard emoji="🎯" title="Oportunidades" desc="Aniversários e clientes antigos pra reconquistar." color="#8B5CF6" onClick={() => setPage("oportunidades")} />
         <HomeCard emoji="📦" title="Estoque" desc="Seus materiais, com quantidade sempre atualizada." color="#F97316" onClick={() => setPage("estoque")} />
+        <LockedHomeCard emoji="🪄" title="Catálogo inteligente" desc="Envie um link pra cliente descrever a festa que ela imagina, e uma Inteligência Artificial gera uma prévia visual, treinada nos kits que você realmente entrega. Em breve!" />
       </div>
     </div>
   );
@@ -780,7 +810,7 @@ const CAMPOS_VAZIOS = {
   produtoNome: "", materialEntregue: "", materialObservacoes: "", valor: "",
   dataRetirada: "", horaRetiradaIni: "09:00", horaRetiradaFim: "13:00",
   dataDevolucao: "", horaDevolucaoIni: "09:00", horaDevolucaoFim: "19:00",
-  statusPagamento: "sinal", sinalPercentualContrato: "", valorSinal: "",
+  statusPagamento: "sinal", sinalPercentualContrato: "", valorSinal: "", formaPagamento: "Pix",
 };
 
 function ContratoPreview({ dados, profile }) {
@@ -824,7 +854,7 @@ function ContratoPreview({ dados, profile }) {
         <p className="font-bold mb-0.5">2. VIGÊNCIA E RESCISÃO</p>
         <p className="mb-3">2.1. Este contrato tem início na data de sua assinatura e termina na data de entrega do material ou de retirada da decoração, conforme o serviço contratado.</p>
         <p className="font-bold mb-0.5">3. VALOR E FORMA DE PAGAMENTO</p>
-        <p>3.1. O valor total do serviço é de {formatBRL(dados.valor)}, a ser pago via Pix informado pela CONTRATADA.</p>
+        <p>3.1. O valor total do serviço é de {formatBRL(dados.valor)}, a ser pago via {dados.formaPagamento || "Pix"}{dados.formaPagamento === "Pix" || !dados.formaPagamento ? " (chave informada pela CONTRATADA)" : ""}.</p>
         <p>3.2. É necessário pagar {pctSinalEfetivo(dados, profile)}% do valor no ato do agendamento para garantir a data; sem esse sinal, a data não fica reservada.</p>
         {dados.tipoServico !== "decoracao" && (
           <>
@@ -917,7 +947,7 @@ function buildContractHtml(dados, profile) {
     <p>${paragrafo}</p>
     <h2>1. OBJETO</h2><p>1.1. Prestação de serviço conforme ordem de serviço anexa.</p>
     <h2>2. VIGÊNCIA</h2><p>2.1. Início na assinatura, término na entrega/retirada.</p>
-    <h2>3. VALOR E PAGAMENTO</h2><p>3.1. Valor total ${formatBRL(dados.valor)}, via Pix.</p><p>3.2. ${pctSinalEfetivo(dados, profile)}% no agendamento garante a data.</p>${clausula34}
+    <h2>3. VALOR E PAGAMENTO</h2><p>3.1. Valor total ${formatBRL(dados.valor)}, via ${dados.formaPagamento || "Pix"}.</p><p>3.2. ${pctSinalEfetivo(dados, profile)}% no agendamento garante a data.</p>${clausula34}
     <h2>4. OBRIGAÇÕES</h2><p>Contratante: pagar em dia, informar dados corretos, devolver sem danos. Contratada: executar o serviço, entregar conforme combinado.</p>
     <h2>5. CUIDADOS COM AS PEÇAS</h2><p>5.1. Devolver em perfeito estado, sob pena de pagamento integral.</p><p>5.2. Peças conferidas na entrega/devolução; danos e atraso são cobranças cumulativas.</p>
     <h2>6. FORO</h2><p>6.1. Cancelamento vira crédito por 6 meses.</p><p>6.2. Retirada/montagem é da contratante, exceto decoração completa.</p>
@@ -1314,6 +1344,13 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
               <Field label="Hora fim"><input type="time" className={inputClass} value={form.horaDevolucaoFim} onChange={(e) => set("horaDevolucaoFim", e.target.value)} /></Field>
             </div>
 
+            <Field label="Forma de pagamento">
+              <div className="grid grid-cols-4 gap-2">
+                {[{ v: "Pix", l: "Pix" }, { v: "Cartão de crédito", l: "Crédito" }, { v: "Cartão de débito", l: "Débito" }, { v: "Dinheiro", l: "Dinheiro" }].map((op) => (
+                  <button type="button" key={op.v} onClick={() => set("formaPagamento", op.v)} className="py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer" style={form.formaPagamento === op.v ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>{op.l}</button>
+                ))}
+              </div>
+            </Field>
             <Field label="Status do pagamento">
               <div className="grid grid-cols-3 gap-2">
                 {[{ v: "pendente", l: "Pendente" }, { v: "sinal", l: `Sinal (${pctSinalEfetivo(form, profile)}%)` }, { v: "pago", l: "Pago" }].map((op) => (
