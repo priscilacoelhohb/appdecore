@@ -2338,7 +2338,6 @@ function AgendaTab({ userId, profile }) {
 
   const events = useMemo(() => buildEvents(contracts), [contracts]);
   const eventsByDate = useMemo(() => { const map = {}; events.forEach((e) => { (map[e.date]=map[e.date]||[]).push(e); }); return map; }, [events]);
-  const eventsByDateIda = useMemo(() => { const map = {}; events.filter((e) => e.tipo === "ida").forEach((e) => { (map[e.date]=map[e.date]||[]).push(e); }); return map; }, [events]);
   const doDia = (eventsByDate[selected] || []).sort((a,b) => (a.hora||"").localeCompare(b.hora||""));
 
   const proximosAgrupados = useMemo(() => {
@@ -2363,7 +2362,7 @@ function AgendaTab({ userId, profile }) {
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
       <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Agenda</h2>
-      <p className="text-sm text-slate-400 mb-3">O calendário marca as datas de retirada/montagem. As devoluções aparecem nas listas abaixo.</p>
+      <p className="text-sm text-slate-400 mb-3">O calendário marca as datas de entrega e devolução dos kits.</p>
 
       <div className="flex flex-wrap gap-4 mb-5">
         <span className="text-xs font-semibold flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: ENTREGA_COLOR }} />Entrega de kit</span>
@@ -2387,7 +2386,7 @@ function AgendaTab({ userId, profile }) {
       )}
 
       <div className="grid lg:grid-cols-2 gap-5">
-        <MiniCalendar viewDate={viewDate} setViewDate={setViewDate} eventsByDate={eventsByDateIda} selected={selected} setSelected={setSelected} />
+        <MiniCalendar viewDate={viewDate} setViewDate={setViewDate} eventsByDate={eventsByDate} selected={selected} setSelected={setSelected} />
         <div className="space-y-5">
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
             <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>{selected === todayISO() ? "Hoje" : formatDateLong(selected)}</p>
