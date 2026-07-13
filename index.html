@@ -13,8 +13,23 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Poppins:wght@400;500;600;700&display=swap');
-  body { font-family: 'Poppins', sans-serif; margin: 0; }
+  html, body { font-family: 'Poppins', sans-serif; margin: 0; max-width: 100%; overflow-x: hidden; }
+  * { min-width: 0; }
   .fredoka { font-family: 'Fredoka', sans-serif; }
+
+  /* Toque mais responsivo em mobile (remove atraso de 300ms) */
+  button, a, [role="button"], input, select, textarea { touch-action: manipulation; }
+
+  /* Impede zoom automático do iOS ao focar campos (fonte < 16px dispara isso) */
+  input, select, textarea { font-size: 16px; }
+
+  /* Quebra palavras muito longas (links, e-mails) pra não estourar a largura */
+  p, span, h1, h2, h3, a, div { overflow-wrap: break-word; }
+
+  /* Respeita quem prefere menos animação */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  }
 </style>
 </head>
 <body>
@@ -158,9 +173,9 @@ const PROFILE_DEFAULT = {
 /* ============================================================
    UI GENÉRICA
 ============================================================ */
-function Field({ label, children, hint }) {
+function Field({ label, children, hint, className = "" }) {
   return (
-    <label className="block mb-4">
+    <label className={"block mb-4 " + className}>
       <span className="block text-sm font-semibold mb-1.5" style={{ color: BRAND.tinta }}>{label}</span>
       {children}
       {hint && <span className="block text-xs mt-1 text-slate-400">{hint}</span>}
@@ -488,6 +503,56 @@ function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout }) 
   );
 }
 
+/* ============================================================
+   BOAS-VINDAS (aparece só no primeiro login)
+============================================================ */
+function WelcomeModal({ profile, onClose }) {
+  const primeiroNome = (profile.nome_responsavel || "").trim().split(" ")[0];
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(10,14,39,.72)" }}>
+      <div className="bg-white rounded-3xl max-w-md w-full p-7 relative overflow-hidden">
+        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-20" style={{ background: `linear-gradient(135deg, ${BRAND.rosa}, ${BRAND.roxo})` }} />
+        <div className="relative">
+          <div className="text-4xl mb-3">🎉</div>
+          <p className="fredoka text-2xl font-bold mb-2" style={{ color: BRAND.tinta }}>
+            Parabéns{primeiroNome ? `, ${primeiroNome}` : ""}!
+          </p>
+          <p className="text-sm mb-5" style={{ color: "#64748b" }}>
+            Você acabou de dar um passo importante pra profissionalizar a <b>{profile.nome_loja || "sua empresa de festas"}</b>. Bem-vinda ao AppDecore! 🎈
+          </p>
+
+          <div className="space-y-2.5 mb-6">
+            <div className="flex items-center gap-3">
+              <span className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: BRAND.rosa + "18" }}>📄</span>
+              <p className="text-sm" style={{ color: BRAND.tinta }}><b>Contrato</b> com assinatura digital, em minutos</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: "#F97316" + "18" }}>📦</span>
+              <p className="text-sm" style={{ color: BRAND.tinta }}><b>Estoque</b> que se atualiza sozinho</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: BRAND.turquesa + "18" }}>📅</span>
+              <p className="text-sm" style={{ color: BRAND.tinta }}><b>Agenda</b> com lembretes automáticos</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: BRAND.amarelo + "30" }}>💰</span>
+              <p className="text-sm" style={{ color: BRAND.tinta }}><b>Financeiro</b> sem planilha, sem dor de cabeça</p>
+            </div>
+          </div>
+
+          <p className="text-xs mb-4" style={{ color: "#94a3b8" }}>
+            Dica: dá uma passada no menu ☰ → "Aprenda mais" se quiser ver vídeos rápidos de cada parte do app.
+          </p>
+
+          <button onClick={onClose} className="w-full py-3.5 rounded-2xl font-bold text-white cursor-pointer active:scale-[0.98] transition" style={{ background: `linear-gradient(120deg, ${BRAND.rosa}, ${BRAND.roxo})` }}>
+            Vamos começar! 🚀
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TrialGate({ profile, onLogout, children }) {
   const status = profile.plano_status;
   const hoje = todayISO();
@@ -668,7 +733,7 @@ function HomeDashboard({ setPage, contracts, profile, userId }) {
   const aReceber = contracts.reduce((s, c) => s + computeFinance(c, pctSinalEfetivo(c, profile)).pendente, 0);
   const primeiroNome = (profile.nome_responsavel || "").trim().split(" ")[0];
   return (
-    <div className="max-w-5xl mx-auto px-5 py-8">
+    <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
       <div className="mb-7">
         <h2 className="fredoka text-2xl font-bold" style={{ color: BRAND.tinta }}>{saudacaoPorHorario()}{primeiroNome ? `, ${primeiroNome}` : ""}! 👋</h2>
         <p className="text-slate-400 text-sm mt-1">O que vamos fazer hoje?</p>
@@ -830,7 +895,7 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-5 py-7">
+    <div className="max-w-2xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
       <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Perfil da loja</h2>
       <p className="text-sm text-slate-400 mb-5">Esses dados aparecem no cabeçalho e no contrato.</p>
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
@@ -1177,6 +1242,7 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
   const [modoMaterial, setModoMaterial] = useState("estoque"); // 'estoque' | 'manual'
   const [itensSelecionados, setItensSelecionados] = useState({}); // { estoqueItemId: quantidade }
   const [itensSelecionadosOriginais, setItensSelecionadosOriginais] = useState({}); // como estava quando abriu (pra saber o que mudou)
+  const [confirmarExclusao, setConfirmarExclusao] = useState(null); // contrato aguardando confirmação de exclusão
 
   useEffect(() => {
     sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true }).then(({ data }) => {
@@ -1211,7 +1277,7 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
       if (novo === 0) delete novaSelecao[item.id]; else novaSelecao[item.id] = novo;
       const rotulos = Object.entries(novaSelecao).map(([id, qtd]) => {
         const it = estoqueItens.find((x) => x.id === id);
-        return it ? `${qtd}x ${it.material} (${it.modelo})` : null;
+        return it ? `${qtd}x ${it.material}${it.modelo ? ` (${it.modelo})` : ""}` : null;
       }).filter(Boolean);
       set("materialEntregue", rotulos.join(", "));
       return novaSelecao;
@@ -1320,6 +1386,7 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
     }
     const { error } = await sb.from("contracts").delete().eq("id", c.id);
     if (error) { setErro("Erro ao excluir: " + error.message); return; }
+    setConfirmarExclusao(null);
     await carregarContratos();
   }
 
@@ -1355,13 +1422,13 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
   if (carregando) return <Carregando texto="Carregando contratos..." />;
 
   return (
-    <div className="max-w-5xl mx-auto px-5 py-7">
-      <div className="flex items-center justify-between mb-5">
+    <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
         <div><h2 className="fredoka text-xl font-bold" style={{ color: BRAND.tinta }}>Preencher contrato</h2>
         <p className="text-sm text-slate-400">O texto já vem pronto — você só troca os campos que mudam.</p></div>
-        <div className="flex gap-2">
-          <button onClick={() => setMostrarConfigLink(true)} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-sm active:scale-95 transition cursor-pointer" style={{ color: BRAND.azul, background: BRAND.azul + "12" }}>🔗 Link de assinatura</button>
-          {!showForm && <button onClick={startNew} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-white text-sm active:scale-95 transition cursor-pointer" style={{ background: BRAND.rosa }}>+ Novo</button>}
+        <div className="flex gap-2 shrink-0">
+          <button onClick={() => setMostrarConfigLink(true)} className="flex items-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-xl font-bold text-sm active:scale-95 transition cursor-pointer" style={{ color: BRAND.azul, background: BRAND.azul + "12", minHeight: 44 }}>🔗 Link de assinatura</button>
+          {!showForm && <button onClick={startNew} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-white text-sm active:scale-95 transition cursor-pointer" style={{ background: BRAND.rosa, minHeight: 44 }}>+ Novo</button>}
         </div>
       </div>
 
@@ -1437,11 +1504,11 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
                     return (
                       <div key={item.id} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg" style={qtdSelecionada > 0 ? { background: BRAND.azul + "18" } : { background: "transparent" }}>
                         {item.foto_data_url ? (
-                          <img src={item.foto_data_url} className="w-7 h-7 rounded object-cover shrink-0" />
+                          <img src={item.foto_data_url} loading="lazy" className="w-7 h-7 rounded object-cover shrink-0" />
                         ) : (
                           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corEstoque(item.quantidade) }} />
                         )}
-                        <span className="text-sm flex-1 truncate" style={{ color: semEstoque ? "#94a3b8" : BRAND.tinta }}>{item.material} — {item.modelo}{semEstoque ? " (sem estoque)" : ` (${disponivel} disponíveis)`}</span>
+                        <span className="text-sm flex-1 truncate" style={{ color: semEstoque ? "#94a3b8" : BRAND.tinta }}>{item.material}{item.modelo ? ` — ${item.modelo}` : ""}{semEstoque ? " (sem estoque)" : ` (${disponivel} disponíveis)`}</span>
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button type="button" disabled={qtdSelecionada <= 0} onClick={() => mudarQuantidadeItem(item, -1)} className="w-6 h-6 rounded-md font-bold text-xs cursor-pointer disabled:opacity-30" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>−</button>
                           <span className="w-5 text-center text-sm font-bold" style={{ color: BRAND.tinta }}>{qtdSelecionada}</span>
@@ -1453,16 +1520,13 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
                 </div>
               )}
             </Field>
-            <Field label="Observações sobre os materiais" hint="Pra pedidos bem específicos desse contrato. Também aparece na aba Estoque.">
-              <textarea className={inputClass} rows={2} value={form.materialObservacoes} onChange={(e) => set("materialObservacoes", e.target.value)} placeholder="Ex: cliente pediu o painel na cor rosa claro, não o padrão." />
-            </Field>
-            <div className="grid grid-cols-3 gap-3">
-              <Field label={labelData(form.tipoServico, "ida")}><input type="date" className={inputClass} value={form.dataRetirada} onChange={(e) => set("dataRetirada", e.target.value)} /></Field>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <Field label={labelData(form.tipoServico, "ida")} className="col-span-2 sm:col-span-1"><input type="date" className={inputClass} value={form.dataRetirada} onChange={(e) => set("dataRetirada", e.target.value)} /></Field>
               <Field label="Hora início"><input type="time" className={inputClass} value={form.horaRetiradaIni} onChange={(e) => set("horaRetiradaIni", e.target.value)} /></Field>
               <Field label="Hora fim"><input type="time" className={inputClass} value={form.horaRetiradaFim} onChange={(e) => set("horaRetiradaFim", e.target.value)} /></Field>
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              <Field label={labelData(form.tipoServico, "volta")}><input type="date" className={inputClass} value={form.dataDevolucao} onChange={(e) => set("dataDevolucao", e.target.value)} /></Field>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <Field label={labelData(form.tipoServico, "volta")} className="col-span-2 sm:col-span-1"><input type="date" className={inputClass} value={form.dataDevolucao} onChange={(e) => set("dataDevolucao", e.target.value)} /></Field>
               <Field label="Hora início"><input type="time" className={inputClass} value={form.horaDevolucaoIni} onChange={(e) => set("horaDevolucaoIni", e.target.value)} /></Field>
               <Field label="Hora fim"><input type="time" className={inputClass} value={form.horaDevolucaoFim} onChange={(e) => set("horaDevolucaoFim", e.target.value)} /></Field>
             </div>
@@ -1529,7 +1593,7 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
                 <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-50 flex-wrap">
                   <button onClick={() => handleSendWhatsapp(c)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold cursor-pointer" style={{ color: "#22C35E", background: "#22C35E18" }}>📲 WhatsApp</button>
                   <button onClick={() => editContract(c)} className="px-3 py-2 rounded-lg text-xs font-bold hover:bg-slate-50 cursor-pointer" style={{ color: BRAND.azul }}>Abrir / editar</button>
-                  <button onClick={() => removeContract(c)} className="p-2 rounded-lg hover:bg-rose-50 text-rose-400 ml-auto cursor-pointer">🗑</button>
+                  <button onClick={() => setConfirmarExclusao(c)} className="p-2 rounded-lg hover:bg-rose-50 text-rose-400 ml-auto cursor-pointer" title="Excluir contrato">🗑</button>
                 </div>
               </div>
             );
@@ -1538,6 +1602,21 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
       )}
       {mostrarConfigLink && (
         <ConfigurarLinkModal profile={profile} onClose={() => setMostrarConfigLink(false)} onSaved={onProfileUpdate} />
+      )}
+      {confirmarExclusao && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.5)" }} onClick={() => setConfirmarExclusao(null)}>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="text-3xl mb-2">🗑️</div>
+            <p className="fredoka text-lg font-bold mb-2" style={{ color: BRAND.tinta }}>Excluir este contrato?</p>
+            <p className="text-sm text-slate-500 leading-relaxed">
+              O contrato de <b>{confirmarExclusao.contratanteNome || "cliente sem nome"}</b> ({confirmarExclusao.produtoNome || "produto"}) vai ser apagado pra sempre. Essa ação não pode ser desfeita.
+            </p>
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setConfirmarExclusao(null)} className="flex-1 py-2.5 rounded-xl font-bold text-sm cursor-pointer" style={{ background: BRAND.bg, color: BRAND.tinta }}>Cancelar</button>
+              <button onClick={() => removeContract(confirmarExclusao)} className="flex-1 py-2.5 rounded-xl font-bold text-sm text-white cursor-pointer" style={{ background: BRAND.rosa }}>Sim, excluir</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1660,7 +1739,7 @@ function OportunidadesTab({ userId, profile }) {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-5 py-7">
+    <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
       <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>🎯 Oportunidades</h2>
       <p className="text-sm text-slate-400 mb-5">Lembretes automáticos pra manter contato com clientes antigos.</p>
 
@@ -1720,20 +1799,6 @@ function OportunidadesTab({ userId, profile }) {
 /* ============================================================
    MÓDULO ESTOQUE
 ============================================================ */
-const ESTOQUE_PADRAO = [
-  { material: "Cilindro", modelo: "Grande" },
-  { material: "Cilindro", modelo: "Pequeno" },
-  { material: "Cilindro", modelo: "Médio" },
-  { material: "Kit completo", modelo: "Padrão" },
-  { material: "Mesa", modelo: "Padrão" },
-  { material: "Bandeja", modelo: "Padrão" },
-  { material: "Painel", modelo: "Padrão" },
-  { material: "Tapete", modelo: "Padrão" },
-  { material: "Arranjo", modelo: "Padrão" },
-  { material: "Display", modelo: "Padrão" },
-  { material: "Personagem", modelo: "Padrão" },
-  { material: "Vaso", modelo: "Padrão" },
-];
 
 function corEstoque(qtd) {
   if (qtd <= 0) return "#DC2626";
@@ -1745,7 +1810,6 @@ function EstoqueTab({ userId }) {
   const [itens, setItens] = useState(null);
   const [erro, setErro] = useState("");
   const [novoMaterial, setNovoMaterial] = useState("");
-  const [novoModelo, setNovoModelo] = useState("Padrão");
   const [novaQtd, setNovaQtd] = useState("");
   const [salvandoNovo, setSalvandoNovo] = useState(false);
   const [novaFoto, setNovaFoto] = useState("");
@@ -1754,15 +1818,7 @@ function EstoqueTab({ userId }) {
 
   const carregar = useCallback(async () => {
     const { data } = await sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true });
-    if (data && data.length === 0) {
-      // primeira vez: já deixa o estoque com os principais materiais pré-cadastrados
-      const seed = ESTOQUE_PADRAO.map((it) => ({ id: uid(), decoradora_id: userId, material: it.material, modelo: it.modelo, quantidade: 0 }));
-      await sb.from("estoque_itens").insert(seed);
-      const { data: data2 } = await sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true });
-      setItens(data2 || []);
-    } else {
-      setItens(data || []);
-    }
+    setItens(data || []);
   }, [userId]);
 
   useEffect(() => { carregar(); }, [carregar]);
@@ -1813,11 +1869,11 @@ function EstoqueTab({ userId }) {
     setErro("");
     if (!novoMaterial.trim()) { setErro("Digite o nome do material."); return; }
     setSalvandoNovo(true);
-    const row = { id: uid(), decoradora_id: userId, material: novoMaterial.trim(), modelo: novoModelo.trim() || "Padrão", quantidade: Math.max(0, Number(novaQtd) || 0), foto_data_url: novaFoto || null };
+    const row = { id: uid(), decoradora_id: userId, material: novoMaterial.trim(), modelo: "", quantidade: Math.max(0, Number(novaQtd) || 0), foto_data_url: novaFoto || null };
     const { error } = await sb.from("estoque_itens").insert(row);
     setSalvandoNovo(false);
     if (error) { setErro("Erro ao salvar: " + error.message); return; }
-    setNovoMaterial(""); setNovoModelo("Padrão"); setNovaQtd(""); setNovaFoto("");
+    setNovoMaterial(""); setNovaQtd(""); setNovaFoto("");
     await carregar();
   }
 
@@ -1827,7 +1883,7 @@ function EstoqueTab({ userId }) {
   itens.forEach((it) => { (agrupado[it.material] = agrupado[it.material] || []).push(it); });
 
   return (
-    <div className="max-w-5xl mx-auto px-5 py-7">
+    <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
       <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>📦 Estoque</h2>
       <p className="text-sm text-slate-400 mb-3">Cadastre e edite os materiais que você tem disponível.</p>
 
@@ -1854,13 +1910,15 @@ function EstoqueTab({ userId }) {
       <div className="bg-slate-50 rounded-2xl p-4 mb-5">
         <p className="font-bold text-xs mb-3" style={{ color: BRAND.azul }}>+ Adicionar novo material</p>
         <div className="flex gap-3 mb-3">
-          <label className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center shrink-0 cursor-pointer" style={{ background: "#fff", border: "2px dashed #e2e8f0" }}>
-            {novaFoto ? <img src={novaFoto} className="w-full h-full object-cover" /> : <span className="text-xl">📷</span>}
-            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFotoNovoItem} />
-          </label>
-          <div className="grid sm:grid-cols-3 gap-2 flex-1">
+          <div className="shrink-0 text-center">
+            <label className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center cursor-pointer" style={{ background: "#fff", border: "2px dashed #e2e8f0" }}>
+              {novaFoto ? <img src={novaFoto} className="w-full h-full object-cover" /> : <span className="text-xl">📷</span>}
+              <input type="file" accept="image/*" className="hidden" onChange={handleFotoNovoItem} />
+            </label>
+            <p className="text-[10px] text-slate-400 mt-1 w-16 leading-tight">Foto opcional</p>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-2 flex-1">
             <input className={inputClass} placeholder="Material (ex: Arco de balões)" value={novoMaterial} onChange={(e) => setNovoMaterial(e.target.value)} />
-            <input className={inputClass} placeholder="Modelo (ex: Grande)" value={novoModelo} onChange={(e) => setNovoModelo(e.target.value)} />
             <input className={inputClass} type="number" min="0" placeholder="Quantidade" value={novaQtd} onChange={(e) => setNovaQtd(e.target.value)} />
           </div>
         </div>
@@ -1881,11 +1939,11 @@ function EstoqueTab({ userId }) {
                     {enviandoFotoId === item.id ? (
                       <span className="text-[9px] text-slate-400">...</span>
                     ) : item.foto_data_url ? (
-                      <img src={item.foto_data_url} className="w-full h-full object-cover" />
+                      <img src={item.foto_data_url} loading="lazy" className="w-full h-full object-cover" />
                     ) : (
                       <span className="text-sm">📷</span>
                     )}
-                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleFotoItemExistente(item, e)} />
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFotoItemExistente(item, e)} />
                   </label>
                   <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corEstoque(item.quantidade) }} />
                   <span className="text-sm flex-1 truncate" style={{ color: BRAND.tinta }}>{item.modelo}</span>
@@ -2008,7 +2066,7 @@ function FinanceiroTab({ userId, profile }) {
   const listaAtiva = activeDetail === "recebido" ? recebidoLista : activeDetail === "pendente" ? aReceberLista : faturadoLista;
 
   return (
-    <div className="max-w-5xl mx-auto px-5 py-7">
+    <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
       <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Financeiro</h2>
       <p className="text-sm text-slate-400 mb-5">Puxado automaticamente dos contratos preenchidos.</p>
 
@@ -2130,11 +2188,11 @@ function FinanceiroTab({ userId, profile }) {
 /* ============================================================
    ABA AGENDA
 ============================================================ */
-const DEVOLUCAO_COLOR = "#DC2626";
+const ENTREGA_COLOR = BRAND.rosa;
+const RETIRADA_COLOR = BRAND.turquesa;
 function eventoCores(e) {
-  const corTipo = tipoServicoColor(e.tipoServico);
-  if (e.tipo === "volta") return { fill: DEVOLUCAO_COLOR, border: corTipo };
-  return { fill: corTipo, border: "transparent" };
+  if (e.tipo === "volta") return { fill: RETIRADA_COLOR, border: "transparent" };
+  return { fill: ENTREGA_COLOR, border: "transparent" };
 }
 function tomorrowISO() { const d = new Date(); d.setDate(d.getDate()+1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
 const MESES_LONGO = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
@@ -2303,14 +2361,13 @@ function AgendaTab({ userId, profile }) {
   if (contracts.length === 0) return <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">📅<p className="mt-3">Preencha um contrato e as datas aparecem aqui.</p></div>;
 
   return (
-    <div className="max-w-5xl mx-auto px-5 py-7">
+    <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
       <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Agenda</h2>
       <p className="text-sm text-slate-400 mb-3">O calendário marca as datas de retirada/montagem. As devoluções aparecem nas listas abaixo.</p>
 
-      <div className="flex flex-wrap gap-3 mb-5">
-        {[...Object.entries(TIPO_SERVICO_LABELS), ...(profile.tipos_customizados || []).map((t) => [t, t])].map(([key,label]) => (
-          <span key={key} className="text-xs font-semibold flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: tipoServicoColor(key) }} />{label}</span>
-        ))}
+      <div className="flex flex-wrap gap-4 mb-5">
+        <span className="text-xs font-semibold flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: ENTREGA_COLOR }} />Entrega de kit</span>
+        <span className="text-xs font-semibold flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: RETIRADA_COLOR }} />Retirada de kit</span>
       </div>
 
       {erroLembrete && <div className="text-sm font-semibold mb-4 px-3 py-2.5 rounded-xl" style={{ background: BRAND.rosa+"15", color: BRAND.rosa }}>⚠️ {erroLembrete}</div>}
@@ -2340,7 +2397,7 @@ function AgendaTab({ userId, profile }) {
                   const contratoDoEvento = contracts.find((c) => c.id === e.contractId);
                   const temObs = contratoDoEvento && contratoDoEvento.observacoes;
                   return (
-                    <div key={e.id} className="rounded-xl overflow-hidden" style={{ background: eventoCores(e).fill+"10", borderLeft: `3px solid ${tipoServicoColor(e.tipoServico)}` }}>
+                    <div key={e.id} className="rounded-xl overflow-hidden" style={{ background: eventoCores(e).fill+"10", borderLeft: `3px solid ${eventoCores(e).fill}` }}>
                       <div className="flex items-center gap-3 p-3">
                         <div className="w-9 h-9 rounded-lg flex items-center justify-center text-white shrink-0" style={{ background: eventoCores(e).fill }}>{e.tipo === "ida" ? "📦" : "✅"}</div>
                         <div className="min-w-0 flex-1">
@@ -2370,7 +2427,7 @@ function AgendaTab({ userId, profile }) {
                           {(fotosPorContrato[e.contractId] || []).length > 0 && (
                             <div className="flex gap-1.5 flex-wrap">
                               {fotosPorContrato[e.contractId].map((f, i) => (
-                                <img key={i} src={f.foto_data_url} title={`${f.material} — ${f.modelo}`} className="w-12 h-12 rounded-lg object-cover" style={{ border: "1px solid #e2e8f0" }} />
+                                <img key={i} src={f.foto_data_url} loading="lazy" title={f.modelo ? `${f.material} — ${f.modelo}` : f.material} className="w-12 h-12 rounded-lg object-cover" style={{ border: "1px solid #e2e8f0" }} />
                               ))}
                             </div>
                           )}
@@ -2503,6 +2560,15 @@ function App() {
       <div className="min-h-screen" style={{ background: BRAND.bg }}>
         <Header userEmail={session.user.email} page={page} setPage={setPage} onLogout={handleLogout} profile={profile} notificacoes={notificacoes} userId={session.user.id} onOpenMenu={() => setMenuAberto(true)} />
         <SidebarMenu aberto={menuAberto} onClose={() => setMenuAberto(false)} config={appConfig} userEmail={session.user.email} profile={profile} onLogout={handleLogout} />
+        {profile && !profile.onboarding_visto && (
+          <WelcomeModal
+            profile={profile}
+            onClose={async () => {
+              setProfile((p) => ({ ...p, onboarding_visto: true }));
+              await sb.from("decoradoras").update({ onboarding_visto: true }).eq("id", session.user.id);
+            }}
+          />
+        )}
         {page === "home" ? (
           <HomeDashboard setPage={setPage} contracts={homeContracts} profile={profile} userId={session.user.id} />
         ) : page === "contrato" ? (
