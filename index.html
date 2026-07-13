@@ -2189,9 +2189,9 @@ function FinanceiroTab({ userId, profile }) {
    ABA AGENDA
 ============================================================ */
 const ENTREGA_COLOR = BRAND.rosa;
-const RETIRADA_COLOR = BRAND.turquesa;
+const DEVOLUCAO_COLOR = BRAND.turquesa;
 function eventoCores(e) {
-  if (e.tipo === "volta") return { fill: RETIRADA_COLOR, border: "transparent" };
+  if (e.tipo === "volta") return { fill: DEVOLUCAO_COLOR, border: "transparent" };
   return { fill: ENTREGA_COLOR, border: "transparent" };
 }
 function tomorrowISO() { const d = new Date(); d.setDate(d.getDate()+1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
@@ -2367,7 +2367,7 @@ function AgendaTab({ userId, profile }) {
 
       <div className="flex flex-wrap gap-4 mb-5">
         <span className="text-xs font-semibold flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: ENTREGA_COLOR }} />Entrega de kit</span>
-        <span className="text-xs font-semibold flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: RETIRADA_COLOR }} />Retirada de kit</span>
+        <span className="text-xs font-semibold flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: DEVOLUCAO_COLOR }} />Devolução de kit</span>
       </div>
 
       {erroLembrete && <div className="text-sm font-semibold mb-4 px-3 py-2.5 rounded-xl" style={{ background: BRAND.rosa+"15", color: BRAND.rosa }}>⚠️ {erroLembrete}</div>}
