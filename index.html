@@ -2374,6 +2374,13 @@ function AgendaTab({ userId, profile }) {
   const events = useMemo(() => buildEvents(contracts), [contracts]);
   const eventsByDate = useMemo(() => { const map = {}; events.forEach((e) => { (map[e.date]=map[e.date]||[]).push(e); }); return map; }, [events]);
   const doDia = (eventsByDate[selected] || []).sort((a,b) => (a.hora||"").localeCompare(b.hora||""));
+  const eventosHoje = eventsByDate[todayISO()] || [];
+  const entregasHoje = eventosHoje.filter((e) => e.tipo === "ida").length;
+  const devolucoesHoje = eventosHoje.filter((e) => {
+    if (e.tipo !== "volta") return false;
+    const c = contracts.find((x) => x.id === e.contractId);
+    return !(c && c.devolvido);
+  }).length;
 
   const proximosAgrupados = useMemo(() => {
     const hoje = todayISO();
@@ -2398,6 +2405,21 @@ function AgendaTab({ userId, profile }) {
     <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
       <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Agenda</h2>
       <p className="text-sm text-slate-400 mb-3">O calendário marca as datas de entrega e devolução dos kits.</p>
+
+      {(entregasHoje > 0 || devolucoesHoje > 0) && (
+        <div className="flex flex-wrap gap-3 mb-4">
+          {entregasHoje > 0 && (
+            <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold" style={{ background: ENTREGA_COLOR+"15", color: ENTREGA_COLOR }}>
+              📦 Você tem {entregasHoje} kit{entregasHoje > 1 ? "s" : ""} pra entregar hoje
+            </div>
+          )}
+          {devolucoesHoje > 0 && (
+            <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold" style={{ background: DEVOLUCAO_COLOR+"15", color: "#0E8E8E" }}>
+              ✅ Você tem {devolucoesHoje} kit{devolucoesHoje > 1 ? "s" : ""} pra receber hoje
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-4 mb-5">
         <span className="text-xs font-semibold flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: ENTREGA_COLOR }} />Entrega de kit</span>
@@ -2431,12 +2453,14 @@ function AgendaTab({ userId, profile }) {
                   const contratoDoEvento = contracts.find((c) => c.id === e.contractId);
                   const temObs = contratoDoEvento && contratoDoEvento.observacoes;
                   return (
-                    <div key={e.id} className="rounded-xl overflow-hidden" style={{ background: eventoCores(e).fill+"10", borderLeft: `3px solid ${eventoCores(e).fill}` }}>
+                    <div key={e.id}>
+                      <p className="font-bold text-sm mb-1 break-words" style={{ color: BRAND.tinta }}>{e.nome}</p>
+                      <div className="rounded-xl overflow-hidden" style={{ background: eventoCores(e).fill+"10", borderLeft: `3px solid ${eventoCores(e).fill}` }}>
                       <div className="flex items-center gap-3 p-3">
                         <div className="w-9 h-9 rounded-lg flex items-center justify-center text-white shrink-0" style={{ background: eventoCores(e).fill }}>{e.tipo === "ida" ? "📦" : "✅"}</div>
                         <div className="min-w-0 flex-1">
                           <p className="font-semibold text-sm truncate" style={{ color: BRAND.tinta }}>{e.kit}</p>
-                          <p className="text-xs text-slate-400 truncate">{e.nome} · {e.label} às {e.hora}</p>
+                          <p className="text-xs text-slate-400 truncate">{e.label} às {e.hora}</p>
                         </div>
                         <button onClick={() => abrirObservacao(e)} className="p-2 rounded-lg shrink-0 cursor-pointer relative" style={{ color: BRAND.azul, background: BRAND.azul+"14" }} title="Observação">
                           📝{temObs && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style={{ background: "#F97316" }} />}
@@ -2484,6 +2508,7 @@ function AgendaTab({ userId, profile }) {
                           </div>
                         </div>
                       )}
+                      </div>
                     </div>
                   );
                 })}
