@@ -118,6 +118,16 @@ function computeFinance(c, percentualSinal) {
   else if (c.statusPagamento === "sinal") pago = valor * (pct / 100);
   return { valor, pago, pendente: Math.max(valor - pago, 0) };
 }
+// Igual ao computeFinance, mas pra relatórios financeiros: se já foi pago o sinal e o dia
+// da festa já passou, assume que o restante foi recebido na entrega (prática comum do negócio).
+// Contratos "Pendente" (nada pago ainda) não entram nessa regra — ficam como estão até você confirmar.
+function computeFinanceFaturamento(c, percentualSinal) {
+  const base = computeFinance(c, percentualSinal);
+  if (c.statusPagamento === "sinal" && c.dataRetirada && c.dataRetirada <= todayISO()) {
+    return { valor: base.valor, pago: base.valor, pendente: 0 };
+  }
+  return base;
+}
 // Cada contrato pode ter o próprio percentual de sinal; se não tiver, usa o padrão da loja.
 function pctSinalEfetivo(c, profile) {
   return (c.sinalPercentualContrato !== undefined && c.sinalPercentualContrato !== null && c.sinalPercentualContrato !== "")
@@ -765,7 +775,7 @@ function PrimeirosPassos({ setPage, profile, contracts, userId }) {
 function HomeDashboard({ setPage, contracts, profile, userId }) {
   const hoje = todayISO();
   const entregasHoje = contracts.filter((c) => c.dataRetirada === hoje || c.dataDevolucao === hoje).length;
-  const aReceber = contracts.reduce((s, c) => s + computeFinance(c, pctSinalEfetivo(c, profile)).pendente, 0);
+  const aReceber = contracts.reduce((s, c) => s + computeFinanceFaturamento(c, pctSinalEfetivo(c, profile)).pendente, 0);
   const primeiroNome = (profile.nome_responsavel || "").trim().split(" ")[0];
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
@@ -1850,6 +1860,9 @@ function EstoqueTab({ userId }) {
   const [novaFoto, setNovaFoto] = useState("");
   const [observacoesMateriais, setObservacoesMateriais] = useState([]);
   const [enviandoFotoId, setEnviandoFotoId] = useState(null);
+  const [busca, setBusca] = useState("");
+  const [editandoMaterial, setEditandoMaterial] = useState(null); // nome original do material sendo renomeado
+  const [nomeEditado, setNomeEditado] = useState("");
 
   const carregar = useCallback(async () => {
     const { data } = await sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true });
@@ -1902,14 +1915,29 @@ function EstoqueTab({ userId }) {
 
   async function adicionarItem() {
     setErro("");
-    if (!novoMaterial.trim()) { setErro("Digite o nome do material."); return; }
+    const nome = novoMaterial.trim();
+    if (!nome) { setErro("Digite o nome do material."); return; }
+    const jaExiste = itens.some((i) => i.material.trim().toLowerCase() === nome.toLowerCase());
+    if (jaExiste) { setErro(`Você já tem "${nome}" cadastrado no estoque. Em vez de criar de novo, edite a quantidade dele ali embaixo na lista.`); return; }
     setSalvandoNovo(true);
-    const row = { id: uid(), decoradora_id: userId, material: novoMaterial.trim(), modelo: "", quantidade: Math.max(0, Number(novaQtd) || 0), foto_data_url: novaFoto || null };
+    const row = { id: uid(), decoradora_id: userId, material: nome, modelo: "", quantidade: Math.max(0, Number(novaQtd) || 0), foto_data_url: novaFoto || null };
     const { error } = await sb.from("estoque_itens").insert(row);
     setSalvandoNovo(false);
     if (error) { setErro("Erro ao salvar: " + error.message); return; }
     setNovoMaterial(""); setNovaQtd(""); setNovaFoto("");
     await carregar();
+  }
+
+  async function renomearMaterial(nomeAntigo) {
+    setErro("");
+    const novo = nomeEditado.trim();
+    if (!novo || novo === nomeAntigo) { setEditandoMaterial(null); return; }
+    const duplicado = itens.some((i) => i.material.trim().toLowerCase() === novo.toLowerCase() && i.material !== nomeAntigo);
+    if (duplicado) { setErro(`Já existe um material chamado "${novo}". Escolha outro nome.`); return; }
+    const idsDoGrupo = itens.filter((i) => i.material === nomeAntigo).map((i) => i.id);
+    setItens((lista) => lista.map((i) => i.material === nomeAntigo ? { ...i, material: novo } : i));
+    setEditandoMaterial(null);
+    await sb.from("estoque_itens").update({ material: novo }).in("id", idsDoGrupo);
   }
 
   if (itens === null) return <Carregando texto="Carregando estoque..." />;
@@ -1946,10 +1974,19 @@ function EstoqueTab({ userId }) {
         <p className="font-bold text-xs mb-3" style={{ color: BRAND.azul }}>+ Adicionar novo material</p>
         <div className="flex gap-3 mb-3">
           <div className="shrink-0 text-center">
-            <label className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center cursor-pointer" style={{ background: "#fff", border: "2px dashed #e2e8f0" }}>
-              {novaFoto ? <img src={novaFoto} className="w-full h-full object-cover" /> : <span className="text-xl">📷</span>}
-              <input type="file" accept="image/*" className="hidden" onChange={handleFotoNovoItem} />
-            </label>
+            <div className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center relative" style={{ background: "#fff", border: "2px dashed #e2e8f0" }}>
+              {novaFoto && <img src={novaFoto} className="w-full h-full object-cover" />}
+            </div>
+            <div className="flex gap-1 mt-1 justify-center">
+              <label className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer text-sm" style={{ background: BRAND.azul + "14" }} title="Tirar foto">
+                📷
+                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFotoNovoItem} />
+              </label>
+              <label className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer text-sm" style={{ background: BRAND.azul + "14" }} title="Escolher da galeria">
+                🖼️
+                <input type="file" accept="image/*" className="hidden" onChange={handleFotoNovoItem} />
+              </label>
+            </div>
             <p className="text-[10px] text-slate-400 mt-1 w-16 leading-tight">Foto opcional</p>
           </div>
           <div className="grid sm:grid-cols-2 gap-2 flex-1">
@@ -1963,14 +2000,33 @@ function EstoqueTab({ userId }) {
         </button>
       </div>
 
+      <div className="relative mb-4">
+        <input className={inputClass + " pl-9"} placeholder="Pesquisar material..." value={busca} onChange={(e) => setBusca(e.target.value)} />
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
+      </div>
+
       <div className="space-y-4">
-        {Object.entries(agrupado).map(([material, lista]) => (
+        {Object.entries(agrupado).filter(([material]) => material.toLowerCase().includes(busca.trim().toLowerCase())).length === 0 && (
+          <p className="text-sm text-slate-400 text-center py-6">Nenhum material encontrado pra "{busca}".</p>
+        )}
+        {Object.entries(agrupado).filter(([material]) => material.toLowerCase().includes(busca.trim().toLowerCase())).map(([material, lista]) => (
           <div key={material} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-            <p className="font-bold text-sm mb-3" style={{ color: BRAND.tinta }}>{material}</p>
+            {editandoMaterial === material ? (
+              <div className="flex items-center gap-2 mb-3">
+                <input autoFocus className="flex-1 rounded-lg border-2 border-slate-200 px-2.5 py-1.5 text-sm font-bold" value={nomeEditado} onChange={(e) => setNomeEditado(e.target.value)} onKeyDown={(e) => e.key === "Enter" && renomearMaterial(material)} />
+                <button onClick={() => renomearMaterial(material)} className="text-xs font-bold px-2.5 py-1.5 rounded-lg text-white cursor-pointer" style={{ background: BRAND.azul }}>Salvar</button>
+                <button onClick={() => setEditandoMaterial(null)} className="text-xs font-bold px-2 py-1.5 rounded-lg text-slate-400 cursor-pointer">Cancelar</button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mb-3">
+                <p className="font-bold text-sm" style={{ color: BRAND.tinta }}>{material}</p>
+                <button onClick={() => { setEditandoMaterial(material); setNomeEditado(material); }} className="text-slate-300 hover:text-slate-500 cursor-pointer text-xs" title="Renomear material">✏️</button>
+              </div>
+            )}
             <div className="space-y-2">
               {lista.map((item) => (
-                <div key={item.id} className="flex items-center gap-3 rounded-xl p-2.5" style={{ background: corEstoque(item.quantidade) + "10" }}>
-                  <label className="w-10 h-10 rounded-lg overflow-hidden flex items-center justify-center shrink-0 cursor-pointer relative" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>
+                <div key={item.id} className="flex items-center gap-2.5 rounded-xl p-2.5" style={{ background: corEstoque(item.quantidade) + "10" }}>
+                  <div className="w-10 h-10 rounded-lg overflow-hidden flex items-center justify-center shrink-0 relative" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>
                     {enviandoFotoId === item.id ? (
                       <span className="text-[9px] text-slate-400">...</span>
                     ) : item.foto_data_url ? (
@@ -1978,8 +2034,17 @@ function EstoqueTab({ userId }) {
                     ) : (
                       <span className="text-sm">📷</span>
                     )}
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFotoItemExistente(item, e)} />
-                  </label>
+                  </div>
+                  <div className="flex flex-col gap-0.5 shrink-0">
+                    <label className="w-6 h-6 rounded-md flex items-center justify-center cursor-pointer text-[11px]" style={{ background: BRAND.azul + "14" }} title="Tirar foto">
+                      📷
+                      <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleFotoItemExistente(item, e)} />
+                    </label>
+                    <label className="w-6 h-6 rounded-md flex items-center justify-center cursor-pointer text-[11px]" style={{ background: BRAND.azul + "14" }} title="Escolher da galeria">
+                      🖼️
+                      <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFotoItemExistente(item, e)} />
+                    </label>
+                  </div>
                   <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corEstoque(item.quantidade) }} />
                   <span className="text-sm flex-1 truncate" style={{ color: BRAND.tinta }}>{item.modelo}</span>
                   <div className="flex items-center gap-1 shrink-0">
@@ -2044,7 +2109,7 @@ function FinanceiroTab({ userId, profile }) {
 
   const totals = useMemo(() => {
     let recebido = 0, pendente = 0, faturado = 0;
-    contracts.forEach((c) => { const f = computeFinance(c, pctSinalEfetivo(c, profile)); recebido += f.pago; pendente += f.pendente; faturado += f.valor; });
+    contracts.forEach((c) => { const f = computeFinanceFaturamento(c, pctSinalEfetivo(c, profile)); recebido += f.pago; pendente += f.pendente; faturado += f.valor; });
     return { recebido, pendente, faturado };
   }, [contracts, profile.sinal_percentual]);
 
@@ -2089,8 +2154,8 @@ function FinanceiroTab({ userId, profile }) {
     return Object.entries(map).map(([name,value]) => ({name,value})).sort((a,b)=>b.value-a.value).slice(0,6);
   }, [contracts]);
 
-  const aReceberLista = useMemo(() => contracts.filter((c) => computeFinance(c, pctSinalEfetivo(c, profile)).pendente > 0).sort((a,b) => (a.dataRetirada||"").localeCompare(b.dataRetirada||"")), [contracts, profile.sinal_percentual]);
-  const recebidoLista = useMemo(() => contracts.filter((c) => computeFinance(c, pctSinalEfetivo(c, profile)).pago > 0).sort((a,b) => (b.createdAt||0)-(a.createdAt||0)), [contracts, profile.sinal_percentual]);
+  const aReceberLista = useMemo(() => contracts.filter((c) => computeFinanceFaturamento(c, pctSinalEfetivo(c, profile)).pendente > 0).sort((a,b) => (a.dataRetirada||"").localeCompare(b.dataRetirada||"")), [contracts, profile.sinal_percentual]);
+  const recebidoLista = useMemo(() => contracts.filter((c) => computeFinanceFaturamento(c, pctSinalEfetivo(c, profile)).pago > 0).sort((a,b) => (b.createdAt||0)-(a.createdAt||0)), [contracts, profile.sinal_percentual]);
   const faturadoLista = useMemo(() => [...contracts].sort((a,b) => (b.createdAt||0)-(a.createdAt||0)), [contracts]);
 
   const PIE_CORES = [BRAND.rosa, BRAND.amarelo, BRAND.turquesa, BRAND.roxo, "#3D5AFE", "#F97316"];
@@ -2129,7 +2194,7 @@ function FinanceiroTab({ userId, profile }) {
           </div>
           <div className="space-y-2">
             {listaAtiva.map((c) => {
-              const f = computeFinance(c, pctSinalEfetivo(c, profile));
+              const f = computeFinanceFaturamento(c, pctSinalEfetivo(c, profile));
               const valorMostrado = activeDetail === "recebido" ? f.pago : activeDetail === "pendente" ? f.pendente : f.valor;
               const cor = activeDetail === "pendente" ? BRAND.rosa : activeDetail === "recebido" ? BRAND.turquesa : BRAND.azul;
               return (
