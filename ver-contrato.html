@@ -31,6 +31,25 @@ function formatBRL(v) {
 function parseDateLocal(str) { if (!str) return null; const [y,m,d] = str.split("-").map(Number); return new Date(y, m-1, d); }
 const MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
 function formatDateLong(str) { const d = parseDateLocal(str); if (!d) return ""; return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`; }
+
+function preencherModeloContratoPublico(template, c, valor, pctEfetivo) {
+  const mapa = {
+    "{{VALOR}}": formatBRL(valor),
+    "{{FORMA_PAGAMENTO}}": c.forma_pagamento || "Pix",
+    "{{SINAL_PCT}}": String(pctEfetivo),
+    "{{DATA_RETIRADA}}": c.data_retirada ? formatDateLong(c.data_retirada) : "___",
+    "{{HORA_RETIRADA_INI}}": c.hora_retirada_ini || "___",
+    "{{HORA_RETIRADA_FIM}}": c.hora_retirada_fim || "___",
+    "{{DATA_DEVOLUCAO}}": c.data_devolucao ? formatDateLong(c.data_devolucao) : "___",
+    "{{HORA_DEVOLUCAO_INI}}": c.hora_devolucao_ini || "___",
+    "{{HORA_DEVOLUCAO_FIM}}": c.hora_devolucao_fim || "___",
+    "{{NOME_CONTRATANTE}}": c.contratante_nome || "",
+    "{{NOME_LOJA}}": c.loja_nome || "",
+  };
+  let texto = template;
+  Object.entries(mapa).forEach(([chave, valorCampo]) => { texto = texto.split(chave).join(valorCampo); });
+  return texto;
+}
 function labelData(tipoServico, qual) {
   const isDecoracao = tipoServico === "decoracao";
   if (qual === "ida") return isDecoracao ? "Data da montagem" : "Data de retirada";
@@ -203,12 +222,18 @@ function App() {
                 <>Acordam a retirada do produto no dia <b>{formatDateLong(c.data_retirada)}</b>, das {c.hora_retirada_ini} às {c.hora_retirada_fim}, e a devolução no dia <b>{formatDateLong(c.data_devolucao)}</b>, das {c.hora_devolucao_ini} às {c.hora_devolucao_fim}. Atraso na devolução gera multa de 10% por hora.</>
               )}
             </p>
+            {(c.loja_modelo_contrato && c.loja_modelo_contrato.trim()) ? (
+              <p className="mb-5 whitespace-pre-line">{preencherModeloContratoPublico(c.loja_modelo_contrato, c, valor, pctEfetivo)}</p>
+            ) : (
+              <>
             <p className="font-bold mb-0.5">1. Objeto</p>
             <p className="mb-3">Prestação de serviço conforme ordem de serviço combinada entre as partes.</p>
             <p className="font-bold mb-0.5">2. Pagamento</p>
-            <p className="mb-3">Valor total {formatBRL(valor)}, via Pix. {pctEfetivo}% no agendamento garante a data.{!isDecoracao && " Multa de 10% por hora de atraso na devolução; se não devolver no mesmo dia, cobra-se o valor de nova locação."}</p>
+            <p className="mb-3">Valor total {formatBRL(valor)}, via {c.forma_pagamento || "Pix"}. {pctEfetivo}% no agendamento garante a data.{!isDecoracao && " Multa de 10% por hora de atraso na devolução; se não devolver no mesmo dia, cobra-se o valor de nova locação."}</p>
             <p className="font-bold mb-0.5">3. Cuidados com as peças</p>
             <p className="mb-3">As peças devem ser devolvidas em perfeito estado. Danos, quebras ou extravio geram cobrança do valor da peça — cobrança cumulativa com eventual multa por atraso.</p>
+              </>
+            )}
             <p className="font-bold mb-0.5">4. Balões e decoração</p>
             <p className="mb-3">Balões de alta qualidade, durabilidade de 3 a 5 dias em condições ideais; a contratada não responde por má exposição (sol, chuva, vento) ou ambiente informado incorretamente. Pequenas variações no tema podem ocorrer conforme disponibilidade, sempre entregando algo igual ou melhor.</p>
             {c.loja_clausulas_extras && c.loja_clausulas_extras.trim() && (
