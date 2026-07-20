@@ -222,9 +222,13 @@ function App() {
                 <>Acordam a retirada do produto no dia <b>{formatDateLong(c.data_retirada)}</b>, das {c.hora_retirada_ini} às {c.hora_retirada_fim}, e a devolução no dia <b>{formatDateLong(c.data_devolucao)}</b>, das {c.hora_devolucao_ini} às {c.hora_devolucao_fim}. Atraso na devolução gera multa de 10% por hora.</>
               )}
             </p>
-            {(c.loja_modelo_contrato && c.loja_modelo_contrato.trim()) ? (
-              <p className="mb-5 whitespace-pre-line">{preencherModeloContratoPublico(c.loja_modelo_contrato, c, valor, pctEfetivo)}</p>
-            ) : (
+            {(() => {
+              const modelos = c.loja_modelos_contrato;
+              const modeloTipo = (modelos && typeof modelos === "object" && modelos[c.tipo_servico] && modelos[c.tipo_servico].trim()) ? modelos[c.tipo_servico] : null;
+              if (modeloTipo) {
+                return <p className="mb-5 whitespace-pre-line">{preencherModeloContratoPublico(modeloTipo, c, valor, pctEfetivo)}</p>;
+              }
+              return (
               <>
             <p className="font-bold mb-0.5">1. Objeto</p>
             <p className="mb-3">Prestação de serviço conforme ordem de serviço combinada entre as partes.</p>
@@ -232,10 +236,11 @@ function App() {
             <p className="mb-3">Valor total {formatBRL(valor)}, via {c.forma_pagamento || "Pix"}. {pctEfetivo}% no agendamento garante a data.{!isDecoracao && " Multa de 10% por hora de atraso na devolução; se não devolver no mesmo dia, cobra-se o valor de nova locação."}</p>
             <p className="font-bold mb-0.5">3. Cuidados com as peças</p>
             <p className="mb-3">As peças devem ser devolvidas em perfeito estado. Danos, quebras ou extravio geram cobrança do valor da peça — cobrança cumulativa com eventual multa por atraso.</p>
-              </>
-            )}
             <p className="font-bold mb-0.5">4. Balões e decoração</p>
             <p className="mb-3">Balões de alta qualidade, durabilidade de 3 a 5 dias em condições ideais; a contratada não responde por má exposição (sol, chuva, vento) ou ambiente informado incorretamente. Pequenas variações no tema podem ocorrer conforme disponibilidade, sempre entregando algo igual ou melhor.</p>
+              </>
+              );
+            })()}
             {c.loja_clausulas_extras && c.loja_clausulas_extras.trim() && (
               <>
                 <p className="font-bold mb-0.5">5. Cláusulas adicionais</p>

@@ -162,7 +162,16 @@ CONTRATADA: executar os serviços previstos neste contrato e entregar a decoraç
 
 6. FORO E RESPONSABILIDADES GERAIS
 6.1. Em caso de cancelamento, o valor já pago fica como crédito na loja, válido por até 6 meses.
-6.2. A retirada, montagem e entrega são de responsabilidade da CONTRATANTE, exceto em decoração completa, quando é da CONTRATADA.`;
+6.2. A retirada, montagem e entrega são de responsabilidade da CONTRATANTE, exceto em decoração completa, quando é da CONTRATADA.
+
+7. SOBRE OS BALÕES
+7.1. A CONTRATADA utiliza balões de alta qualidade, com durabilidade média de 3 a 5 dias em condições ideais.
+7.2. A CONTRATADA não se responsabiliza pela redução da durabilidade quando o ambiente for informado incorretamente, ou por exposição a sol, chuva, vento ou calor excessivo.
+7.3. Fotos e artes são meramente ilustrativas.
+
+8. SOBRE O TEMA E A DECORAÇÃO
+8.1. A decoração pode variar conforme o tema e a disponibilidade de peças.
+8.2. Quando isso ocorrer, a CONTRATADA entrega uma composição equivalente ou superior, sem custo adicional.`;
 
 function preencherModeloContrato(template, dados, profile) {
   const mapa = {
@@ -181,6 +190,13 @@ function preencherModeloContrato(template, dados, profile) {
   let texto = template;
   Object.entries(mapa).forEach(([chave, valor]) => { texto = texto.split(chave).join(valor); });
   return texto;
+}
+// Retorna o texto customizado do tipo de serviço desse contrato, se a decoradora tiver editado; senão null (usa o padrão).
+function modeloContratoDoTipo(dados, profile) {
+  const modelos = profile.modelos_contrato;
+  if (!modelos || typeof modelos !== "object") return null;
+  const texto = modelos[dados.tipoServico];
+  return (texto && texto.trim()) ? texto : null;
 }
 function onlyDigits(str) { return (str || "").replace(/\D/g, ""); }
 function whatsappLink(phoneRaw, message) {
@@ -225,7 +241,7 @@ const PROFILE_DEFAULT = {
   cor_principal: "#16308A", cor_destaque: "#EC1E79", cor_alerta: "#FFC93C", cor_sucesso: "#22C3C3",
   plano_status: "trial", trial_fim: todayISO(),
   oferece_brinde: false, texto_brinde: "Cadastre até 3 aniversariantes da família e ganhe um brinde especial na sua próxima locação! 🎁",
-  tipos_customizados: [], clausulas_extras: "", modelo_contrato: "",
+  tipos_customizados: [], clausulas_extras: "", modelos_contrato: {},
 };
 
 /* ============================================================
@@ -940,6 +956,7 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
   const [salvo, setSalvo] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [novoTipo, setNovoTipo] = useState("");
+  const [tipoContratoAberto, setTipoContratoAberto] = useState(null);
 
   function set(field, value) { setForm((f) => ({ ...f, [field]: value })); setSalvo(false); }
 
@@ -976,7 +993,7 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
         logo_data_url: form.logo_data_url, assinatura_data_url: form.assinatura_data_url, sinal_percentual: Number(form.sinal_percentual) || 50,
         cor_principal: form.cor_principal, cor_destaque: form.cor_destaque, cor_alerta: form.cor_alerta, cor_sucesso: form.cor_sucesso,
         tipos_customizados: form.tipos_customizados || [], clausulas_extras: form.clausulas_extras || "",
-        modelo_contrato: form.modelo_contrato || "",
+        modelos_contrato: form.modelos_contrato || {},
       }).eq("id", userId);
       if (error) { setErro("Erro ao salvar: " + error.message); setSalvando(false); return; }
       applyTheme(form);
@@ -1046,22 +1063,47 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
         </Field>
 
         <div className="mt-2 mb-1 pt-4 border-t border-slate-100">
-          <p className="font-bold text-sm mb-0.5" style={{ color: BRAND.rosa }}>Texto do contrato (cláusulas 1 a 6)</p>
+          <p className="font-bold text-sm mb-0.5" style={{ color: BRAND.rosa }}>Editar tipo de contrato</p>
           <p className="text-xs text-slate-400 mb-3">
-            Quer reescrever o contrato do seu jeito? Edite o texto abaixo. Use os campos entre chaves — eles são preenchidos sozinhos com os dados de cada contrato. Se deixar em branco, o app usa o texto padrão de sempre.
+            Cada tipo de contrato pode ter seu próprio texto — assim, "Espaço de festa" não precisa ter a cláusula de balões, por exemplo. Edite cada um separadamente. Se deixar em branco, aquele tipo usa o texto padrão de sempre.
           </p>
         </div>
         <div className="bg-slate-50 rounded-xl p-3 mb-3 text-[11px] text-slate-500 leading-relaxed">
-          <b>Campos disponíveis:</b> {"{{VALOR}}"}, {"{{FORMA_PAGAMENTO}}"}, {"{{SINAL_PCT}}"}, {"{{DATA_RETIRADA}}"}, {"{{HORA_RETIRADA_INI}}"}, {"{{HORA_RETIRADA_FIM}}"}, {"{{DATA_DEVOLUCAO}}"}, {"{{HORA_DEVOLUCAO_INI}}"}, {"{{HORA_DEVOLUCAO_FIM}}"}, {"{{NOME_CONTRATANTE}}"}, {"{{NOME_LOJA}}"}
+          <b>Campos disponíveis (preenchem sozinhos):</b> {"{{VALOR}}"}, {"{{FORMA_PAGAMENTO}}"}, {"{{SINAL_PCT}}"}, {"{{DATA_RETIRADA}}"}, {"{{HORA_RETIRADA_INI}}"}, {"{{HORA_RETIRADA_FIM}}"}, {"{{DATA_DEVOLUCAO}}"}, {"{{HORA_DEVOLUCAO_INI}}"}, {"{{HORA_DEVOLUCAO_FIM}}"}, {"{{NOME_CONTRATANTE}}"}, {"{{NOME_LOJA}}"}
         </div>
-        <Field label="Corpo do contrato" hint="Opcional — em branco, usa o texto padrão.">
-          <textarea className={inputClass + " font-mono text-xs"} rows={14} value={form.modelo_contrato} onChange={(e) => set("modelo_contrato", e.target.value)} placeholder="Deixe em branco pra usar o texto padrão do AppDecore." />
-        </Field>
-        <div className="flex gap-2 mb-3">
-          <button type="button" onClick={() => set("modelo_contrato", MODELO_CONTRATO_PADRAO)} className="text-xs font-bold px-3 py-2 rounded-lg cursor-pointer" style={{ color: BRAND.azul, background: BRAND.azul + "12" }}>Carregar texto padrão pra editar</button>
-          {form.modelo_contrato && (
-            <button type="button" onClick={() => set("modelo_contrato", "")} className="text-xs font-bold px-3 py-2 rounded-lg cursor-pointer" style={{ color: "#94a3b8", background: "#f1f5f9" }}>Limpar (volta a usar o padrão)</button>
-          )}
+        <div className="space-y-2 mb-3">
+          {[...Object.entries(TIPO_SERVICO_LABELS), ...((form.tipos_customizados || []).map((t) => [t, t]))].map(([chave, label]) => {
+            const temTexto = form.modelos_contrato && form.modelos_contrato[chave] && form.modelos_contrato[chave].trim();
+            const aberto = tipoContratoAberto === chave;
+            return (
+              <div key={chave} className="border-2 rounded-xl overflow-hidden" style={{ borderColor: aberto ? BRAND.azul : "#e2e8f0" }}>
+                <button type="button" onClick={() => setTipoContratoAberto(aberto ? null : chave)} className="w-full flex items-center justify-between px-3.5 py-3 cursor-pointer">
+                  <span className="flex items-center gap-2">
+                    <span className="font-bold text-sm" style={{ color: BRAND.tinta }}>{label}</span>
+                    {temTexto && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: BRAND.azul + "18", color: BRAND.azul }}>Personalizado</span>}
+                  </span>
+                  <span className="text-slate-300 text-xs">{aberto ? "▾" : "▸"}</span>
+                </button>
+                {aberto && (
+                  <div className="px-3.5 pb-3.5">
+                    <textarea
+                      className={inputClass + " font-mono text-xs"}
+                      rows={14}
+                      value={(form.modelos_contrato && form.modelos_contrato[chave]) || ""}
+                      onChange={(e) => set("modelos_contrato", { ...(form.modelos_contrato || {}), [chave]: e.target.value })}
+                      placeholder={`Deixe em branco pra usar o texto padrão nesse tipo (${label}).`}
+                    />
+                    <div className="flex gap-2 mt-2">
+                      <button type="button" onClick={() => set("modelos_contrato", { ...(form.modelos_contrato || {}), [chave]: MODELO_CONTRATO_PADRAO })} className="text-xs font-bold px-3 py-2 rounded-lg cursor-pointer" style={{ color: BRAND.azul, background: BRAND.azul + "12" }}>Carregar texto padrão pra editar</button>
+                      {temTexto && (
+                        <button type="button" onClick={() => { const novo = { ...(form.modelos_contrato || {}) }; delete novo[chave]; set("modelos_contrato", novo); }} className="text-xs font-bold px-3 py-2 rounded-lg cursor-pointer" style={{ color: "#94a3b8", background: "#f1f5f9" }}>Limpar (volta a usar o padrão)</button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         <div className="mt-2 mb-1 pt-4 border-t border-slate-100">
@@ -1143,9 +1185,12 @@ function ContratoPreview({ dados, profile }) {
           {dados.materialEntregue && <p className="text-slate-500">Material entregue: {dados.materialEntregue}</p>}
           <p className="font-bold mt-1">{formatBRL(dados.valor)}</p>
         </div>
-        {(profile.modelo_contrato && profile.modelo_contrato.trim()) ? (
-          <p className="mb-5 whitespace-pre-line">{preencherModeloContrato(profile.modelo_contrato, dados, profile)}</p>
-        ) : (
+        {(() => {
+          const modeloTipo = modeloContratoDoTipo(dados, profile);
+          if (modeloTipo) {
+            return <p className="mb-5 whitespace-pre-line">{preencherModeloContrato(modeloTipo, dados, profile)}</p>;
+          }
+          return (
           <>
         <p className="mb-4">
           {dados.tipoServico === "decoracao" ? (
@@ -1182,8 +1227,6 @@ function ContratoPreview({ dados, profile }) {
         <p className="font-bold mb-0.5">6. FORO E RESPONSABILIDADES GERAIS</p>
         <p>6.1. Em caso de cancelamento, o valor já pago fica como crédito na loja, válido por até 6 meses.</p>
         <p className="mb-5">6.2. A retirada, montagem e entrega são de responsabilidade da CONTRATANTE, exceto em decoração completa, quando é da CONTRATADA.</p>
-          </>
-        )}
         <p className="font-bold mb-0.5">7. SOBRE OS BALÕES</p>
         <p>7.1. A CONTRATADA utiliza balões de alta qualidade, com durabilidade média de 3 a 5 dias em condições ideais.</p>
         <p>7.2. A CONTRATADA não se responsabiliza pela redução da durabilidade quando o ambiente for informado incorretamente, ou por exposição a sol, chuva, vento ou calor excessivo.</p>
@@ -1191,6 +1234,9 @@ function ContratoPreview({ dados, profile }) {
         <p className="font-bold mb-0.5">8. SOBRE O TEMA E A DECORAÇÃO</p>
         <p>8.1. A decoração pode variar conforme o tema e a disponibilidade de peças.</p>
         <p className="mb-5">8.2. Quando isso ocorrer, a CONTRATADA entrega uma composição equivalente ou superior, sem custo adicional.</p>
+          </>
+          );
+        })()}
         {profile.clausulas_extras && profile.clausulas_extras.trim() && (
           <>
             <p className="font-bold mb-0.5">9. CLÁUSULAS ADICIONAIS</p>
@@ -1252,15 +1298,19 @@ function buildContractHtml(dados, profile) {
     <div><span class="tag">CONTRATADA</span><br/><b>Empresa ${escapar(profile.nome_loja)}</b><br/>CNPJ: ${escapar(profile.cnpj)}<br/>${escapar(profile.endereco)}</div></div>
     <div class="produto"><b>${escapar(dados.produtoNome)}</b><br/>${dados.materialEntregue ? `Material: ${escapar(dados.materialEntregue)}<br/>` : ""}<b>${formatBRL(dados.valor)}</b></div>
     <p>${paragrafo}</p>
-    ${(profile.modelo_contrato && profile.modelo_contrato.trim()) ? `<p style="white-space:pre-line">${escapar(preencherModeloContrato(profile.modelo_contrato, dados, profile))}</p>` : `
+    ${(() => {
+      const modeloTipo = modeloContratoDoTipo(dados, profile);
+      if (modeloTipo) return `<p style="white-space:pre-line">${escapar(preencherModeloContrato(modeloTipo, dados, profile))}</p>`;
+      return `
     <h2>1. OBJETO</h2><p>1.1. Prestação de serviço conforme ordem de serviço anexa.</p>
     <h2>2. VIGÊNCIA</h2><p>2.1. Início na assinatura, término na entrega/retirada.</p>
     <h2>3. VALOR E PAGAMENTO</h2><p>3.1. Valor total ${formatBRL(dados.valor)}, via ${dados.formaPagamento || "Pix"}.</p><p>3.2. ${pctSinalEfetivo(dados, profile)}% no agendamento garante a data.</p>${clausula34}
     <h2>4. OBRIGAÇÕES</h2><p>Contratante: pagar em dia, informar dados corretos, devolver sem danos. Contratada: executar o serviço, entregar conforme combinado.</p>
     <h2>5. CUIDADOS COM AS PEÇAS</h2><p>5.1. Devolver em perfeito estado, sob pena de pagamento integral.</p><p>5.2. Peças conferidas na entrega/devolução; danos e atraso são cobranças cumulativas.</p>
-    <h2>6. FORO</h2><p>6.1. Cancelamento vira crédito por 6 meses.</p><p>6.2. Retirada/montagem é da contratante, exceto decoração completa.</p>`}
+    <h2>6. FORO</h2><p>6.1. Cancelamento vira crédito por 6 meses.</p><p>6.2. Retirada/montagem é da contratante, exceto decoração completa.</p>
     <h2>7. BALÕES</h2><p>Alta qualidade, durabilidade de 3 a 5 dias; contratada não responde por má exposição ou ambiente informado errado.</p>
-    <h2>8. TEMA E DECORAÇÃO</h2><p>Pode variar conforme disponibilidade, sempre entregando algo igual ou melhor.</p>
+    <h2>8. TEMA E DECORAÇÃO</h2><p>Pode variar conforme disponibilidade, sempre entregando algo igual ou melhor.</p>`;
+    })()}
     ${profile.clausulas_extras && profile.clausulas_extras.trim() ? `<h2>9. CLÁUSULAS ADICIONAIS</h2><p style="white-space:pre-line">${escapar(profile.clausulas_extras)}</p>` : ""}
     <p style="text-align:center;font-size:11px;color:#999;margin-top:24px">ESTOU CIENTE E CONCORDO COM OS TERMOS ACIMA.</p>
     <div class="assinaturas"><div><div style="height:64px"></div><div class="linha"></div>${escapar(dados.contratanteNome)}<br/><span style="font-size:11px;color:#999">CPF: ${escapar(dados.contratanteCPF)}</span></div>
@@ -1947,6 +1997,7 @@ function EstoqueTab({ userId }) {
   const [enviandoFotoId, setEnviandoFotoId] = useState(null);
   const [busca, setBusca] = useState("");
   const [fotoAmpliada, setFotoAmpliada] = useState(null);
+  const [editandoMaterial, setEditandoMaterial] = useState(null); // nome original do material sendo renomeado
   const [nomeEditado, setNomeEditado] = useState("");
 
   const carregar = useCallback(async () => {
