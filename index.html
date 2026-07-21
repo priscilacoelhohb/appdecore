@@ -1104,6 +1104,21 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
                         <button type="button" onClick={() => { const novo = { ...(form.modelos_contrato || {}) }; delete novo[chave]; set("modelos_contrato", novo); }} className="text-xs font-bold px-3 py-2 rounded-lg cursor-pointer" style={{ color: "#94a3b8", background: "#f1f5f9" }}>Limpar (volta a usar o padrão)</button>
                       )}
                     </div>
+                    {temTexto && form.modelos_contrato[chave].length > 3500 && (
+                      <p className="text-xs font-bold mt-2 px-3 py-2 rounded-lg" style={{ color: "#B45309", background: "#FEF3C7" }}>⚠️ Esse texto está bem mais longo que o normal ({form.modelos_contrato[chave].length} caracteres). Confira abaixo, na pré-visualização, se não ficou nada colado duas vezes por engano — isso é o texto exato que o cliente vai ver ao assinar.</p>
+                    )}
+                    {temTexto && (
+                      <div className="mt-3">
+                        <p className="text-xs font-bold mb-1.5" style={{ color: BRAND.tinta }}>👁️ Veja como vai aparecer pro cliente:</p>
+                        <div className="bg-white border-2 rounded-xl p-3.5 text-[12px] leading-relaxed whitespace-pre-line max-h-64 overflow-y-auto" style={{ borderColor: "#e2e8f0", color: BRAND.tinta }}>
+                          {preencherModeloContrato(
+                            form.modelos_contrato[chave],
+                            { valor: "150,00", formaPagamento: "Pix", dataRetirada: new Date().toISOString().slice(0, 10), horaRetiradaIni: "09:00", horaRetiradaFim: "13:00", dataDevolucao: new Date().toISOString().slice(0, 10), horaDevolucaoIni: "09:00", horaDevolucaoFim: "19:00", contratanteNome: "Cliente Exemplo", multaPercentual: form.multaPercentual },
+                            form
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
