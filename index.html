@@ -138,7 +138,7 @@ function pctSinalEfetivo(c, profile) {
 // Texto padrão do corpo do contrato (cláusulas 1 a 6). Cada decoradora pode
 // reescrever isso do jeito dela em Configurações — os {{campos}} continuam
 // sendo preenchidos automaticamente com os dados de cada contrato.
-const MODELO_CONTRATO_PADRAO = `CONTRATANTE e CONTRATADA acordam a retirada do produto no dia {{DATA_RETIRADA}}, das {{HORA_RETIRADA_INI}} às {{HORA_RETIRADA_FIM}}, no endereço informado pela CONTRATADA, e a devolução no mesmo endereço no dia {{DATA_DEVOLUCAO}}, das {{HORA_DEVOLUCAO_INI}} às {{HORA_DEVOLUCAO_FIM}}. O atraso na devolução gera multa de 10% do valor por hora de atraso, podendo chegar ao valor integral do produto caso ultrapasse o dia combinado para a entrega.
+const MODELO_CONTRATO_PADRAO = `CONTRATANTE e CONTRATADA acordam a retirada do produto no dia {{DATA_RETIRADA}}, das {{HORA_RETIRADA_INI}} às {{HORA_RETIRADA_FIM}}, no endereço informado pela CONTRATADA, e a devolução no mesmo endereço no dia {{DATA_DEVOLUCAO}}, das {{HORA_DEVOLUCAO_INI}} às {{HORA_DEVOLUCAO_FIM}}. O atraso na devolução gera multa de {{MULTA_PCT}}% do valor por hora de atraso, podendo chegar ao valor integral do produto caso ultrapasse o dia combinado para a entrega.
 
 1. OBJETO
 1.1. Este contrato tem por objeto a prestação do serviço conforme solicitado na ordem de serviço, anexa a este documento.
@@ -149,7 +149,7 @@ const MODELO_CONTRATO_PADRAO = `CONTRATANTE e CONTRATADA acordam a retirada do p
 3. VALOR E FORMA DE PAGAMENTO
 3.1. O valor total do serviço é de {{VALOR}}, a ser pago via {{FORMA_PAGAMENTO}}.
 3.2. É necessário pagar {{SINAL_PCT}}% do valor no ato do agendamento para garantir a data; sem esse sinal, a data não fica reservada.
-3.3. Será cobrada multa de 10% do valor por hora de atraso na devolução dos itens alugados/emprestados.
+3.3. Será cobrada multa de {{MULTA_PCT}}% do valor por hora de atraso na devolução dos itens alugados/emprestados.
 3.4. As peças locadas pelo serviço de Pegue e Monte e as peças avulsas deverão ser devolvidas na data e horário previamente acordados. Caso a devolução não ocorra no mesmo dia previsto, será cobrado o valor integral de uma nova locação das peças, sem prejuízo de outras cobranças decorrentes de danos ou extravio.
 
 4. OBRIGAÇÕES DAS PARTES
@@ -178,6 +178,7 @@ function preencherModeloContrato(template, dados, profile) {
     "{{VALOR}}": formatBRL(dados.valor),
     "{{FORMA_PAGAMENTO}}": dados.formaPagamento || "Pix",
     "{{SINAL_PCT}}": String(pctSinalEfetivo(dados, profile)),
+    "{{MULTA_PCT}}": String(dados.multaPercentual || "10"),
     "{{DATA_RETIRADA}}": dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___",
     "{{HORA_RETIRADA_INI}}": dados.horaRetiradaIni || "___",
     "{{HORA_RETIRADA_FIM}}": dados.horaRetiradaFim || "___",
@@ -216,6 +217,7 @@ function contractToDb(c, decoradoraId) {
     data_retirada: c.dataRetirada || null, hora_retirada_ini: c.horaRetiradaIni, hora_retirada_fim: c.horaRetiradaFim,
     data_devolucao: c.dataDevolucao || null, hora_devolucao_ini: c.horaDevolucaoIni, hora_devolucao_fim: c.horaDevolucaoFim,
     status_pagamento: c.statusPagamento, forma_pagamento: c.formaPagamento || "Pix", sinal_percentual_contrato: c.sinalPercentualContrato ? Number(c.sinalPercentualContrato) : null,
+    multa_percentual: c.multaPercentual ? Number(c.multaPercentual) : null,
   };
 }
 function contractFromDb(r) {
@@ -228,6 +230,7 @@ function contractFromDb(r) {
     dataRetirada: r.data_retirada || "", horaRetiradaIni: r.hora_retirada_ini || "09:00", horaRetiradaFim: r.hora_retirada_fim || "13:00",
     dataDevolucao: r.data_devolucao || "", horaDevolucaoIni: r.hora_devolucao_ini || "09:00", horaDevolucaoFim: r.hora_devolucao_fim || "19:00",
     statusPagamento: r.status_pagamento || "sinal", formaPagamento: r.forma_pagamento || "Pix", sinalPercentualContrato: r.sinal_percentual_contrato || "",
+    multaPercentual: r.multa_percentual != null ? String(r.multa_percentual) : "",
     assinadoEm: r.assinado_em || null,
     devolvido: r.devolvido || false,
     observacoes: r.observacoes || "",
@@ -1069,7 +1072,7 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
           </p>
         </div>
         <div className="bg-slate-50 rounded-xl p-3 mb-3 text-[11px] text-slate-500 leading-relaxed">
-          <b>Campos disponíveis (preenchem sozinhos):</b> {"{{VALOR}}"}, {"{{FORMA_PAGAMENTO}}"}, {"{{SINAL_PCT}}"}, {"{{DATA_RETIRADA}}"}, {"{{HORA_RETIRADA_INI}}"}, {"{{HORA_RETIRADA_FIM}}"}, {"{{DATA_DEVOLUCAO}}"}, {"{{HORA_DEVOLUCAO_INI}}"}, {"{{HORA_DEVOLUCAO_FIM}}"}, {"{{NOME_CONTRATANTE}}"}, {"{{NOME_LOJA}}"}
+          <b>Campos disponíveis (preenchem sozinhos):</b> {"{{VALOR}}"}, {"{{FORMA_PAGAMENTO}}"}, {"{{SINAL_PCT}}"}, {"{{MULTA_PCT}}"}, {"{{DATA_RETIRADA}}"}, {"{{HORA_RETIRADA_INI}}"}, {"{{HORA_RETIRADA_FIM}}"}, {"{{DATA_DEVOLUCAO}}"}, {"{{HORA_DEVOLUCAO_INI}}"}, {"{{HORA_DEVOLUCAO_FIM}}"}, {"{{NOME_CONTRATANTE}}"}, {"{{NOME_LOJA}}"}
         </div>
         <div className="space-y-2 mb-3">
           {[...Object.entries(TIPO_SERVICO_LABELS), ...((form.tipos_customizados || []).map((t) => [t, t]))].map(([chave, label]) => {
@@ -1153,7 +1156,7 @@ const CAMPOS_VAZIOS = {
   produtoNome: "", materialEntregue: "", materialObservacoes: "", valor: "",
   dataRetirada: "", horaRetiradaIni: "09:00", horaRetiradaFim: "13:00",
   dataDevolucao: "", horaDevolucaoIni: "09:00", horaDevolucaoFim: "19:00",
-  statusPagamento: "sinal", sinalPercentualContrato: "", valorSinal: "", formaPagamento: "Pix",
+  statusPagamento: "sinal", sinalPercentualContrato: "", valorSinal: "", formaPagamento: "Pix", multaPercentual: "",
 };
 
 function ContratoPreview({ dados, profile }) {
@@ -1196,7 +1199,7 @@ function ContratoPreview({ dados, profile }) {
           {dados.tipoServico === "decoracao" ? (
             <>CONTRATANTE e CONTRATADA acordam a montagem da decoração no dia <b>{dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___"}</b>, das {dados.horaRetiradaIni} às {dados.horaRetiradaFim}, no endereço informado pela CONTRATANTE, e a desmontagem/retirada dos itens no dia <b>{dados.dataDevolucao ? formatDateLong(dados.dataDevolucao) : "___"}</b>, das {dados.horaDevolucaoIni} às {dados.horaDevolucaoFim}.</>
           ) : (
-            <>CONTRATANTE e CONTRATADA acordam a retirada do produto no dia <b>{dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___"}</b>, das {dados.horaRetiradaIni} às {dados.horaRetiradaFim}, no endereço informado pela CONTRATADA, e a devolução no mesmo endereço no dia <b>{dados.dataDevolucao ? formatDateLong(dados.dataDevolucao) : "___"}</b>, das {dados.horaDevolucaoIni} às {dados.horaDevolucaoFim}. O atraso na devolução gera multa de 10% do valor por hora de atraso, podendo chegar ao valor integral do produto caso ultrapasse o dia combinado para a entrega.</>
+            <>CONTRATANTE e CONTRATADA acordam a retirada do produto no dia <b>{dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___"}</b>, das {dados.horaRetiradaIni} às {dados.horaRetiradaFim}, no endereço informado pela CONTRATADA, e a devolução no mesmo endereço no dia <b>{dados.dataDevolucao ? formatDateLong(dados.dataDevolucao) : "___"}</b>, das {dados.horaDevolucaoIni} às {dados.horaDevolucaoFim}. O atraso na devolução gera multa de {dados.multaPercentual || "10"}% do valor por hora de atraso, podendo chegar ao valor integral do produto caso ultrapasse o dia combinado para a entrega.</>
           )}
         </p>
         <p className="font-bold mb-0.5">1. OBJETO</p>
@@ -1208,7 +1211,7 @@ function ContratoPreview({ dados, profile }) {
         <p>3.2. É necessário pagar {pctSinalEfetivo(dados, profile)}% do valor no ato do agendamento para garantir a data; sem esse sinal, a data não fica reservada.</p>
         {dados.tipoServico !== "decoracao" && (
           <>
-            <p>3.3. Será cobrada multa de 10% do valor por hora de atraso na devolução dos itens alugados/emprestados.</p>
+            <p>3.3. Será cobrada multa de {dados.multaPercentual || "10"}% do valor por hora de atraso na devolução dos itens alugados/emprestados.</p>
             <p className="mb-3">3.4. As peças locadas pelo serviço de Pegue e Monte e as peças avulsas deverão ser devolvidas na data e horário previamente acordados. Caso a devolução não ocorra no mesmo dia previsto, será cobrado o valor integral de uma nova locação das peças, sem prejuízo de outras cobranças decorrentes de danos ou extravio.</p>
           </>
         )}
@@ -1281,7 +1284,7 @@ function buildContractHtml(dados, profile) {
   const paragrafo = isDecoracao
     ? `CONTRATANTE e CONTRATADA acordam a montagem da decoração no dia <b>${dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___"}</b>, das ${dados.horaRetiradaIni} às ${dados.horaRetiradaFim}, e a desmontagem no dia <b>${dados.dataDevolucao ? formatDateLong(dados.dataDevolucao) : "___"}</b>, das ${dados.horaDevolucaoIni} às ${dados.horaDevolucaoFim}.`
     : `CONTRATANTE e CONTRATADA acordam a retirada do produto no dia <b>${dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___"}</b>, das ${dados.horaRetiradaIni} às ${dados.horaRetiradaFim}, e a devolução no dia <b>${dados.dataDevolucao ? formatDateLong(dados.dataDevolucao) : "___"}</b>, das ${dados.horaDevolucaoIni} às ${dados.horaDevolucaoFim}.`;
-  const clausula34 = !isDecoracao ? `<p>3.3. Multa de 10% do valor por hora de atraso na devolução.</p><p>3.4. Caso a devolução não ocorra no mesmo dia previsto, será cobrado o valor integral de nova locação, sem prejuízo de cobranças por danos.</p>` : "";
+  const clausula34 = !isDecoracao ? `<p>3.3. Multa de ${dados.multaPercentual || "10"}% do valor por hora de atraso na devolução.</p><p>3.4. Caso a devolução não ocorra no mesmo dia previsto, será cobrado o valor integral de nova locação, sem prejuízo de cobranças por danos.</p>` : "";
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/><title>Contrato - ${escapar(dados.contratanteNome)}</title>
   <style>body{font-family:Arial,Helvetica,sans-serif;color:#181A33;max-width:780px;margin:0 auto;padding:0 0 40px}
   .header{background:${BRAND.azul};color:#fff;padding:24px 28px;display:flex;align-items:center;gap:14px}
@@ -1638,6 +1641,9 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
               <Field label="CPF"><input className={inputClass} value={form.contratanteCPF} onChange={(e) => set("contratanteCPF", e.target.value)} /></Field>
               <Field label="Valor do produto"><input className={inputClass} value={form.valor} onChange={(e) => set("valor", e.target.value.replace(/[^0-9.,]/g, ""))} placeholder="90,00" /></Field>
             </div>
+            <Field label="Multa por atraso na devolução (%)" hint="Cobrada por hora de atraso. Deixe em branco pra usar 10% (padrão)">
+              <input className={inputClass} value={form.multaPercentual} onChange={(e) => set("multaPercentual", e.target.value.replace(/[^0-9]/g, ""))} placeholder="10" />
+            </Field>
             <Field label="Valor do sinal (R$)" hint={form.valorSinal && parseValorBR(form.valor) > 0 ? `= ${Math.round((parseValorBR(form.valorSinal) / parseValorBR(form.valor)) * 100)}% do valor do produto` : "Opcional — deixe em branco pra usar o percentual padrão da loja"}>
               <input
                 className={inputClass}
