@@ -220,7 +220,7 @@ function App() {
               {isDecoracao ? (
                 <>Acordam a montagem da decoração no dia <b>{formatDateLong(c.data_retirada)}</b>, das {c.hora_retirada_ini} às {c.hora_retirada_fim}, e a desmontagem no dia <b>{formatDateLong(c.data_devolucao)}</b>, das {c.hora_devolucao_ini} às {c.hora_devolucao_fim}.</>
               ) : (
-                <>Acordam a retirada do produto no dia <b>{formatDateLong(c.data_retirada)}</b>, das {c.hora_retirada_ini} às {c.hora_retirada_fim}, e a devolução no dia <b>{formatDateLong(c.data_devolucao)}</b>, das {c.hora_devolucao_ini} às {c.hora_devolucao_fim}. Atraso na devolução gera multa de {c.multa_percentual || 10}% por hora.</>
+                <>Acordam a retirada do produto no dia <b>{formatDateLong(c.data_retirada)}</b>, das {c.hora_retirada_ini} às {c.hora_retirada_fim}, e a devolução no dia <b>{formatDateLong(c.data_devolucao)}</b>, das {c.hora_devolucao_ini} às {c.hora_devolucao_fim}.{!c.sem_multa && ` Atraso na devolução gera multa de ${c.multa_percentual || 10}% por hora.`}</>
               )}
             </p>
             {(() => {
@@ -234,7 +234,7 @@ function App() {
             <p className="font-bold mb-0.5">1. Objeto</p>
             <p className="mb-3">Prestação de serviço conforme ordem de serviço combinada entre as partes.</p>
             <p className="font-bold mb-0.5">2. Pagamento</p>
-            <p className="mb-3">Valor total {formatBRL(valor)}, via {c.forma_pagamento || "Pix"}. {pctEfetivo}% no agendamento garante a data.{!isDecoracao && ` Multa de ${c.multa_percentual || 10}% por hora de atraso na devolução; se não devolver no mesmo dia, cobra-se o valor de nova locação.`}</p>
+            <p className="mb-3">Valor total {formatBRL(valor)}, via {c.forma_pagamento || "Pix"}. {pctEfetivo}% no agendamento garante a data.{!isDecoracao && !c.sem_multa && ` Multa de ${c.multa_percentual || 10}% por hora de atraso na devolução; se não devolver no mesmo dia, cobra-se o valor de nova locação.`}</p>
             <p className="font-bold mb-0.5">3. Cuidados com as peças</p>
             <p className="mb-3">As peças devem ser devolvidas em perfeito estado. Danos, quebras ou extravio geram cobrança do valor da peça — cobrança cumulativa com eventual multa por atraso.</p>
             <p className="font-bold mb-0.5">4. Balões e decoração</p>
