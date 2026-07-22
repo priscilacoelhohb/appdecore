@@ -179,6 +179,7 @@ function preencherModeloContrato(template, dados, profile) {
     "{{FORMA_PAGAMENTO}}": dados.formaPagamento || "Pix",
     "{{SINAL_PCT}}": String(pctSinalEfetivo(dados, profile)),
     "{{MULTA_PCT}}": String(dados.multaPercentual || "10"),
+    "{{CLAUSULA_MULTA}}": dados.semMulta ? "Não haverá cobrança de multa por atraso na devolução." : `O atraso na devolução gera multa de ${dados.multaPercentual || "10"}% do valor por hora de atraso.`,
     "{{DATA_RETIRADA}}": dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___",
     "{{HORA_RETIRADA_INI}}": dados.horaRetiradaIni || "___",
     "{{HORA_RETIRADA_FIM}}": dados.horaRetiradaFim || "___",
@@ -1074,7 +1075,7 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
           </p>
         </div>
         <div className="bg-slate-50 rounded-xl p-3 mb-3 text-[11px] text-slate-500 leading-relaxed">
-          <b>Campos disponíveis (preenchem sozinhos):</b> {"{{VALOR}}"}, {"{{FORMA_PAGAMENTO}}"}, {"{{SINAL_PCT}}"}, {"{{MULTA_PCT}}"}, {"{{DATA_RETIRADA}}"}, {"{{HORA_RETIRADA_INI}}"}, {"{{HORA_RETIRADA_FIM}}"}, {"{{DATA_DEVOLUCAO}}"}, {"{{HORA_DEVOLUCAO_INI}}"}, {"{{HORA_DEVOLUCAO_FIM}}"}, {"{{NOME_CONTRATANTE}}"}, {"{{NOME_LOJA}}"}
+          <b>Campos disponíveis (preenchem sozinhos):</b> {"{{VALOR}}"}, {"{{FORMA_PAGAMENTO}}"}, {"{{SINAL_PCT}}"}, {"{{MULTA_PCT}}"}, {"{{CLAUSULA_MULTA}}"}, {"{{DATA_RETIRADA}}"}, {"{{HORA_RETIRADA_INI}}"}, {"{{HORA_RETIRADA_FIM}}"}, {"{{DATA_DEVOLUCAO}}"}, {"{{HORA_DEVOLUCAO_INI}}"}, {"{{HORA_DEVOLUCAO_FIM}}"}, {"{{NOME_CONTRATANTE}}"}, {"{{NOME_LOJA}}"}
         </div>
         <div className="space-y-2 mb-3">
           {[...Object.entries(TIPO_SERVICO_LABELS), ...((form.tipos_customizados || []).map((t) => [t, t]))].map(([chave, label]) => {
