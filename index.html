@@ -2330,7 +2330,15 @@ function EstoqueTab({ userId, profile }) {
    decoradora, e guardar isso como texto no banco incharia o tamanho
    do banco (o mesmo problema de Egress/tamanho que já apareceu antes).
 ============================================================ */
-const LIMITE_FOTOS_REFERENCIA = 8;
+const CATEGORIAS_REFERENCIA = [
+  { key: "mesa", label: "Mesa", limite: 4, opcional: false },
+  { key: "painel", label: "Painel", limite: 4, opcional: false },
+  { key: "boleira", label: "Boleira (suporte do bolo)", limite: 4, opcional: false },
+  { key: "doces", label: "Suporte de doces", limite: 4, opcional: true },
+  { key: "vasos", label: "Vasos e plantinhas", limite: 3, opcional: true },
+  { key: "arco", label: "Arco de balão", limite: 4, opcional: true },
+  { key: "tapete", label: "Tapete temático", limite: 3, opcional: true },
+];
 
 async function dataUrlParaBlob(dataUrl) {
   const resposta = await fetch(dataUrl);
@@ -2339,8 +2347,8 @@ async function dataUrlParaBlob(dataUrl) {
 
 function CatalogoTab({ userId, profile, onProfileUpdate }) {
   const [referencias, setReferencias] = useState(null);
-  const [enviandoFoto, setEnviandoFoto] = useState(false);
-  const [descricaoNova, setDescricaoNova] = useState("");
+  const [enviandoFoto, setEnviandoFoto] = useState(null); // guarda qual categoria está enviando
+  const [nomesNovos, setNomesNovos] = useState({ mesa: "", painel: "", boleira: "", doces: "", vasos: "", arco: "", tapete: "" });
   const [erro, setErro] = useState("");
 
   const [whatsappContato, setWhatsappContato] = useState(profile.whatsapp_contato || "");
@@ -2355,7 +2363,7 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
 
   const [linkCopiado, setLinkCopiado] = useState(false);
 
-  const linkCatalogo = `${window.location.origin}/c/${userId}`;
+  const linkCatalogo = `https://appdecore.com.br/catalogo-cliente.html?d=${userId}`;
 
   const carregarReferencias = useCallback(async () => {
     const { data } = await sb.from("catalogo_referencias").select("*").eq("decoradora_id", userId).order("created_at", { ascending: true });
@@ -2364,35 +2372,40 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
 
   useEffect(() => { carregarReferencias(); }, [carregarReferencias]);
 
-  async function handleFotoReferencia(e) {
+  async function handleFotoReferencia(e, categoria) {
     setErro("");
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) { setErro("Escolha um arquivo de imagem."); return; }
-    if ((referencias || []).length >= LIMITE_FOTOS_REFERENCIA) {
-      setErro(`Você já tem ${LIMITE_FOTOS_REFERENCIA} fotos de referência, que é o limite. Apague alguma antes de subir outra.`);
+    const nome = (nomesNovos[categoria] || "").trim();
+    if (!nome) { setErro("Escreve o nome dessa peça antes de subir a foto."); return; }
+    const limite = CATEGORIAS_REFERENCIA.find((c) => c.key === categoria).limite;
+    const quantidadeAtual = (referencias || []).filter((r) => r.categoria === categoria).length;
+    if (quantidadeAtual >= limite) {
+      setErro(`Você já tem ${limite} fotos nessa categoria, que é o limite. Apague alguma antes de subir outra.`);
       return;
     }
-    setEnviandoFoto(true);
+    setEnviandoFoto(categoria);
     try {
       const dataUrl = await redimensionarImagem(file, 900);
       const blob = await dataUrlParaBlob(dataUrl);
-      const nomeArquivo = `referencias/${userId}/${uid()}.jpg`;
+      const nomeArquivo = `referencias/${userId}/${categoria}-${uid()}.jpg`;
       const { error: erroUpload } = await sb.storage.from("catalogo").upload(nomeArquivo, blob, { contentType: "image/jpeg", upsert: false });
-      if (erroUpload) { setErro("Erro ao subir a foto: " + erroUpload.message); setEnviandoFoto(false); return; }
+      if (erroUpload) { setErro("Erro ao subir a foto: " + erroUpload.message); setEnviandoFoto(null); return; }
       const { data: urlPublica } = sb.storage.from("catalogo").getPublicUrl(nomeArquivo);
       const { error: erroInsert } = await sb.from("catalogo_referencias").insert({
         decoradora_id: userId,
         imagem_url: urlPublica.publicUrl,
-        descricao: descricaoNova.trim() || null,
+        categoria,
+        nome_peca: nome,
       });
-      if (erroInsert) { setErro("Erro ao salvar: " + erroInsert.message); setEnviandoFoto(false); return; }
-      setDescricaoNova("");
+      if (erroInsert) { setErro("Erro ao salvar: " + erroInsert.message); setEnviandoFoto(null); return; }
+      setNomesNovos((n) => ({ ...n, [categoria]: "" }));
       await carregarReferencias();
     } catch (err) {
       setErro("Erro inesperado: " + err.message);
     }
-    setEnviandoFoto(false);
+    setEnviandoFoto(null);
     e.target.value = "";
   }
 
@@ -2504,30 +2517,47 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
         </div>
       </div>
 
-      {/* Fotos de referência */}
+      {/* Fotos de referência, por categoria */}
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-5">
-        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Fotos de referência ({(referencias || []).length}/{LIMITE_FOTOS_REFERENCIA})</p>
-        <p className="text-xs text-slate-400 mb-3">Suba fotos dos seus kits, arcos, vasos — o que você realmente entrega. A IA usa essas fotos como referência de estilo.</p>
+        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Fotos de referência</p>
+        <p className="text-xs text-slate-400 mb-4">Cada foto que você sobe aqui vira uma opção de escolha pro seu cliente no quiz — e é o que a IA usa como referência de estilo. Dê um nome pra cada peça.</p>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-          {(referencias || []).map((item) => (
-            <div key={item.id} className="relative group">
-              <img src={item.imagem_url} className="w-full aspect-square object-cover rounded-xl bg-slate-100" />
-              <button onClick={() => excluirReferencia(item)} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-xs flex items-center justify-center cursor-pointer">✕</button>
-              {item.descricao && <p className="text-[11px] text-slate-400 mt-1 truncate">{item.descricao}</p>}
+        {CATEGORIAS_REFERENCIA.map((cat) => {
+          const fotosCategoria = (referencias || []).filter((r) => r.categoria === cat.key);
+          return (
+            <div key={cat.key} className="mb-6 last:mb-0">
+              <p className="text-xs font-bold uppercase tracking-wide mb-2 flex items-center gap-2" style={{ color: "#8B5CF6" }}>
+                {cat.label} ({fotosCategoria.length}/{cat.limite})
+                {cat.opcional && <span className="text-[10px] font-normal normal-case px-1.5 py-0.5 rounded-full" style={{ background: "#f1f5f9", color: "#94a3b8" }}>opcional pro cliente</span>}
+              </p>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                {fotosCategoria.map((item) => (
+                  <div key={item.id} className="relative group">
+                    <img src={item.imagem_url} className="w-full aspect-square object-cover rounded-xl bg-slate-100" />
+                    <button onClick={() => excluirReferencia(item)} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-xs flex items-center justify-center cursor-pointer">✕</button>
+                    <p className="text-[11px] text-slate-500 mt-1 truncate font-medium">{item.nome_peca}</p>
+                  </div>
+                ))}
+              </div>
+
+              {fotosCategoria.length < cat.limite && (
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    value={nomesNovos[cat.key]}
+                    onChange={(e) => setNomesNovos((n) => ({ ...n, [cat.key]: e.target.value }))}
+                    placeholder="Nome dessa peça (obrigatório)"
+                    className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                  />
+                  <label className="shrink-0 text-center px-4 py-2 rounded-xl font-bold text-sm cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
+                    {enviandoFoto === cat.key ? "Enviando..." : "+ Subir foto"}
+                    <input type="file" accept="image/*" onChange={(e) => handleFotoReferencia(e, cat.key)} disabled={enviandoFoto === cat.key} className="hidden" />
+                  </label>
+                </div>
+              )}
             </div>
-          ))}
-        </div>
-
-        {(referencias || []).length < LIMITE_FOTOS_REFERENCIA && (
-          <div>
-            <input value={descricaoNova} onChange={(e) => setDescricaoNova(e.target.value)} placeholder="Legenda (opcional) — ex: arco de balão rosa e dourado" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm mb-2" />
-            <label className="inline-block px-4 py-2 rounded-xl font-bold text-sm cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
-              {enviandoFoto ? "Enviando..." : "+ Subir foto"}
-              <input type="file" accept="image/*" onChange={handleFotoReferencia} disabled={enviandoFoto} className="hidden" />
-            </label>
-          </div>
-        )}
+          );
+        })}
       </div>
 
       {/* Gerar prévia como decoradora (mesma ferramenta do cliente, uso interno) */}

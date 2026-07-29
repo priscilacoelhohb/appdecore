@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+<title>Monte sua decoração dos sonhos | AppDecore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .fredoka { font-family: 'Fredoka', sans-serif; }
+  * { -webkit-tap-highlight-color: transparent; }
+  @keyframes flutuar { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-14px) rotate(4deg); } }
+  @keyframes brilho { 0%,100% { opacity: .5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.15); } }
+  @keyframes entrar { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  .anim-entrar { animation: entrar .35s ease-out; }
+  .anim-flutuar { animation: flutuar 4s ease-in-out infinite; }
+  .anim-brilho { animation: brilho 1.8s ease-in-out infinite; }
+  ::-webkit-scrollbar { width: 6px; }
+</style>
+</head>
+<body style="background:#F4F6FD">
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react" data-type="module">
+const { useState, useEffect, useMemo, useCallback } = React;
+
+/* ============================================================
+   CONFIGURAÇÃO
+============================================================ */
+const SUPABASE_URL = "https://drizqsevvmyyrdgczjvf.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRyaXpxc2V2dm15eXJkZ2N6anZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzNDM0MzAsImV4cCI6MjA5ODkxOTQzMH0.uTzYirVcO-TFJ6BCyDY9A8_Etw4v32iWlOETWht_hxQ";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// TODO: trocar pela URL real do webhook do n8n quando ele estiver pronto
+const WEBHOOK_GERAR_PREVIA = "https://waha-n8n.svqcg7.easypanel.host/webhook/catalogo-gerar-previa";
+
+const BRAND = { azul: "#16308A", rosa: "#EC1E79", amarelo: "#FFC93C", roxo: "#8B5CF6", bg: "#F4F6FD", tinta: "#181A33" };
+
+const CATEGORIAS_ORDEM = [
+  { key: "mesa", label: "mesa", pergunta: "Qual estilo de mesa você imagina?", opcional: false },
+  { key: "painel", label: "painel", pergunta: "E o painel de fundo?", opcional: false },
+  { key: "boleira", label: "boleira", pergunta: "Qual boleira combina mais?", opcional: false },
+  { key: "doces", label: "suporte de doces", pergunta: "Quer um suporte pros docinhos?", opcional: true },
+  { key: "vasos", label: "vasos", pergunta: "Que tal uns vasinhos de plantas?", opcional: true },
+  { key: "arco", label: "arco de balão", pergunta: "Vamos de arco de balão?", opcional: true },
+  { key: "tapete", label: "tapete", pergunta: "Um tapete temático completa o visual?", opcional: true },
+];
+
+const TIPOS_FESTA = [
+  { valor: "aniversario_infantil", label: "Aniversário infantil", emoji: "🎂" },
+  { valor: "mesversario", label: "Mesversário", emoji: "🌙" },
+  { valor: "cha_revelacao", label: "Chá revelação", emoji: "🎀" },
+  { valor: "festa_junina", label: "Festa junina", emoji: "🌽" },
+  { valor: "adulto", label: "Festa adulto", emoji: "🥂" },
+  { valor: "outro", label: "Outro tipo de festa", emoji: "✨" },
+];
+
+const PALETAS_COR = [
+  { valor: "rosa_dourado", label: "Rosa e dourado", cores: ["#F9A8D4", "#FBBF24"] },
+  { valor: "azul_branco", label: "Azul e branco", cores: ["#93C5FD", "#FFFFFF"] },
+  { valor: "colorido", label: "Colorido vibrante", cores: ["#F87171", "#34D399", "#FBBF24"] },
+  { valor: "pastel", label: "Tons pastéis", cores: ["#FBCFE8", "#BFDBFE", "#FDE68A"] },
+];
+
+const NIVEIS = [
+  { valor: "simples", label: "Simples e charmoso", desc: "O essencial, bem feito" },
+  { valor: "completo", label: "Completo", desc: "Mesa, painel e detalhes" },
+  { valor: "luxo", label: "Luxo", desc: "Tudo incluso, sem limites" },
+];
+
+/* ============================================================
+   COMPONENTES DE APOIO
+============================================================ */
+function BarraProgresso({ percentual }) {
+  return (
+    <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: "#E5E7EB" }}>
+      <div className="h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${percentual}%`, background: `linear-gradient(90deg, ${BRAND.rosa}, ${BRAND.roxo})` }} />
+    </div>
+  );
+}
+
+function Cabecalho({ logo, nomeLoja, percentual, onVoltar, mostrarVoltar }) {
+  return (
+    <div className="sticky top-0 z-20 pt-4 pb-3 px-4" style={{ background: BRAND.bg }}>
+      <div className="max-w-md mx-auto flex items-center gap-3 mb-3">
+        {mostrarVoltar ? (
+          <button onClick={onVoltar} aria-label="Voltar" className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 cursor-pointer" style={{ background: "#fff" }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke={BRAND.tinta} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="m15 18-6-6 6-6" /></svg>
+          </button>
+        ) : <div className="w-9" />}
+        {logo ? (
+          <img src={logo} alt={nomeLoja} className="w-8 h-8 rounded-lg object-cover" />
+        ) : (
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ background: BRAND.rosa }}>{(nomeLoja || "?")[0]}</div>
+        )}
+        <p className="fredoka font-semibold text-sm truncate" style={{ color: BRAND.tinta }}>{nomeLoja}</p>
+      </div>
+      <div className="max-w-md mx-auto"><BarraProgresso percentual={percentual} /></div>
+    </div>
+  );
+}
+
+function BotaoPrimario({ children, onClick, disabled }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="w-full py-4 rounded-2xl font-bold text-base text-white cursor-pointer transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
+      style={{ background: `linear-gradient(90deg, ${BRAND.rosa}, ${BRAND.roxo})`, minHeight: 52 }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function CardEscolha({ selecionado, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full text-left rounded-2xl border-2 p-4 cursor-pointer transition-all duration-200 active:scale-[0.98]"
+      style={{
+        borderColor: selecionado ? BRAND.rosa : "#E5E7EB",
+        background: selecionado ? `${BRAND.rosa}0d` : "#fff",
+        minHeight: 52,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function CardFoto({ item, selecionado, onClick }) {
+  return (
+    <button onClick={onClick} className="text-left rounded-2xl overflow-hidden border-2 cursor-pointer transition-all duration-200 active:scale-[0.97]" style={{ borderColor: selecionado ? BRAND.rosa : "#E5E7EB" }}>
+      <div className="relative aspect-square bg-slate-100">
+        <img src={item.imagem_url} className="w-full h-full object-cover" />
+        {selecionado && (
+          <div className="absolute inset-0 flex items-start justify-end p-2" style={{ background: `${BRAND.rosa}22` }}>
+            <div className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: BRAND.rosa }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5"><path d="M20 6 9 17l-5-5" /></svg>
+            </div>
+          </div>
+        )}
+      </div>
+      <p className="text-xs font-semibold px-2 py-2 truncate" style={{ color: BRAND.tinta }}>{item.nome_peca}</p>
+    </button>
+  );
+}
+
+/* ============================================================
+   DADOS DE DEMONSTRAÇÃO (usados só quando não há link real)
+============================================================ */
+function fotoDemo(texto, cor) {
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><rect width='300' height='300' fill='${cor}'/><text x='50%' y='50%' font-family='sans-serif' font-size='20' font-weight='bold' fill='white' text-anchor='middle' dominant-baseline='middle'>${texto}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function gerarReferenciasDemo() {
+  let idc = 0;
+  const item = (categoria, nome_peca, cor) => ({ id: `demo-${idc++}`, categoria, nome_peca, imagem_url: fotoDemo(nome_peca, cor) });
+  return {
+    mesa: [item("mesa", "Cilindro rosa", "#EC1E79"), item("mesa", "Trio de mesas", "#8B5CF6"), item("mesa", "Mesa dupla", "#16308A")],
+    painel: [item("painel", "Redondo dourado", "#FFC93C"), item("painel", "Meia-lua azul", "#16308A")],
+    boleira: [item("boleira", "Boleira rosa", "#EC1E79"), item("boleira", "Boleira dourada", "#FFC93C")],
+    doces: [item("doces", "Suporte 3 andares", "#8B5CF6")],
+    arco: [item("arco", "Desconstruído", "#EC1E79"), item("arco", "Completo clássico", "#16308A")],
+  };
+}
+
+/* ============================================================
+   APP PRINCIPAL
+============================================================ */
+function App() {
+  const decoradoraId = new URLSearchParams(window.location.search).get("d");
+
+  const [carregando, setCarregando] = useState(true);
+  const [erroCarregamento, setErroCarregamento] = useState("");
+  const [decoradora, setDecoradora] = useState(null);
+  const [referencias, setReferencias] = useState({});
+
+  const [historico, setHistorico] = useState(["boas-vindas"]);
+  const [respostas, setRespostas] = useState({ escolhas_foto: {} });
+  const [gerando, setGerando] = useState(false);
+  const [erroGeracao, setErroGeracao] = useState("");
+  const [resultado, setResultado] = useState(null);
+
+  const etapa = historico[historico.length - 1];
+
+  useEffect(() => {
+    async function carregar() {
+      if (!decoradoraId) {
+        // Modo demonstração: sem link de verdade, carrega dados de exemplo
+        // pra dar pra ver e testar o quiz sem precisar do Supabase.
+        setDecoradora({ nome_loja: "Studio Encanto (demonstração)", logo_data_url: null, whatsapp_contato: "5511999999999" });
+        setReferencias(gerarReferenciasDemo());
+        setCarregando(false);
+        return;
+      }
+      const { data: dec, error: erroDec } = await sb.from("catalogo_publico").select("*").eq("decoradora_id", decoradoraId).maybeSingle();
+      if (erroDec || !dec) { setErroCarregamento("Não achamos esse catálogo. Confira o link com quem te enviou."); setCarregando(false); return; }
+      const { data: refs } = await sb.from("catalogo_referencias").select("*").eq("decoradora_id", decoradoraId);
+      const agrupado = {};
+      (refs || []).forEach((r) => { (agrupado[r.categoria] = agrupado[r.categoria] || []).push(r); });
+      setDecoradora(dec);
+      setReferencias(agrupado);
+      setCarregando(false);
+    }
+    carregar();
+  }, [decoradoraId]);
+
+  const categoriasComFoto = useMemo(
+    () => CATEGORIAS_ORDEM.filter((c) => (referencias[c.key] || []).length > 0),
+    [referencias]
+  );
+
+  const totalEtapas = 8 + categoriasComFoto.length;
+  const indiceEtapaVisual = Math.max(0, historico.length - 1);
+  const percentual = Math.min(100, Math.round((indiceEtapaVisual / totalEtapas) * 100));
+
+  function ir(proxima) { setHistorico((h) => [...h, proxima]); }
+  function voltar() { setHistorico((h) => (h.length > 1 ? h.slice(0, -1) : h)); }
+  function responder(campo, valor) { setRespostas((r) => ({ ...r, [campo]: valor })); }
+
+  function proximaCategoriaFoto(depoisDeKey) {
+    const idx = depoisDeKey ? categoriasComFoto.findIndex((c) => c.key === depoisDeKey) : -1;
+    const proxima = categoriasComFoto[idx + 1];
+    return proxima ? `foto:${proxima.key}` : "cor";
+  }
+
+  async function handleGerar() {
+    ir("loading");
+    setGerando(true);
+    setErroGeracao("");
+    try {
+      const resp = await fetch(WEBHOOK_GERAR_PREVIA, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decoradora_id: decoradoraId, origem: "cliente", respostas }),
+      });
+      const dados = await resp.json();
+      if (!resp.ok || dados.erro) {
+        setErroGeracao(dados.erro || "Não conseguimos gerar sua prévia agora. Tenta de novo em instantes.");
+      } else {
+        setResultado(dados);
+      }
+    } catch (err) {
+      setErroGeracao("Erro de conexão. Confira sua internet e tenta de novo.");
+    }
+    setGerando(false);
+    ir("resultado");
+  }
+
+  if (carregando) {
+    return <div className="min-h-screen flex items-center justify-center text-sm text-slate-400">Carregando...</div>;
+  }
+  if (erroCarregamento) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 text-center">
+        <div>
+          <p className="text-3xl mb-3">😕</p>
+          <p className="font-semibold" style={{ color: BRAND.tinta }}>{erroCarregamento}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const mostrarVoltar = !["boas-vindas", "loading", "resultado"].includes(etapa);
+
+  return (
+    <div className="min-h-screen pb-8">
+      {etapa !== "loading" && etapa !== "resultado" && (
+        <Cabecalho logo={decoradora.logo_data_url} nomeLoja={decoradora.nome_loja} percentual={etapa === "boas-vindas" ? 0 : percentual} onVoltar={voltar} mostrarVoltar={mostrarVoltar} />
+      )}
+
+      <div className="max-w-md mx-auto px-4 pt-6">
+
+        {etapa === "boas-vindas" && (
+          <div className="anim-entrar text-center pt-10">
+            <div className="relative w-24 h-24 mx-auto mb-6">
+              <div className="absolute inset-0 rounded-full anim-brilho" style={{ background: `${BRAND.rosa}30` }} />
+              <div className="relative w-24 h-24 rounded-full flex items-center justify-center text-4xl anim-flutuar" style={{ background: `linear-gradient(135deg, ${BRAND.rosa}, ${BRAND.roxo})` }}>🎉</div>
+            </div>
+            <h1 className="fredoka text-2xl font-bold mb-3" style={{ color: BRAND.tinta }}>Vamos criar a decoração dos seus sonhos!</h1>
+            <p className="text-sm text-slate-500 leading-relaxed mb-8 px-2">
+              É bem simples: você vai respondendo algumas perguntinhas rápidas sobre como imagina a festa, e no final a gente te mostra uma prévia visual, do jeitinho que você sonhou. Vamos lá? ✨
+            </p>
+            <BotaoPrimario onClick={() => ir("tipo_festa")}>Começar</BotaoPrimario>
+          </div>
+        )}
+
+        {etapa === "tipo_festa" && (
+          <div className="anim-entrar">
+            <h2 className="fredoka text-xl font-bold mb-5" style={{ color: BRAND.tinta }}>Que tipo de festa é?</h2>
+            <div className="space-y-3">
+              {TIPOS_FESTA.map((t) => (
+                <CardEscolha key={t.valor} selecionado={respostas.tipo_festa === t.valor} onClick={() => { responder("tipo_festa", t.valor); ir(["aniversario_infantil", "mesversario"].includes(t.valor) ? "idade" : "tema"); }}>
+                  <span className="flex items-center gap-3"><span className="text-2xl">{t.emoji}</span><span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>{t.label}</span></span>
+                </CardEscolha>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {etapa === "idade" && (
+          <div className="anim-entrar">
+            <h2 className="fredoka text-xl font-bold mb-5" style={{ color: BRAND.tinta }}>Quantos aninhos vai fazer? 🎈</h2>
+            <input
+              type="number" min="0" max="120" inputMode="numeric"
+              value={respostas.idade || ""}
+              onChange={(e) => responder("idade", e.target.value)}
+              placeholder="Ex: 5"
+              className="w-full px-4 py-4 rounded-2xl border-2 border-slate-200 text-lg text-center font-semibold mb-5"
+              style={{ color: BRAND.tinta }}
+              autoFocus
+            />
+            <BotaoPrimario onClick={() => ir("tema")} disabled={!respostas.idade}>Continuar</BotaoPrimario>
+          </div>
+        )}
+
+        {etapa === "tema" && (
+          <div className="anim-entrar">
+            <h2 className="fredoka text-xl font-bold mb-2" style={{ color: BRAND.tinta }}>Qual o tema da festa?</h2>
+            <p className="text-xs text-slate-400 mb-4">Pode ser um personagem, um estilo, o que você imaginar — ex: "Unicórnio rosa e dourado", "Safari aventura", "Fundo do mar"</p>
+            <textarea
+              value={respostas.tema || ""}
+              onChange={(e) => responder("tema", e.target.value)}
+              placeholder="Digite o tema aqui..."
+              rows={3}
+              className="w-full px-4 py-3 rounded-2xl border-2 border-slate-200 text-sm mb-5"
+              style={{ color: BRAND.tinta }}
+              autoFocus
+            />
+            <BotaoPrimario onClick={() => ir(proximaCategoriaFoto(null))} disabled={!respostas.tema || !respostas.tema.trim()}>Continuar</BotaoPrimario>
+          </div>
+        )}
+
+        {etapa.startsWith("foto:") && (() => {
+          const catKey = etapa.split(":")[1];
+          const catInfo = CATEGORIAS_ORDEM.find((c) => c.key === catKey);
+          const fotos = referencias[catKey] || [];
+          const selecionada = respostas.escolhas_foto[catKey];
+          return (
+            <div className="anim-entrar">
+              <h2 className="fredoka text-xl font-bold mb-5" style={{ color: BRAND.tinta }}>{catInfo.pergunta}</h2>
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                {fotos.map((f) => (
+                  <CardFoto key={f.id} item={f} selecionado={selecionada?.id === f.id}
+                    onClick={() => {
+                      const novasEscolhas = { ...respostas.escolhas_foto, [catKey]: f };
+                      setRespostas((r) => ({ ...r, escolhas_foto: novasEscolhas }));
+                      ir(proximaCategoriaFoto(catKey));
+                    }}
+                  />
+                ))}
+              </div>
+              {catInfo.opcional && (
+                <button
+                  onClick={() => {
+                    const novasEscolhas = { ...respostas.escolhas_foto };
+                    delete novasEscolhas[catKey];
+                    setRespostas((r) => ({ ...r, escolhas_foto: novasEscolhas }));
+                    ir(proximaCategoriaFoto(catKey));
+                  }}
+                  className="w-full text-center py-3 rounded-2xl text-sm font-semibold cursor-pointer"
+                  style={{ color: "#94a3b8", background: "#F1F5F9" }}
+                >
+                  Não preciso de {catInfo.label}
+                </button>
+              )}
+            </div>
+          );
+        })()}
+
+        {etapa === "cor" && (
+          <div className="anim-entrar">
+            <h2 className="fredoka text-xl font-bold mb-5" style={{ color: BRAND.tinta }}>Qual paleta de cores?</h2>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              {PALETAS_COR.map((p) => (
+                <CardEscolha key={p.valor} selecionado={respostas.cor === p.valor} onClick={() => { responder("cor", p.valor); ir("nivel"); }}>
+                  <div className="flex gap-1 mb-2">{p.cores.map((c, i) => <div key={i} className="w-5 h-5 rounded-full border border-white" style={{ background: c, boxShadow: "0 0 0 1px #eee" }} />)}</div>
+                  <p className="text-xs font-semibold" style={{ color: BRAND.tinta }}>{p.label}</p>
+                </CardEscolha>
+              ))}
+            </div>
+            <input
+              value={respostas.cor === "outra" ? respostas.corTexto || "" : ""}
+              onFocus={() => responder("cor", "outra")}
+              onChange={(e) => { responder("cor", "outra"); responder("corTexto", e.target.value); }}
+              placeholder="Ou digite outra cor..."
+              className="w-full px-4 py-3 rounded-2xl border-2 border-slate-200 text-sm mb-4"
+            />
+            {respostas.cor === "outra" && <BotaoPrimario onClick={() => ir("nivel")} disabled={!respostas.corTexto}>Continuar</BotaoPrimario>}
+          </div>
+        )}
+
+        {etapa === "nivel" && (
+          <div className="anim-entrar">
+            <h2 className="fredoka text-xl font-bold mb-5" style={{ color: BRAND.tinta }}>Qual nível de decoração?</h2>
+            <div className="space-y-3">
+              {NIVEIS.map((n) => (
+                <CardEscolha key={n.valor} selecionado={respostas.nivel === n.valor} onClick={() => { responder("nivel", n.valor); ir("detalhe"); }}>
+                  <p className="font-semibold text-sm mb-0.5" style={{ color: BRAND.tinta }}>{n.label}</p>
+                  <p className="text-xs text-slate-400">{n.desc}</p>
+                </CardEscolha>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {etapa === "detalhe" && (
+          <div className="anim-entrar">
+            <h2 className="fredoka text-xl font-bold mb-2" style={{ color: BRAND.tinta }}>Algo especial que não pode faltar?</h2>
+            <p className="text-xs text-slate-400 mb-4">Opcional — se não tiver nada, pode pular.</p>
+            <textarea
+              value={respostas.detalhe || ""}
+              onChange={(e) => responder("detalhe", e.target.value)}
+              placeholder="Ex: o nome dela no painel, um balão gigante..."
+              rows={3}
+              className="w-full px-4 py-3 rounded-2xl border-2 border-slate-200 text-sm mb-5"
+            />
+            <BotaoPrimario onClick={() => ir("resumo")}>Continuar</BotaoPrimario>
+          </div>
+        )}
+
+        {etapa === "resumo" && (
+          <div className="anim-entrar">
+            <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Prontinho, confere aqui! 🎀</h2>
+            <p className="text-xs text-slate-400 mb-5">É assim que a sua decoração vai ser pensada:</p>
+            <div className="rounded-2xl border-2 border-dashed p-4 mb-6 space-y-2.5" style={{ borderColor: "#E5E7EB" }}>
+              <LinhaResumo label="Festa" valor={TIPOS_FESTA.find((t) => t.valor === respostas.tipo_festa)?.label} />
+              {respostas.idade && <LinhaResumo label="Idade" valor={`${respostas.idade} aninhos`} />}
+              <LinhaResumo label="Tema" valor={respostas.tema} />
+              {Object.entries(respostas.escolhas_foto).map(([cat, item]) => (
+                <LinhaResumo key={cat} label={CATEGORIAS_ORDEM.find((c) => c.key === cat)?.pergunta.replace(/[?]/g, "")} valor={item.nome_peca} />
+              ))}
+              <LinhaResumo label="Cores" valor={respostas.cor === "outra" ? respostas.corTexto : PALETAS_COR.find((p) => p.valor === respostas.cor)?.label} />
+              <LinhaResumo label="Nível" valor={NIVEIS.find((n) => n.valor === respostas.nivel)?.label} />
+              {respostas.detalhe && <LinhaResumo label="Detalhe especial" valor={respostas.detalhe} />}
+            </div>
+            <BotaoPrimario onClick={() => ir("contato")}>Está tudo certo, continuar</BotaoPrimario>
+          </div>
+        )}
+
+        {etapa === "contato" && (
+          <div className="anim-entrar">
+            <h2 className="fredoka text-xl font-bold mb-2" style={{ color: BRAND.tinta }}>Só mais uma coisinha 📱</h2>
+            <p className="text-xs text-slate-400 mb-4">Seu WhatsApp, pra {decoradora.nome_loja} poder te enviar novidades sobre a sua festa.</p>
+            <input
+              type="tel" inputMode="tel"
+              value={respostas.whatsapp || ""}
+              onChange={(e) => responder("whatsapp", e.target.value)}
+              placeholder="(11) 91234-5678"
+              className="w-full px-4 py-4 rounded-2xl border-2 border-slate-200 text-base mb-5"
+              autoFocus
+            />
+            <BotaoPrimario onClick={handleGerar} disabled={!respostas.whatsapp || respostas.whatsapp.replace(/\D/g, "").length < 10}>
+              Gerar minha decoração ✨
+            </BotaoPrimario>
+          </div>
+        )}
+
+        {etapa === "loading" && (
+          <div className="min-h-[70vh] flex flex-col items-center justify-center text-center px-6">
+            <div className="relative w-28 h-28 mb-8">
+              <div className="absolute inset-0 rounded-full anim-brilho" style={{ background: `${BRAND.roxo}30` }} />
+              <div className="relative w-28 h-28 rounded-full flex items-center justify-center text-5xl anim-flutuar" style={{ background: `linear-gradient(135deg, ${BRAND.rosa}, ${BRAND.roxo})` }}>🎨</div>
+            </div>
+            <p className="fredoka text-lg font-bold mb-2" style={{ color: BRAND.tinta }}>Criando sua decoração dos sonhos...</p>
+            <p className="text-sm text-slate-400">Isso leva só alguns segundos ✨</p>
+          </div>
+        )}
+
+        {etapa === "resultado" && (
+          <div className="anim-entrar pt-4">
+            {erroGeracao ? (
+              <div className="text-center pt-10">
+                <p className="text-3xl mb-3">😕</p>
+                <p className="font-semibold mb-2" style={{ color: BRAND.tinta }}>{erroGeracao}</p>
+                <button onClick={() => { setErroGeracao(""); ir("contato"); }} className="text-sm font-semibold underline cursor-pointer" style={{ color: BRAND.rosa }}>Tentar de novo</button>
+              </div>
+            ) : resultado ? (
+              <>
+                <h2 className="fredoka text-xl font-bold mb-4 text-center" style={{ color: BRAND.tinta }}>Sua prévia ficou assim! 🎉</h2>
+                <img src={resultado.imagem_url} className="w-full rounded-3xl border-2 border-slate-100 mb-5" />
+                <a
+                  href={`https://wa.me/${(decoradora.whatsapp_contato || "").replace(/\D/g, "")}?text=${encodeURIComponent(`Gostei desse! Quero saber mais.\n\n${resultado.imagem_url}`)}`}
+                  className="block w-full text-center py-4 rounded-2xl font-bold text-base text-white cursor-pointer mb-3"
+                  style={{ background: "#25D366" }}
+                >
+                  Enviar pra {decoradora.nome_loja} no WhatsApp
+                </a>
+                <button onClick={() => { setResultado(null); setHistorico(["boas-vindas"]); setRespostas({ escolhas_foto: {} }); }} className="w-full text-center py-3 text-sm font-semibold cursor-pointer" style={{ color: "#94a3b8" }}>
+                  Fazer outra tentativa
+                </button>
+              </>
+            ) : null}
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
+function LinhaResumo({ label, valor }) {
+  if (!valor) return null;
+  return (
+    <div className="flex justify-between gap-3 text-sm">
+      <span className="text-slate-400 shrink-0">{label}:</span>
+      <span className="font-semibold text-right" style={{ color: BRAND.tinta }}>{valor}</span>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
