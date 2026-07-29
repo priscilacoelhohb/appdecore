@@ -2331,6 +2331,7 @@ function EstoqueTab({ userId, profile }) {
    do banco (o mesmo problema de Egress/tamanho que já apareceu antes).
 ============================================================ */
 const CATEGORIAS_REFERENCIA = [
+  { key: "tema", label: "Tema / Personagem", limite: 100, opcional: false },
   { key: "mesa", label: "Mesa", limite: 4, opcional: false },
   { key: "painel", label: "Painel", limite: 4, opcional: false },
   { key: "boleira", label: "Boleira (suporte do bolo)", limite: 4, opcional: false },
@@ -2348,7 +2349,7 @@ async function dataUrlParaBlob(dataUrl) {
 function CatalogoTab({ userId, profile, onProfileUpdate }) {
   const [referencias, setReferencias] = useState(null);
   const [enviandoFoto, setEnviandoFoto] = useState(null); // guarda qual categoria está enviando
-  const [nomesNovos, setNomesNovos] = useState({ mesa: "", painel: "", boleira: "", doces: "", vasos: "", arco: "", tapete: "" });
+  const [nomesNovos, setNomesNovos] = useState({ tema: "", mesa: "", painel: "", boleira: "", doces: "", vasos: "", arco: "", tapete: "" });
   const [erro, setErro] = useState("");
 
   const [whatsappContato, setWhatsappContato] = useState(profile.whatsapp_contato || "");
@@ -2420,12 +2421,21 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
     } catch (err) { /* ignora */ }
   }
 
+  function formatarWhatsappBR(bruto) {
+    let digitos = (bruto || "").replace(/\D/g, "");
+    if (!digitos) return "";
+    if (!digitos.startsWith("55")) digitos = "55" + digitos;
+    return digitos;
+  }
+
   async function salvarWhatsapp() {
     setSalvandoWhatsapp(true);
-    const { error } = await sb.from("decoradoras").update({ whatsapp_contato: whatsappContato.trim() }).eq("id", userId);
+    const numeroFormatado = formatarWhatsappBR(whatsappContato);
+    const { error } = await sb.from("decoradoras").update({ whatsapp_contato: numeroFormatado }).eq("id", userId);
     setSalvandoWhatsapp(false);
     if (error) { setErro("Erro ao salvar WhatsApp: " + error.message); return; }
-    onProfileUpdate((p) => ({ ...p, whatsapp_contato: whatsappContato.trim() }));
+    setWhatsappContato(numeroFormatado);
+    onProfileUpdate((p) => ({ ...p, whatsapp_contato: numeroFormatado }));
   }
 
   async function alternarCatalogoAtivo() {
