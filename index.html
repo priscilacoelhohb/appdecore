@@ -940,9 +940,9 @@ function HomeDashboard({ setPage, contracts, profile, userId }) {
         <HomeCard emoji="🎯" title="Oportunidades" desc="Aniversários e clientes antigos pra reconquistar." color="#8B5CF6" onClick={() => setPage("oportunidades")} />
         <HomeCard emoji="📦" title="Estoque" desc="Seus materiais, com quantidade sempre atualizada." color="#F97316" onClick={() => setPage("estoque")} />
         {profile.plano_tipo === "premium" ? (
-          <HomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo inteligente" desc="Envie um link pra cliente descrever a festa que ela imagina, e uma Inteligência Artificial gera uma prévia visual, treinada nos kits que você realmente entrega." color="#8B5CF6" onClick={() => setPage("catalogo")} />
+          <HomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Monte seu catálogo com fotos reais dos seus kits. Envie o link e o cliente escolhe direto pelo WhatsApp." color="#8B5CF6" onClick={() => setPage("catalogo")} />
         ) : (
-          <LockedHomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo inteligente" desc="Envie um link pra cliente descrever a festa que ela imagina, e uma Inteligência Artificial gera uma prévia visual, treinada nos kits que você realmente entrega. Exclusivo do plano Premium." linkUpgrade={`https://buy.stripe.com/4gM8wIb4x5j0cfle5BfQI06?prefilled_email=${encodeURIComponent(profile.email || "")}`} />
+          <LockedHomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Monte seu catálogo com fotos reais dos seus kits. Envie o link e o cliente escolhe direto pelo WhatsApp. Exclusivo do plano Premium." linkUpgrade={`https://buy.stripe.com/4gM8wIb4x5j0cfle5BfQI06?prefilled_email=${encodeURIComponent(profile.email || "")}`} />
         )}
       </div>
     </div>
@@ -2334,9 +2334,45 @@ function EstoqueTab({ userId, profile }) {
    "kits/"), não base64 no banco — mesmo motivo de sempre (Egress).
 ============================================================ */
 
-const TIPOS_EVENTO_KIT = ["Aniversário Infantil", "Mesversário", "Chá de Bebê/Fralda", "Festa Junina", "15 Anos", "Adulto", "Dia dos Pais/Mães", "Formatura", "Casamento/Noivado", "Outro"];
+const TIPOS_EVENTO_KIT = ["Aniversário Infantil", "Mesversário", "Chá de Bebê/Fralda", "Festa Junina", "15 Anos", "Adulto", "Dia dos Pais/Mães", "Formatura", "Casamento/Noivado"];
 const PUBLICOS_KIT = ["Menina", "Menino", "Mulher", "Homem", "Unissex"];
 const NIVEIS_KIT = ["Minimalista", "Prata", "Ouro", "Diamante", "Luxo"];
+const PALETAS_COR_KIT = [
+  { valor: "Rosa e dourado", cores: ["#F9A8D4", "#FBBF24"] },
+  { valor: "Azul e branco", cores: ["#93C5FD", "#FFFFFF"] },
+  { valor: "Colorido vibrante", cores: ["#F87171", "#34D399", "#FBBF24"] },
+  { valor: "Tons pastéis", cores: ["#FBCFE8", "#BFDBFE", "#FDE68A"] },
+  { valor: "Branco e dourado", cores: ["#FFFFFF", "#FBBF24"] },
+  { valor: "Preto e dourado", cores: ["#111827", "#FBBF24"] },
+];
+
+// Select com opção de digitar um valor customizado, pra não travar
+// a decoradora numa lista fixa quando ela quiser algo diferente.
+function SelectComOutro({ label, valor, opcoes, onChange, placeholderOutro }) {
+  const naLista = opcoes.includes(valor);
+  const [modoCustom, setModoCustom] = useState(!!valor && !naLista);
+  return (
+    <div>
+      <label className="text-xs font-bold text-slate-500 mb-1 block">{label}</label>
+      {!modoCustom ? (
+        <select
+          value={naLista ? valor : ""}
+          onChange={(e) => { if (e.target.value === "__outro__") { setModoCustom(true); onChange(""); } else { onChange(e.target.value); } }}
+          className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+        >
+          <option value="">—</option>
+          {opcoes.map((o) => <option key={o} value={o}>{o}</option>)}
+          <option value="__outro__">Outro (digitar)</option>
+        </select>
+      ) : (
+        <div className="flex gap-1">
+          <input autoFocus value={valor || ""} onChange={(e) => onChange(e.target.value)} placeholder={placeholderOutro} className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+          <button onClick={() => { setModoCustom(false); onChange(""); }} className="px-2 rounded-xl text-xs text-slate-400 cursor-pointer" title="Voltar pra lista">✕</button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 async function dataUrlParaBlob(dataUrl) {
   const resposta = await fetch(dataUrl);
@@ -2434,7 +2470,7 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
       return;
     }
     setEditando({
-      id: null, nome: "", descricao: "", itens_inclusos: [], tipo_evento: "", publico: "", nivel: "", tema: "",
+      id: null, nome: "", itens_inclusos: [], tipo_evento: "", publico: "", nivel: "", tema: "", cor: "",
       preco: "", status: "rascunho", aceita_variacao_cor: false, em_destaque: false,
     });
   }
@@ -2444,28 +2480,30 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
     const linha = {
       decoradora_id: userId,
       nome: dadosKit.nome.trim(),
-      descricao: dadosKit.descricao || null,
       itens_inclusos: dadosKit.itens_inclusos || [],
       tipo_evento: dadosKit.tipo_evento || null,
       publico: dadosKit.publico || null,
       nivel: dadosKit.nivel || null,
       tema: dadosKit.tema || null,
+      cor: dadosKit.cor || null,
       preco: dadosKit.preco ? parseFloat(String(dadosKit.preco).replace(",", ".")) : null,
       status: dadosKit.status,
       aceita_variacao_cor: !!dadosKit.aceita_variacao_cor,
       em_destaque: !!dadosKit.em_destaque,
     };
-    if (!linha.nome) { setErro("Digite o nome do kit."); return false; }
+    if (!linha.nome) { setErro("Digite o nome do kit."); return null; }
 
+    let kitId = dadosKit.id;
     if (dadosKit.id) {
       const { error } = await sb.from("catalogo_kits").update(linha).eq("id", dadosKit.id);
-      if (error) { setErro("Erro ao salvar: " + error.message); return false; }
+      if (error) { setErro("Erro ao salvar: " + error.message); return null; }
     } else {
-      const { error } = await sb.from("catalogo_kits").insert(linha);
-      if (error) { setErro("Erro ao criar: " + error.message); return false; }
+      const { data: novo, error } = await sb.from("catalogo_kits").insert(linha).select().single();
+      if (error) { setErro("Erro ao criar: " + error.message); return null; }
+      kitId = novo.id;
     }
     await carregarKits();
-    return true;
+    return kitId;
   }
 
   async function excluirKit(kit) {
@@ -2510,7 +2548,7 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
       </div>
 
       <div className="flex gap-2 mb-6">
-        <button onClick={() => setAba("kits")} className="px-4 py-2 rounded-xl font-bold text-sm cursor-pointer" style={{ background: aba === "kits" ? BRAND.rosa : "#F1F5F9", color: aba === "kits" ? "#fff" : BRAND.tinta }}>Meus Kits ({totalKits}/{limiteCatalogo})</button>
+        <button onClick={() => setAba("kits")} className="px-4 py-2 rounded-xl font-bold text-sm cursor-pointer" style={{ background: aba === "kits" ? BRAND.rosa : "#F1F5F9", color: aba === "kits" ? "#fff" : BRAND.tinta }}>Meus Kits ({totalKits})</button>
         <button onClick={() => setAba("config")} className="px-4 py-2 rounded-xl font-bold text-sm cursor-pointer" style={{ background: aba === "config" ? BRAND.rosa : "#F1F5F9", color: aba === "config" ? "#fff" : BRAND.tinta }}>Configurações</button>
       </div>
 
@@ -2535,17 +2573,14 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
           kit={editando}
           fotos={editando.id ? (fotosPorKit[editando.id] || []) : []}
           onFechar={() => setEditando(null)}
-          onSalvar={async (dados) => {
-            const ok = await salvarKit(dados);
-            if (ok) {
-              if (!dados.id) {
-                const { data: novo } = await sb.from("catalogo_kits").select("*").eq("decoradora_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
-                if (novo) { setEditando(novo); return; }
-              }
-              setEditando(null);
+          onSalvar={async (dados, arquivosPendentes) => {
+            const kitId = await salvarKit(dados);
+            if (!kitId) return;
+            for (const arquivo of (arquivosPendentes || [])) {
+              await adicionarFotoKit(kitId, arquivo);
             }
+            setEditando(null);
           }}
-          onUploadFoto={(file) => editando.id && adicionarFotoKit(editando.id, file)}
           onExcluirFoto={excluirFotoKit}
         />
       )}
@@ -2553,40 +2588,89 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
   );
 }
 
+function ChipsFiltro({ label, opcoes, valor, onChange }) {
+  if (!opcoes.length) return null;
+  return (
+    <div className="mb-2.5">
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{label}</p>
+      <div className="flex gap-1.5 overflow-x-auto pb-1">
+        <button onClick={() => onChange("")} className="shrink-0 px-3 py-1 rounded-full text-xs font-semibold cursor-pointer" style={{ background: !valor ? BRAND.rosa : "#F1F5F9", color: !valor ? "#fff" : BRAND.tinta }}>Todos</button>
+        {opcoes.map((o) => (
+          <button key={o} onClick={() => onChange(o)} className="shrink-0 px-3 py-1 rounded-full text-xs font-semibold cursor-pointer" style={{ background: valor === o ? BRAND.rosa : "#F1F5F9", color: valor === o ? "#fff" : BRAND.tinta }}>{o}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function KitsLista({ kits, fotosPorKit, onNovo, onEditar, onExcluir }) {
   const [busca, setBusca] = useState("");
-  const filtrados = (kits || []).filter((k) => k.nome.toLowerCase().includes(busca.toLowerCase()));
+  const [filtroEvento, setFiltroEvento] = useState("");
+  const [filtroPublico, setFiltroPublico] = useState("");
+  const [filtroNivel, setFiltroNivel] = useState("");
+
+  const eventosDisponiveis = [...new Set((kits || []).map((k) => k.tipo_evento).filter(Boolean))];
+  const publicosDisponiveis = [...new Set((kits || []).map((k) => k.publico).filter(Boolean))];
+  const niveisDisponiveis = [...new Set((kits || []).map((k) => k.nivel).filter(Boolean))];
+
+  const filtrados = (kits || []).filter((k) =>
+    k.nome.toLowerCase().includes(busca.toLowerCase()) &&
+    (!filtroEvento || k.tipo_evento === filtroEvento) &&
+    (!filtroPublico || k.publico === filtroPublico) &&
+    (!filtroNivel || k.nivel === filtroNivel)
+  );
 
   return (
     <div>
-      <div className="flex gap-2 mb-5">
+      <div className="flex gap-2 mb-4">
         <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar kit..." className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm" />
         <button onClick={onNovo} className="px-4 py-2 rounded-xl font-bold text-sm text-white cursor-pointer shrink-0" style={{ background: BRAND.rosa }}>+ Novo Kit</button>
       </div>
 
+      <ChipsFiltro label="Tipo de evento" opcoes={eventosDisponiveis} valor={filtroEvento} onChange={setFiltroEvento} />
+      <ChipsFiltro label="Público" opcoes={publicosDisponiveis} valor={filtroPublico} onChange={setFiltroPublico} />
+      <ChipsFiltro label="Nível" opcoes={niveisDisponiveis} valor={filtroNivel} onChange={setFiltroNivel} />
+
       {filtrados.length === 0 && (
         <div className="text-center py-16 text-slate-400 text-sm">
-          {kits.length === 0 ? "Nenhum kit cadastrado ainda. Clica em \"+ Novo Kit\" pra começar." : "Nenhum kit encontrado com esse nome."}
+          {kits.length === 0 ? "Nenhum kit cadastrado ainda. Clica em \"+ Novo Kit\" pra começar." : "Nenhum kit encontrado com esse filtro."}
         </div>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-3">
         {filtrados.map((kit) => {
           const fotos = fotosPorKit[kit.id] || [];
           return (
-            <button key={kit.id} onClick={() => onEditar(kit)} className="text-left rounded-2xl overflow-hidden border border-slate-100 shadow-sm cursor-pointer bg-white">
-              <div className="relative aspect-square bg-slate-100">
-                {fotos[0] ? <img src={fotos[0].imagem_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-3xl">🎁</div>}
-                {kit.em_destaque && <span className="absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: BRAND.amarelo, color: "#5c4200" }}>⭐ Destaque</span>}
-                <span className="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: kit.status === "publicado" ? "#DCFCE7" : "#F1F5F9", color: kit.status === "publicado" ? "#166534" : "#64748b" }}>
-                  {kit.status === "publicado" ? "Publicado" : "Rascunho"}
-                </span>
+            <div key={kit.id} className="text-left rounded-2xl overflow-hidden border border-slate-100 shadow-sm bg-white">
+              <button onClick={() => onEditar(kit)} className="block w-full cursor-pointer text-left">
+                <div className="relative aspect-square bg-slate-100">
+                  {fotos[0] ? <img src={fotos[0].imagem_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-3xl">🎁</div>}
+                  {kit.em_destaque && <span className="absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: BRAND.amarelo, color: "#5c4200" }}>⭐ Destaque</span>}
+                  <span className="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: kit.status === "publicado" ? "#DCFCE7" : "#F1F5F9", color: kit.status === "publicado" ? "#166534" : "#64748b" }}>
+                    {kit.status === "publicado" ? "Publicado" : "Rascunho"}
+                  </span>
+                </div>
+                <div className="p-3 pb-1">
+                  <p className="font-bold text-sm truncate" style={{ color: BRAND.tinta }}>{kit.nome}</p>
+                  {(kit.tipo_evento || kit.nivel) && (
+                    <p className="text-[11px] font-semibold truncate mt-0.5" style={{ color: "#8B5CF6" }}>
+                      {[kit.tipo_evento, kit.nivel].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
+                  {kit.preco && <p className="text-xs text-slate-400 mt-0.5">{formatBRL(kit.preco)}</p>}
+                </div>
+              </button>
+              <div className="flex gap-2 px-3 pb-3 pt-1">
+                <button onClick={() => onEditar(kit)} className="flex-1 py-1.5 rounded-lg text-xs font-bold cursor-pointer" style={{ background: "#F1F5F9", color: BRAND.tinta }}>✏️ Editar</button>
+                <button
+                  onClick={() => { if (window.confirm(`Apagar o kit "${kit.nome}"? Essa ação não pode ser desfeita.`)) onExcluir(kit); }}
+                  className="flex-1 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
+                  style={{ background: "#FEE2E2", color: "#B91C1C" }}
+                >
+                  🗑️ Excluir
+                </button>
               </div>
-              <div className="p-3">
-                <p className="font-bold text-sm truncate" style={{ color: BRAND.tinta }}>{kit.nome}</p>
-                {kit.preco && <p className="text-xs text-slate-400 mt-0.5">{formatBRL(kit.preco)}</p>}
-              </div>
-            </button>
+            </div>
           );
         })}
       </div>
@@ -2594,10 +2678,24 @@ function KitsLista({ kits, fotosPorKit, onNovo, onEditar, onExcluir }) {
   );
 }
 
-function KitEditorModal({ kit, fotos, onFechar, onSalvar, onUploadFoto, onExcluirFoto }) {
+function KitEditorModal({ kit, fotos, onFechar, onSalvar, onExcluirFoto }) {
   const [form, setForm] = useState(kit);
   const [salvando, setSalvando] = useState(false);
+  const [fotosPendentes, setFotosPendentes] = useState([]); // {tempId, file, previewUrl} — ainda não subiram
   const set = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
+
+  const totalFotos = fotos.length + fotosPendentes.length;
+
+  function selecionarFoto(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    if (totalFotos >= 5) return;
+    const previewUrl = URL.createObjectURL(file);
+    setFotosPendentes((p) => [...p, { tempId: uid(), file, previewUrl }]);
+  }
+
+  function removerFotoPendente(tempId) {
+    setFotosPendentes((p) => p.filter((f) => f.tempId !== tempId));
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={onFechar}>
@@ -2614,62 +2712,59 @@ function KitEditorModal({ kit, fotos, onFechar, onSalvar, onUploadFoto, onExclui
           </div>
 
           <div>
-            <label className="text-xs font-bold text-slate-500 mb-1 block">Descrição curta</label>
-            <textarea value={form.descricao || ""} onChange={(e) => set("descricao", e.target.value)} rows={2} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
-          </div>
-
-          <div>
             <label className="text-xs font-bold text-slate-500 mb-1 block">O que vem no kit</label>
             <TagInput valores={form.itens_inclusos} onChange={(v) => set("itens_inclusos", v)} placeholder="Ex: Mesa cilindro (Enter pra adicionar)" />
           </div>
 
-          {kit.id && (
-            <div>
-              <label className="text-xs font-bold text-slate-500 mb-1 block">Fotos ({fotos.length}/5)</label>
-              <div className="grid grid-cols-3 gap-2 mb-2">
-                {fotos.map((f) => (
-                  <div key={f.id} className="relative aspect-square">
-                    <img src={f.imagem_url} className="w-full h-full object-cover rounded-xl bg-slate-100" />
-                    <button onClick={() => onExcluirFoto(f)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center cursor-pointer">✕</button>
-                  </div>
-                ))}
-              </div>
-              {fotos.length < 5 && (
-                <label className="inline-block px-4 py-2 rounded-xl font-bold text-sm cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
-                  + Subir foto
-                  <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files[0]; if (f) onUploadFoto(f); e.target.value = ""; }} />
-                </label>
-              )}
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">Fotos ({totalFotos}/5)</label>
+            <div className="grid grid-cols-3 gap-2 mb-2">
+              {fotos.map((f) => (
+                <div key={f.id} className="relative aspect-square">
+                  <img src={f.imagem_url} className="w-full h-full object-cover rounded-xl bg-slate-100" />
+                  <button onClick={() => onExcluirFoto(f)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center cursor-pointer">✕</button>
+                </div>
+              ))}
+              {fotosPendentes.map((f) => (
+                <div key={f.tempId} className="relative aspect-square">
+                  <img src={f.previewUrl} className="w-full h-full object-cover rounded-xl bg-slate-100 opacity-80" />
+                  <span className="absolute bottom-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-black/60 text-white">nova</span>
+                  <button onClick={() => removerFotoPendente(f.tempId)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center cursor-pointer">✕</button>
+                </div>
+              ))}
             </div>
-          )}
-          {!kit.id && <p className="text-xs text-slate-400">Salva o kit primeiro pra depois subir as fotos.</p>}
+            {totalFotos < 5 && (
+              <label className="inline-block px-4 py-2 rounded-xl font-bold text-sm cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
+                + Subir foto
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files[0]; if (f) selecionarFoto(f); e.target.value = ""; }} />
+              </label>
+            )}
+            {!kit.id && fotosPendentes.length > 0 && (
+              <p className="text-[11px] text-slate-400 mt-1.5">As fotos sobem junto quando você clicar em "Salvar Kit".</p>
+            )}
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-bold text-slate-500 mb-1 block">Tipo de evento</label>
-              <select value={form.tipo_evento || ""} onChange={(e) => set("tipo_evento", e.target.value)} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
-                <option value="">—</option>
-                {TIPOS_EVENTO_KIT.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-slate-500 mb-1 block">Público</label>
-              <select value={form.publico || ""} onChange={(e) => set("publico", e.target.value)} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
-                <option value="">—</option>
-                {PUBLICOS_KIT.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-slate-500 mb-1 block">Nível</label>
-              <select value={form.nivel || ""} onChange={(e) => set("nivel", e.target.value)} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
-                <option value="">—</option>
-                {NIVEIS_KIT.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
+            <SelectComOutro label="Tipo de evento" valor={form.tipo_evento} opcoes={TIPOS_EVENTO_KIT} onChange={(v) => set("tipo_evento", v)} placeholderOutro="Digite o tipo de evento" />
+            <SelectComOutro label="Público" valor={form.publico} opcoes={PUBLICOS_KIT} onChange={(v) => set("publico", v)} placeholderOutro="Digite o público" />
+            <SelectComOutro label="Nível" valor={form.nivel} opcoes={NIVEIS_KIT} onChange={(v) => set("nivel", v)} placeholderOutro="Digite o nível" />
             <div>
               <label className="text-xs font-bold text-slate-500 mb-1 block">Tema</label>
               <input value={form.tema || ""} onChange={(e) => set("tema", e.target.value)} placeholder="Ex: Futebol" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
             </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">Paleta de cor</label>
+            <div className="grid grid-cols-3 gap-2 mb-2">
+              {PALETAS_COR_KIT.map((p) => (
+                <button key={p.valor} onClick={() => set("cor", p.valor)} className="rounded-xl border-2 p-2 text-left cursor-pointer" style={{ borderColor: form.cor === p.valor ? BRAND.rosa : "#e5e7eb" }}>
+                  <div className="flex gap-1 mb-1">{p.cores.map((c, i) => <div key={i} className="w-3.5 h-3.5 rounded-full border border-white" style={{ background: c, boxShadow: "0 0 0 1px #eee" }} />)}</div>
+                  <p className="text-[10px] font-semibold leading-tight" style={{ color: BRAND.tinta }}>{p.valor}</p>
+                </button>
+              ))}
+            </div>
+            <input value={PALETAS_COR_KIT.some((p) => p.valor === form.cor) ? "" : (form.cor || "")} onChange={(e) => set("cor", e.target.value)} placeholder="Ou digite outra cor..." className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
           </div>
 
           <div>
@@ -2702,13 +2797,23 @@ function KitEditorModal({ kit, fotos, onFechar, onSalvar, onUploadFoto, onExclui
           </div>
 
           <button
-            onClick={async () => { setSalvando(true); await onSalvar(form); setSalvando(false); }}
+            onClick={async () => { setSalvando(true); await onSalvar(form, fotosPendentes.map((f) => f.file)); setSalvando(false); }}
             disabled={salvando}
             className="w-full py-3 rounded-2xl font-bold text-sm text-white cursor-pointer disabled:opacity-50"
             style={{ background: BRAND.rosa }}
           >
             {salvando ? "Salvando..." : "Salvar Kit"}
           </button>
+
+          {kit.id && (
+            <button
+              onClick={() => navigator.clipboard.writeText(`https://appdecore.com.br/catalogo-cliente.html?d=${kit.decoradora_id}&kit=${kit.id}`)}
+              className="w-full py-2.5 rounded-2xl font-bold text-xs cursor-pointer"
+              style={{ background: "#F1F5F9", color: BRAND.tinta }}
+            >
+              🔗 Copiar link só deste kit
+            </button>
+          )}
         </div>
       </div>
     </div>
