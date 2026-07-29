@@ -775,6 +775,21 @@ function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, use
   );
 }
 
+function IconVarinhaMagica({ className, style }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={style}>
+      <path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72Z" />
+      <path d="m14 7 3 3" />
+      <path d="M5 6v4" />
+      <path d="M19 14v4" />
+      <path d="M10 2v2" />
+      <path d="M7 8H3" />
+      <path d="M21 16h-4" />
+      <path d="M11 3H9" />
+    </svg>
+  );
+}
+
 function HomeCard({ emoji, title, desc, color, onClick, stat }) {
   return (
     <button onClick={onClick} className="group w-full text-left bg-white rounded-3xl p-6 shadow-sm hover:shadow-xl transition-all active:scale-[0.98] border-2 border-transparent hover:border-current cursor-pointer" style={{ color }}>
@@ -894,9 +909,9 @@ function HomeDashboard({ setPage, contracts, profile, userId }) {
         <HomeCard emoji="🎯" title="Oportunidades" desc="Aniversários e clientes antigos pra reconquistar." color="#8B5CF6" onClick={() => setPage("oportunidades")} />
         <HomeCard emoji="📦" title="Estoque" desc="Seus materiais, com quantidade sempre atualizada." color="#F97316" onClick={() => setPage("estoque")} />
         {profile.plano_tipo === "premium" ? (
-          <HomeCard emoji="🪄" title="Catálogo inteligente" desc="Envie um link pra cliente descrever a festa que ela imagina, e uma Inteligência Artificial gera uma prévia visual, treinada nos kits que você realmente entrega." color="#8B5CF6" onClick={() => setPage("catalogo")} />
+          <HomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo inteligente" desc="Envie um link pra cliente descrever a festa que ela imagina, e uma Inteligência Artificial gera uma prévia visual, treinada nos kits que você realmente entrega." color="#8B5CF6" onClick={() => setPage("catalogo")} />
         ) : (
-          <LockedHomeCard emoji="🪄" title="Catálogo inteligente" desc="Envie um link pra cliente descrever a festa que ela imagina, e uma Inteligência Artificial gera uma prévia visual, treinada nos kits que você realmente entrega. Exclusivo do plano Premium." linkUpgrade={`https://buy.stripe.com/4gM8wIb4x5j0cfle5BfQI06?prefilled_email=${encodeURIComponent(profile.email || "")}`} />
+          <LockedHomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo inteligente" desc="Envie um link pra cliente descrever a festa que ela imagina, e uma Inteligência Artificial gera uma prévia visual, treinada nos kits que você realmente entrega. Exclusivo do plano Premium." linkUpgrade={`https://buy.stripe.com/4gM8wIb4x5j0cfle5BfQI06?prefilled_email=${encodeURIComponent(profile.email || "")}`} />
         )}
       </div>
     </div>
@@ -2416,7 +2431,7 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
       <div className="mb-6">
-        <h2 className="fredoka text-2xl font-bold" style={{ color: BRAND.tinta }}>🪄 Catálogo inteligente</h2>
+        <h2 className="fredoka text-2xl font-bold flex items-center gap-2" style={{ color: BRAND.tinta }}><IconVarinhaMagica className="w-6 h-6" style={{ color: "#8B5CF6" }} /> Catálogo inteligente</h2>
         <p className="text-slate-400 text-sm mt-1">Seus clientes descrevem o tema da festa e recebem uma prévia visual gerada com IA, baseada nos seus kits reais.</p>
       </div>
 
