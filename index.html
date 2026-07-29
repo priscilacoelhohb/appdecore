@@ -2323,102 +2323,418 @@ function EstoqueTab({ userId, profile }) {
 }
 
 /* ============================================================
-   CATÁLOGO INTELIGENTE (só plano Premium)
+   CATÁLOGO DE KITS (só plano Premium)
 
-   Diferente do resto do app, aqui as fotos vão pro Supabase Storage
-   (bucket "catalogo") em vez de base64 no banco — são até 8 fotos por
-   decoradora, e guardar isso como texto no banco incharia o tamanho
-   do banco (o mesmo problema de Egress/tamanho que já apareceu antes).
+   Substitui o antigo "Catálogo Inteligente" baseado em IA por um
+   catálogo navegável de kits reais — a decoradora sobe fotos de
+   verdade dos kits que ela tem, o cliente folheia e manda WhatsApp.
+   A IA vira um recurso pontual (variação de cor), não a base.
+
+   As fotos vão pro Supabase Storage (bucket "catalogo", pasta
+   "kits/"), não base64 no banco — mesmo motivo de sempre (Egress).
 ============================================================ */
-const CATEGORIAS_REFERENCIA = [
-  { key: "tema", label: "Tema / Personagem", limite: 100, opcional: false },
-  { key: "mesa", label: "Mesa", limite: 4, opcional: false },
-  { key: "painel", label: "Painel", limite: 4, opcional: false },
-  { key: "boleira", label: "Boleira (suporte do bolo)", limite: 4, opcional: false },
-  { key: "doces", label: "Suporte de doces", limite: 4, opcional: true },
-  { key: "vasos", label: "Vasos e plantinhas", limite: 3, opcional: true },
-  { key: "arco", label: "Arco de balão", limite: 4, opcional: true },
-  { key: "tapete", label: "Tapete temático", limite: 3, opcional: true },
-];
+
+const TIPOS_EVENTO_KIT = ["Aniversário Infantil", "Mesversário", "Chá de Bebê/Fralda", "Festa Junina", "15 Anos", "Adulto", "Dia dos Pais/Mães", "Formatura", "Casamento/Noivado", "Outro"];
+const PUBLICOS_KIT = ["Menina", "Menino", "Mulher", "Homem", "Unissex"];
+const NIVEIS_KIT = ["Minimalista", "Prata", "Ouro", "Diamante", "Luxo"];
 
 async function dataUrlParaBlob(dataUrl) {
   const resposta = await fetch(dataUrl);
   return await resposta.blob();
 }
 
+// Desenha a logo da decoradora por cima da foto, com transparência,
+// centralizada — tudo no navegador, sem custo, sem IA.
+function aplicarMarcaDagua(dataUrlFoto, logoDataUrl) {
+  return new Promise((resolve) => {
+    const imgFoto = new Image();
+    imgFoto.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = imgFoto.width;
+      canvas.height = imgFoto.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(imgFoto, 0, 0);
+      if (logoDataUrl) {
+        const imgLogo = new Image();
+        imgLogo.onload = () => {
+          const larguraLogo = imgFoto.width * 0.13;
+          const alturaLogo = larguraLogo * (imgLogo.height / imgLogo.width || 1);
+          ctx.globalAlpha = 0.45;
+          ctx.drawImage(imgLogo, (canvas.width - larguraLogo) / 2, (canvas.height - alturaLogo) / 2, larguraLogo, alturaLogo);
+          ctx.globalAlpha = 1;
+          resolve(canvas.toDataURL("image/jpeg", 0.85));
+        };
+        imgLogo.onerror = () => resolve(canvas.toDataURL("image/jpeg", 0.85));
+        imgLogo.src = logoDataUrl;
+      } else {
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      }
+    };
+    imgFoto.onerror = () => resolve(null);
+    imgFoto.src = dataUrlFoto;
+  });
+}
+
+function TagInput({ valores, onChange, placeholder }) {
+  const [texto, setTexto] = useState("");
+  function adicionar() {
+    const v = texto.trim();
+    if (!v) return;
+    onChange([...(valores || []), v]);
+    setTexto("");
+  }
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2 mb-2">
+        {(valores || []).map((v, i) => (
+          <span key={i} className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "#F1F5F9", color: BRAND.tinta }}>
+            {v}
+            <button onClick={() => onChange(valores.filter((_, idx) => idx !== i))} className="cursor-pointer">✕</button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); adicionar(); } }}
+          placeholder={placeholder}
+          className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm"
+        />
+        <button onClick={adicionar} className="px-3 py-2 rounded-xl font-bold text-sm cursor-pointer" style={{ background: "#F1F5F9", color: BRAND.tinta }}>+ Adicionar</button>
+      </div>
+    </div>
+  );
+}
+
 function CatalogoTab({ userId, profile, onProfileUpdate }) {
-  const [referencias, setReferencias] = useState(null);
-  const [enviandoFoto, setEnviandoFoto] = useState(null); // guarda qual categoria está enviando
-  const [nomesNovos, setNomesNovos] = useState({ tema: "", mesa: "", painel: "", boleira: "", doces: "", vasos: "", arco: "", tapete: "" });
+  const [aba, setAba] = useState("kits"); // "kits" | "config"
+  const [kits, setKits] = useState(null);
+  const [fotosPorKit, setFotosPorKit] = useState({});
   const [erro, setErro] = useState("");
+  const [editando, setEditando] = useState(null); // objeto do kit em edição, ou "novo"
 
-  const [whatsappContato, setWhatsappContato] = useState(profile.whatsapp_contato || "");
-  const [salvandoWhatsapp, setSalvandoWhatsapp] = useState(false);
-  const [catalogoAtivo, setCatalogoAtivo] = useState(!!profile.catalogo_ativo);
-  const [salvandoAtivo, setSalvandoAtivo] = useState(false);
-
-  const [temaTeste, setTemaTeste] = useState("");
-  const [gerando, setGerando] = useState(false);
-  const [previaGerada, setPreviaGerada] = useState(null);
-  const [erroGeracao, setErroGeracao] = useState("");
-
-  const [linkCopiado, setLinkCopiado] = useState(false);
-
-  const linkCatalogo = `https://appdecore.com.br/catalogo-cliente.html?d=${userId}`;
-
-  const carregarReferencias = useCallback(async () => {
-    const { data } = await sb.from("catalogo_referencias").select("*").eq("decoradora_id", userId).order("created_at", { ascending: true });
-    setReferencias(data || []);
+  const carregarKits = useCallback(async () => {
+    const { data: listaKits } = await sb.from("catalogo_kits").select("*").eq("decoradora_id", userId).order("created_at", { ascending: false });
+    const { data: listaFotos } = await sb.from("catalogo_kit_fotos").select("*").order("ordem", { ascending: true });
+    const agrupado = {};
+    (listaFotos || []).forEach((f) => { (agrupado[f.kit_id] = agrupado[f.kit_id] || []).push(f); });
+    setKits(listaKits || []);
+    setFotosPorKit(agrupado);
   }, [userId]);
 
-  useEffect(() => { carregarReferencias(); }, [carregarReferencias]);
+  useEffect(() => { carregarKits(); }, [carregarKits]);
 
-  async function handleFotoReferencia(e, categoria) {
-    setErro("");
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) { setErro("Escolha um arquivo de imagem."); return; }
-    const nome = (nomesNovos[categoria] || "").trim();
-    if (!nome) { setErro("Escreve o nome dessa peça antes de subir a foto."); return; }
-    const limite = CATEGORIAS_REFERENCIA.find((c) => c.key === categoria).limite;
-    const quantidadeAtual = (referencias || []).filter((r) => r.categoria === categoria).length;
-    if (quantidadeAtual >= limite) {
-      setErro(`Você já tem ${limite} fotos nessa categoria, que é o limite. Apague alguma antes de subir outra.`);
+  const limiteCatalogo = profile.limite_catalogo || 10;
+  const totalKits = (kits || []).length;
+
+  async function novoKit() {
+    if (totalKits >= limiteCatalogo) {
+      setErro(`Seu plano permite até ${limiteCatalogo} kits no catálogo. Apague algum antes de criar outro, ou faça upgrade.`);
       return;
     }
-    setEnviandoFoto(categoria);
+    setEditando({
+      id: null, nome: "", descricao: "", itens_inclusos: [], tipo_evento: "", publico: "", nivel: "", tema: "",
+      preco: "", status: "rascunho", aceita_variacao_cor: false, em_destaque: false,
+    });
+  }
+
+  async function salvarKit(dadosKit) {
+    setErro("");
+    const linha = {
+      decoradora_id: userId,
+      nome: dadosKit.nome.trim(),
+      descricao: dadosKit.descricao || null,
+      itens_inclusos: dadosKit.itens_inclusos || [],
+      tipo_evento: dadosKit.tipo_evento || null,
+      publico: dadosKit.publico || null,
+      nivel: dadosKit.nivel || null,
+      tema: dadosKit.tema || null,
+      preco: dadosKit.preco ? parseFloat(String(dadosKit.preco).replace(",", ".")) : null,
+      status: dadosKit.status,
+      aceita_variacao_cor: !!dadosKit.aceita_variacao_cor,
+      em_destaque: !!dadosKit.em_destaque,
+    };
+    if (!linha.nome) { setErro("Digite o nome do kit."); return false; }
+
+    if (dadosKit.id) {
+      const { error } = await sb.from("catalogo_kits").update(linha).eq("id", dadosKit.id);
+      if (error) { setErro("Erro ao salvar: " + error.message); return false; }
+    } else {
+      const { error } = await sb.from("catalogo_kits").insert(linha);
+      if (error) { setErro("Erro ao criar: " + error.message); return false; }
+    }
+    await carregarKits();
+    return true;
+  }
+
+  async function excluirKit(kit) {
+    setKits((lista) => lista.filter((k) => k.id !== kit.id));
+    await sb.from("catalogo_kits").delete().eq("id", kit.id);
+  }
+
+  async function adicionarFotoKit(kitId, file) {
+    setErro("");
+    if (!file || !file.type.startsWith("image/")) { setErro("Escolha um arquivo de imagem."); return; }
+    const fotosAtuais = fotosPorKit[kitId] || [];
+    if (fotosAtuais.length >= 5) { setErro("Máximo de 5 fotos por kit."); return; }
     try {
-      const dataUrl = await redimensionarImagem(file, 900);
+      let dataUrl = await redimensionarImagem(file, 1000);
+      if (profile.catalogo_usar_marca_dagua !== false) {
+        dataUrl = (await aplicarMarcaDagua(dataUrl, profile.logo_data_url)) || dataUrl;
+      }
       const blob = await dataUrlParaBlob(dataUrl);
-      const nomeArquivo = `referencias/${userId}/${categoria}-${uid()}.jpg`;
+      const nomeArquivo = `kits/${userId}/${kitId}/${uid()}.jpg`;
       const { error: erroUpload } = await sb.storage.from("catalogo").upload(nomeArquivo, blob, { contentType: "image/jpeg", upsert: false });
-      if (erroUpload) { setErro("Erro ao subir a foto: " + erroUpload.message); setEnviandoFoto(null); return; }
+      if (erroUpload) { setErro("Erro ao subir a foto: " + erroUpload.message); return; }
       const { data: urlPublica } = sb.storage.from("catalogo").getPublicUrl(nomeArquivo);
-      const { error: erroInsert } = await sb.from("catalogo_referencias").insert({
-        decoradora_id: userId,
-        imagem_url: urlPublica.publicUrl,
-        categoria,
-        nome_peca: nome,
-      });
-      if (erroInsert) { setErro("Erro ao salvar: " + erroInsert.message); setEnviandoFoto(null); return; }
-      setNomesNovos((n) => ({ ...n, [categoria]: "" }));
-      await carregarReferencias();
+      await sb.from("catalogo_kit_fotos").insert({ kit_id: kitId, imagem_url: urlPublica.publicUrl, ordem: fotosAtuais.length });
+      await carregarKits();
     } catch (err) {
       setErro("Erro inesperado: " + err.message);
     }
-    setEnviandoFoto(null);
-    e.target.value = "";
   }
 
-  async function excluirReferencia(item) {
-    setReferencias((lista) => lista.filter((r) => r.id !== item.id));
-    await sb.from("catalogo_referencias").delete().eq("id", item.id);
-    // tenta apagar o arquivo do Storage também; se falhar, não é grave
-    // (fica órfão no bucket, mas não aparece mais pra ninguém)
-    try {
-      const partes = item.imagem_url.split("/catalogo/");
-      if (partes[1]) await sb.storage.from("catalogo").remove([partes[1]]);
-    } catch (err) { /* ignora */ }
+  async function excluirFotoKit(foto) {
+    setFotosPorKit((f) => ({ ...f, [foto.kit_id]: (f[foto.kit_id] || []).filter((x) => x.id !== foto.id) }));
+    await sb.from("catalogo_kit_fotos").delete().eq("id", foto.id);
+  }
+
+  if (kits === null) return <div className="max-w-3xl mx-auto px-4 py-10 text-center text-slate-400 text-sm">Carregando...</div>;
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
+      <div className="mb-6">
+        <h2 className="fredoka text-2xl font-bold flex items-center gap-2" style={{ color: BRAND.tinta }}><IconVarinhaMagica className="w-6 h-6" style={{ color: "#8B5CF6" }} /> Catálogo</h2>
+        <p className="text-slate-400 text-sm mt-1">Monte seu catálogo com fotos reais dos seus kits. O cliente navega e manda WhatsApp pronto pra fechar.</p>
+      </div>
+
+      <div className="flex gap-2 mb-6">
+        <button onClick={() => setAba("kits")} className="px-4 py-2 rounded-xl font-bold text-sm cursor-pointer" style={{ background: aba === "kits" ? BRAND.rosa : "#F1F5F9", color: aba === "kits" ? "#fff" : BRAND.tinta }}>Meus Kits ({totalKits}/{limiteCatalogo})</button>
+        <button onClick={() => setAba("config")} className="px-4 py-2 rounded-xl font-bold text-sm cursor-pointer" style={{ background: aba === "config" ? BRAND.rosa : "#F1F5F9", color: aba === "config" ? "#fff" : BRAND.tinta }}>Configurações</button>
+      </div>
+
+      {erro && <div className="bg-red-50 text-red-600 text-sm rounded-xl px-4 py-3 mb-5">{erro}</div>}
+
+      {aba === "kits" && (
+        <KitsLista
+          kits={kits}
+          fotosPorKit={fotosPorKit}
+          onNovo={novoKit}
+          onEditar={(k) => setEditando(k)}
+          onExcluir={excluirKit}
+        />
+      )}
+
+      {aba === "config" && (
+        <ConfiguracoesCatalogo userId={userId} profile={profile} onProfileUpdate={onProfileUpdate} setErro={setErro} />
+      )}
+
+      {editando && (
+        <KitEditorModal
+          kit={editando}
+          fotos={editando.id ? (fotosPorKit[editando.id] || []) : []}
+          onFechar={() => setEditando(null)}
+          onSalvar={async (dados) => {
+            const ok = await salvarKit(dados);
+            if (ok) {
+              if (!dados.id) {
+                const { data: novo } = await sb.from("catalogo_kits").select("*").eq("decoradora_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+                if (novo) { setEditando(novo); return; }
+              }
+              setEditando(null);
+            }
+          }}
+          onUploadFoto={(file) => editando.id && adicionarFotoKit(editando.id, file)}
+          onExcluirFoto={excluirFotoKit}
+        />
+      )}
+    </div>
+  );
+}
+
+function KitsLista({ kits, fotosPorKit, onNovo, onEditar, onExcluir }) {
+  const [busca, setBusca] = useState("");
+  const filtrados = (kits || []).filter((k) => k.nome.toLowerCase().includes(busca.toLowerCase()));
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-5">
+        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar kit..." className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+        <button onClick={onNovo} className="px-4 py-2 rounded-xl font-bold text-sm text-white cursor-pointer shrink-0" style={{ background: BRAND.rosa }}>+ Novo Kit</button>
+      </div>
+
+      {filtrados.length === 0 && (
+        <div className="text-center py-16 text-slate-400 text-sm">
+          {kits.length === 0 ? "Nenhum kit cadastrado ainda. Clica em \"+ Novo Kit\" pra começar." : "Nenhum kit encontrado com esse nome."}
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        {filtrados.map((kit) => {
+          const fotos = fotosPorKit[kit.id] || [];
+          return (
+            <button key={kit.id} onClick={() => onEditar(kit)} className="text-left rounded-2xl overflow-hidden border border-slate-100 shadow-sm cursor-pointer bg-white">
+              <div className="relative aspect-square bg-slate-100">
+                {fotos[0] ? <img src={fotos[0].imagem_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-3xl">🎁</div>}
+                {kit.em_destaque && <span className="absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: BRAND.amarelo, color: "#5c4200" }}>⭐ Destaque</span>}
+                <span className="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: kit.status === "publicado" ? "#DCFCE7" : "#F1F5F9", color: kit.status === "publicado" ? "#166534" : "#64748b" }}>
+                  {kit.status === "publicado" ? "Publicado" : "Rascunho"}
+                </span>
+              </div>
+              <div className="p-3">
+                <p className="font-bold text-sm truncate" style={{ color: BRAND.tinta }}>{kit.nome}</p>
+                {kit.preco && <p className="text-xs text-slate-400 mt-0.5">{formatBRL(kit.preco)}</p>}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function KitEditorModal({ kit, fotos, onFechar, onSalvar, onUploadFoto, onExcluirFoto }) {
+  const [form, setForm] = useState(kit);
+  const [salvando, setSalvando] = useState(false);
+  const set = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={onFechar}>
+      <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full sm:max-w-lg max-h-[92vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="fredoka text-lg font-bold" style={{ color: BRAND.tinta }}>{kit.id ? "Editar Kit" : "Novo Kit"}</h3>
+          <button onClick={onFechar} className="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer" style={{ background: "#F1F5F9" }}>✕</button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">Nome do kit</label>
+            <input value={form.nome} onChange={(e) => set("nome", e.target.value)} placeholder="Ex: Kit Diamante Unicórnio" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">Descrição curta</label>
+            <textarea value={form.descricao || ""} onChange={(e) => set("descricao", e.target.value)} rows={2} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">O que vem no kit</label>
+            <TagInput valores={form.itens_inclusos} onChange={(v) => set("itens_inclusos", v)} placeholder="Ex: Mesa cilindro (Enter pra adicionar)" />
+          </div>
+
+          {kit.id && (
+            <div>
+              <label className="text-xs font-bold text-slate-500 mb-1 block">Fotos ({fotos.length}/5)</label>
+              <div className="grid grid-cols-3 gap-2 mb-2">
+                {fotos.map((f) => (
+                  <div key={f.id} className="relative aspect-square">
+                    <img src={f.imagem_url} className="w-full h-full object-cover rounded-xl bg-slate-100" />
+                    <button onClick={() => onExcluirFoto(f)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center cursor-pointer">✕</button>
+                  </div>
+                ))}
+              </div>
+              {fotos.length < 5 && (
+                <label className="inline-block px-4 py-2 rounded-xl font-bold text-sm cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
+                  + Subir foto
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files[0]; if (f) onUploadFoto(f); e.target.value = ""; }} />
+                </label>
+              )}
+            </div>
+          )}
+          {!kit.id && <p className="text-xs text-slate-400">Salva o kit primeiro pra depois subir as fotos.</p>}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-bold text-slate-500 mb-1 block">Tipo de evento</label>
+              <select value={form.tipo_evento || ""} onChange={(e) => set("tipo_evento", e.target.value)} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                <option value="">—</option>
+                {TIPOS_EVENTO_KIT.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-500 mb-1 block">Público</label>
+              <select value={form.publico || ""} onChange={(e) => set("publico", e.target.value)} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                <option value="">—</option>
+                {PUBLICOS_KIT.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-500 mb-1 block">Nível</label>
+              <select value={form.nivel || ""} onChange={(e) => set("nivel", e.target.value)} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                <option value="">—</option>
+                {NIVEIS_KIT.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-500 mb-1 block">Tema</label>
+              <input value={form.tema || ""} onChange={(e) => set("tema", e.target.value)} placeholder="Ex: Futebol" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">Preço (opcional)</label>
+            <input value={form.preco || ""} onChange={(e) => set("preco", e.target.value.replace(/[^0-9.,]/g, ""))} placeholder="250,00" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+          </div>
+
+          <div className="flex items-center justify-between py-2">
+            <span className="text-sm font-semibold" style={{ color: BRAND.tinta }}>Publicado (visível no catálogo)</span>
+            <button onClick={() => set("status", form.status === "publicado" ? "rascunho" : "publicado")} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors" style={{ background: form.status === "publicado" ? BRAND.rosa : "#e5e7eb" }}>
+              <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all" style={{ left: form.status === "publicado" ? 26 : 4 }} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between py-2">
+            <span className="text-sm font-semibold" style={{ color: BRAND.tinta }}>Kit em destaque</span>
+            <button onClick={() => set("em_destaque", !form.em_destaque)} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors" style={{ background: form.em_destaque ? BRAND.rosa : "#e5e7eb" }}>
+              <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all" style={{ left: form.em_destaque ? 26 : 4 }} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between py-2">
+            <div>
+              <span className="text-sm font-semibold block" style={{ color: BRAND.tinta }}>Aceita variação de cor (IA)</span>
+              <span className="text-xs text-slate-400">Funciona melhor em fotos de peça única e simples, como cilindros ou bases lisas.</span>
+            </div>
+            <button onClick={() => set("aceita_variacao_cor", !form.aceita_variacao_cor)} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors shrink-0 ml-3" style={{ background: form.aceita_variacao_cor ? "#8B5CF6" : "#e5e7eb" }}>
+              <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all" style={{ left: form.aceita_variacao_cor ? 26 : 4 }} />
+            </button>
+          </div>
+
+          <button
+            onClick={async () => { setSalvando(true); await onSalvar(form); setSalvando(false); }}
+            disabled={salvando}
+            className="w-full py-3 rounded-2xl font-bold text-sm text-white cursor-pointer disabled:opacity-50"
+            style={{ background: BRAND.rosa }}
+          >
+            {salvando ? "Salvando..." : "Salvar Kit"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
+  const [form, setForm] = useState({
+    logo_data_url: profile.logo_data_url || "",
+    catalogo_usar_marca_dagua: profile.catalogo_usar_marca_dagua !== false,
+    catalogo_banner_url: profile.catalogo_banner_url || "",
+    catalogo_cor_destaque: profile.catalogo_cor_destaque || "#EC1E79",
+    catalogo_texto_boasvindas: profile.catalogo_texto_boasvindas || "",
+    catalogo_mostrar_valores: profile.catalogo_mostrar_valores !== false,
+    catalogo_instagram: profile.catalogo_instagram || "",
+    whatsapp_contato: profile.whatsapp_contato || "",
+    catalogo_ativo: !!profile.catalogo_ativo,
+  });
+  const [salvando, setSalvando] = useState(false);
+
+  const set = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
+
+  async function handleUploadImagem(campo, file, largura) {
+    if (!file) return;
+    const dataUrl = await redimensionarImagem(file, largura);
+    set(campo, dataUrl);
   }
 
   function formatarWhatsappBR(bruto) {
@@ -2428,163 +2744,87 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
     return digitos;
   }
 
-  async function salvarWhatsapp() {
-    setSalvandoWhatsapp(true);
-    const numeroFormatado = formatarWhatsappBR(whatsappContato);
-    const { error } = await sb.from("decoradoras").update({ whatsapp_contato: numeroFormatado }).eq("id", userId);
-    setSalvandoWhatsapp(false);
-    if (error) { setErro("Erro ao salvar WhatsApp: " + error.message); return; }
-    setWhatsappContato(numeroFormatado);
-    onProfileUpdate((p) => ({ ...p, whatsapp_contato: numeroFormatado }));
+  async function salvar() {
+    setSalvando(true);
+    const linha = { ...form, whatsapp_contato: formatarWhatsappBR(form.whatsapp_contato) };
+    const { error } = await sb.from("decoradoras").update(linha).eq("id", userId);
+    setSalvando(false);
+    if (error) { setErro("Erro ao salvar configurações: " + error.message); return; }
+    onProfileUpdate((p) => ({ ...p, ...linha }));
   }
 
-  async function alternarCatalogoAtivo() {
-    if (!whatsappContato.trim() && !catalogoAtivo) {
-      setErro("Cadastre seu WhatsApp de contato antes de ativar o catálogo.");
-      return;
-    }
-    const novoValor = !catalogoAtivo;
-    setSalvandoAtivo(true);
-    const { error } = await sb.from("decoradoras").update({ catalogo_ativo: novoValor }).eq("id", userId);
-    setSalvandoAtivo(false);
-    if (error) { setErro("Erro ao atualizar: " + error.message); return; }
-    setCatalogoAtivo(novoValor);
-    onProfileUpdate((p) => ({ ...p, catalogo_ativo: novoValor }));
-  }
-
-  function copiarLink() {
-    navigator.clipboard.writeText(linkCatalogo);
-    setLinkCopiado(true);
-    setTimeout(() => setLinkCopiado(false), 2000);
-  }
-
-  async function gerarPreviaComoDecoradora() {
-    setErroGeracao(""); setPreviaGerada(null);
-    if (!temaTeste.trim()) { setErroGeracao("Descreva o tema da festa primeiro."); return; }
-    setGerando(true);
-    try {
-      const resposta = await fetch(WEBHOOK_CATALOGO_GERAR, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decoradora_id: userId, tema: temaTeste.trim(), origem: "decoradora" }),
-      });
-      const dados = await resposta.json();
-      if (!resposta.ok || dados.erro) {
-        setErroGeracao(dados.erro || "Não foi possível gerar a prévia agora. Tente de novo em instantes.");
-      } else {
-        setPreviaGerada(dados.imagem_url);
-      }
-    } catch (err) {
-      setErroGeracao("Erro de conexão. Confira sua internet e tente de novo.");
-    }
-    setGerando(false);
-  }
-
-  if (referencias === null) return <div className="max-w-3xl mx-auto px-4 py-10 text-center text-slate-400 text-sm">Carregando...</div>;
+  const linkCatalogo = `https://appdecore.com.br/catalogo-cliente.html?d=${userId}`;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
-      <div className="mb-6">
-        <h2 className="fredoka text-2xl font-bold flex items-center gap-2" style={{ color: BRAND.tinta }}><IconVarinhaMagica className="w-6 h-6" style={{ color: "#8B5CF6" }} /> Catálogo inteligente</h2>
-        <p className="text-slate-400 text-sm mt-1">Seus clientes descrevem o tema da festa e recebem uma prévia visual gerada com IA, baseada nos seus kits reais.</p>
-      </div>
+    <div className="space-y-5">
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+        <p className="font-bold text-sm mb-3" style={{ color: BRAND.tinta }}>Identidade visual</p>
 
-      {erro && <div className="bg-red-50 text-red-600 text-sm rounded-xl px-4 py-3 mb-5">{erro}</div>}
-
-      {/* Ativar/desativar catálogo */}
-      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-5 flex items-center justify-between gap-4">
-        <div>
-          <p className="font-bold text-sm" style={{ color: BRAND.tinta }}>Catálogo {catalogoAtivo ? "ativo" : "desativado"}</p>
-          <p className="text-xs text-slate-400 mt-0.5">{catalogoAtivo ? "Seu link está funcionando." : "Ative pra liberar o link pros seus clientes."}</p>
+        <label className="text-xs font-bold text-slate-500 mb-1 block">Logo</label>
+        <div className="flex items-center gap-3 mb-4">
+          {form.logo_data_url ? <img src={form.logo_data_url} className="w-14 h-14 rounded-xl object-cover" /> : <div className="w-14 h-14 rounded-xl bg-slate-100" />}
+          <label className="px-3 py-2 rounded-xl font-bold text-xs cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
+            Trocar logo
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => handleUploadImagem("logo_data_url", e.target.files[0], 300)} />
+          </label>
         </div>
-        <button onClick={alternarCatalogoAtivo} disabled={salvandoAtivo} className="shrink-0 px-5 py-2.5 rounded-xl font-bold text-sm text-white cursor-pointer disabled:opacity-50" style={{ background: catalogoAtivo ? "#DC2626" : BRAND.rosa }}>
-          {salvandoAtivo ? "..." : catalogoAtivo ? "Desativar" : "Ativar"}
-        </button>
+
+        <label className="text-xs font-bold text-slate-500 mb-1 block">Banner / capa do catálogo</label>
+        <div className="flex items-center gap-3 mb-4">
+          {form.catalogo_banner_url ? <img src={form.catalogo_banner_url} className="w-24 h-14 rounded-xl object-cover" /> : <div className="w-24 h-14 rounded-xl bg-slate-100" />}
+          <label className="px-3 py-2 rounded-xl font-bold text-xs cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
+            Trocar banner
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => handleUploadImagem("catalogo_banner_url", e.target.files[0], 1200)} />
+          </label>
+        </div>
+
+        <label className="text-xs font-bold text-slate-500 mb-1 block">Cor de destaque</label>
+        <input type="color" value={form.catalogo_cor_destaque} onChange={(e) => set("catalogo_cor_destaque", e.target.value)} className="w-16 h-10 rounded-lg border border-slate-200 cursor-pointer" />
       </div>
 
-      {/* Link do catálogo */}
-      {catalogoAtivo && (
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-5">
-          <p className="font-bold text-sm mb-2" style={{ color: BRAND.tinta }}>Seu link pra mandar pros clientes</p>
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+        <p className="font-bold text-sm mb-3" style={{ color: BRAND.tinta }}>Textos e contato</p>
+
+        <label className="text-xs font-bold text-slate-500 mb-1 block">Texto de boas-vindas</label>
+        <textarea value={form.catalogo_texto_boasvindas} onChange={(e) => set("catalogo_texto_boasvindas", e.target.value)} rows={2} placeholder="Ex: Bem-vinda ao catálogo da Studio Encanto! 💕" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm mb-4" />
+
+        <label className="text-xs font-bold text-slate-500 mb-1 block">WhatsApp de contato</label>
+        <input value={form.whatsapp_contato} onChange={(e) => set("whatsapp_contato", e.target.value)} placeholder="(11) 91234-5678" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm mb-4" />
+
+        <label className="text-xs font-bold text-slate-500 mb-1 block">Instagram (opcional)</label>
+        <input value={form.catalogo_instagram} onChange={(e) => set("catalogo_instagram", e.target.value)} placeholder="@sualoja" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+      </div>
+
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 space-y-3">
+        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Preferências</p>
+
+        {[
+          ["catalogo_ativo", "Catálogo ativo", "Libera o link pros clientes"],
+          ["catalogo_mostrar_valores", "Mostrar valores", "Cliente vê o preço de cada kit"],
+          ["catalogo_usar_marca_dagua", "Usar marca d'água", "Sua logo aparece sutil nas fotos"],
+        ].map(([campo, titulo, desc]) => (
+          <div key={campo} className="flex items-center justify-between py-1">
+            <div><span className="text-sm font-semibold block" style={{ color: BRAND.tinta }}>{titulo}</span><span className="text-xs text-slate-400">{desc}</span></div>
+            <button onClick={() => set(campo, !form[campo])} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors shrink-0 ml-3" style={{ background: form[campo] ? BRAND.rosa : "#e5e7eb" }}>
+              <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all" style={{ left: form[campo] ? 26 : 4 }} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {form.catalogo_ativo && (
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+          <p className="font-bold text-sm mb-2" style={{ color: BRAND.tinta }}>Seu link</p>
           <div className="flex gap-2">
             <input readOnly value={linkCatalogo} className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm text-slate-500 bg-slate-50" />
-            <button onClick={copiarLink} className="px-4 py-2 rounded-xl font-bold text-sm text-white cursor-pointer shrink-0" style={{ background: BRAND.azul }}>
-              {linkCopiado ? "Copiado!" : "Copiar"}
-            </button>
+            <button onClick={() => navigator.clipboard.writeText(linkCatalogo)} className="px-4 py-2 rounded-xl font-bold text-sm text-white cursor-pointer shrink-0" style={{ background: BRAND.azul }}>Copiar</button>
           </div>
         </div>
       )}
 
-      {/* WhatsApp de contato */}
-      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-5">
-        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Seu WhatsApp de contato</p>
-        <p className="text-xs text-slate-400 mb-3">É pra esse número que o cliente manda mensagem quando gosta de uma prévia.</p>
-        <div className="flex gap-2">
-          <input value={whatsappContato} onChange={(e) => setWhatsappContato(e.target.value)} placeholder="(11) 91234-5678" className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm" />
-          <button onClick={salvarWhatsapp} disabled={salvandoWhatsapp} className="px-4 py-2 rounded-xl font-bold text-sm text-white cursor-pointer shrink-0 disabled:opacity-50" style={{ background: BRAND.azul }}>
-            {salvandoWhatsapp ? "..." : "Salvar"}
-          </button>
-        </div>
-      </div>
-
-      {/* Fotos de referência, por categoria */}
-      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-5">
-        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Fotos de referência</p>
-        <p className="text-xs text-slate-400 mb-4">Cada foto que você sobe aqui vira uma opção de escolha pro seu cliente no quiz — e é o que a IA usa como referência de estilo. Dê um nome pra cada peça.</p>
-
-        {CATEGORIAS_REFERENCIA.map((cat) => {
-          const fotosCategoria = (referencias || []).filter((r) => r.categoria === cat.key);
-          return (
-            <div key={cat.key} className="mb-6 last:mb-0">
-              <p className="text-xs font-bold uppercase tracking-wide mb-2 flex items-center gap-2" style={{ color: "#8B5CF6" }}>
-                {cat.label} ({fotosCategoria.length}/{cat.limite})
-                {cat.opcional && <span className="text-[10px] font-normal normal-case px-1.5 py-0.5 rounded-full" style={{ background: "#f1f5f9", color: "#94a3b8" }}>opcional pro cliente</span>}
-              </p>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-                {fotosCategoria.map((item) => (
-                  <div key={item.id} className="relative group">
-                    <img src={item.imagem_url} className="w-full aspect-square object-cover rounded-xl bg-slate-100" />
-                    <button onClick={() => excluirReferencia(item)} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-xs flex items-center justify-center cursor-pointer">✕</button>
-                    <p className="text-[11px] text-slate-500 mt-1 truncate font-medium">{item.nome_peca}</p>
-                  </div>
-                ))}
-              </div>
-
-              {fotosCategoria.length < cat.limite && (
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <input
-                    value={nomesNovos[cat.key]}
-                    onChange={(e) => setNomesNovos((n) => ({ ...n, [cat.key]: e.target.value }))}
-                    placeholder="Nome dessa peça (obrigatório)"
-                    className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm"
-                  />
-                  <label className="shrink-0 text-center px-4 py-2 rounded-xl font-bold text-sm cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
-                    {enviandoFoto === cat.key ? "Enviando..." : "+ Subir foto"}
-                    <input type="file" accept="image/*" onChange={(e) => handleFotoReferencia(e, cat.key)} disabled={enviandoFoto === cat.key} className="hidden" />
-                  </label>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Gerar prévia como decoradora (mesma ferramenta do cliente, uso interno) */}
-      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
-        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Gerar uma prévia você mesma</p>
-        <p className="text-xs text-slate-400 mb-3">Útil quando o cliente descreve por telefone ou pessoalmente. Conta dentro do seu limite mensal, igual as gerações feitas pelo link.</p>
-        <textarea value={temaTeste} onChange={(e) => setTemaTeste(e.target.value)} placeholder="Ex: festa de unicórnio rosa e dourado pra menina de 5 anos" rows={3} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm mb-3" />
-        <button onClick={gerarPreviaComoDecoradora} disabled={gerando} className="px-5 py-2.5 rounded-xl font-bold text-sm text-white cursor-pointer disabled:opacity-50" style={{ background: "#8B5CF6" }}>
-          {gerando ? "Gerando..." : "Gerar prévia"}
-        </button>
-        {erroGeracao && <p className="text-red-500 text-xs mt-2">{erroGeracao}</p>}
-        {previaGerada && (
-          <div className="mt-4">
-            <img src={previaGerada} className="w-full max-w-sm rounded-2xl border border-slate-100" />
-          </div>
-        )}
-      </div>
+      <button onClick={salvar} disabled={salvando} className="w-full py-3 rounded-2xl font-bold text-sm text-white cursor-pointer disabled:opacity-50" style={{ background: BRAND.rosa }}>
+        {salvando ? "Salvando..." : "Salvar Configurações"}
+      </button>
     </div>
   );
 }
