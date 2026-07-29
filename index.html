@@ -347,8 +347,12 @@ function AuthScreen({ onAuthed }) {
       if (data.session) {
         // Confere se já tem um pagamento feito antes do cadastro
         // (ex: pagou e só depois criou a conta — ordem comum no funil).
+        // Usa uma função no banco (RPC) em vez de ler a tabela direto,
+        // porque a leitura direta via RLS não confiava no token
+        // recém-criado a tempo dessa consulta.
         let planoInicial = {}; // se não achar nada, usa os padrões da tabela (basico/150)
-        const { data: pendente } = await sb.from("pagamentos_pendentes").select("*").eq("email", email.trim()).maybeSingle();
+        const { data: pendenteLista } = await sb.rpc("consumir_pagamento_pendente", { p_email: email.trim() });
+        const pendente = pendenteLista && pendenteLista[0];
         if (pendente) {
           planoInicial = {
             plano_tipo: pendente.plano_tipo,
@@ -359,9 +363,6 @@ function AuthScreen({ onAuthed }) {
         }
         // Confirmação de e-mail desligada: já entra direto e cria o perfil da loja.
         await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim(), email: email.trim(), ...planoInicial });
-        if (pendente) {
-          await sb.from("pagamentos_pendentes").delete().eq("email", email.trim());
-        }
         onAuthed();
       } else {
         setAviso("Conta criada! Verifique seu e-mail para confirmar o cadastro e depois faça login.");
