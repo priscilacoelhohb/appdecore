@@ -395,7 +395,20 @@ function AuthScreen({ onAuthed }) {
       // tenha sido feito antes da confirmação de e-mail).
       const { data: perfilExistente } = await sb.from("decoradoras").select("id").eq("id", data.user.id).maybeSingle();
       if (!perfilExistente) {
-        await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim() || "Minha Loja", email: email.trim() });
+        // Mesma checagem do handleCadastro: se pagou antes de confirmar o
+        // e-mail/entrar pela primeira vez, a conta já nasce com o plano certo.
+        let planoInicial = {};
+        const { data: pendenteLista } = await sb.rpc("consumir_pagamento_pendente", { p_email: email.trim() });
+        const pendente = pendenteLista && pendenteLista[0];
+        if (pendente) {
+          planoInicial = {
+            plano_tipo: pendente.plano_tipo,
+            limite_pecas: pendente.limite_pecas,
+            stripe_customer_id: pendente.stripe_customer_id,
+            stripe_subscription_id: pendente.stripe_subscription_id,
+          };
+        }
+        await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim() || "Minha Loja", email: email.trim(), ...planoInicial });
       }
       onAuthed();
     } catch (err) {
