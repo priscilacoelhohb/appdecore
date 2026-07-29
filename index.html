@@ -788,7 +788,7 @@ function HomeCard({ emoji, title, desc, color, onClick, stat }) {
   );
 }
 
-function LockedHomeCard({ emoji, title, desc }) {
+function LockedHomeCard({ emoji, title, desc, linkUpgrade }) {
   const [mostrarInfo, setMostrarInfo] = useState(false);
   return (
     <div className="relative">
@@ -801,7 +801,7 @@ function LockedHomeCard({ emoji, title, desc }) {
         <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4 text-2xl text-white" style={{ background: "#94a3b8" }}>{emoji}</div>
         <h3 className="fredoka text-lg font-bold text-slate-400">{title}</h3>
         <p className="text-sm text-slate-400 mt-1 leading-snug">{desc}</p>
-        <span className="inline-block mt-2 text-[11px] font-bold px-2.5 py-1 rounded-full" style={{ background: "#94a3b818", color: "#64748b" }}>Em breve</span>
+        <span className="inline-block mt-2 text-[11px] font-bold px-2.5 py-1 rounded-full" style={{ background: "#94a3b818", color: "#64748b" }}>{linkUpgrade ? "Premium" : "Em breve"}</span>
       </button>
       {mostrarInfo && (
         <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.5)" }} onClick={() => setMostrarInfo(false)}>
@@ -809,7 +809,14 @@ function LockedHomeCard({ emoji, title, desc }) {
             <div className="text-3xl mb-2">🔒{emoji}</div>
             <p className="fredoka text-lg font-bold mb-2" style={{ color: BRAND.tinta }}>{title}</p>
             <p className="text-sm text-slate-500 leading-relaxed">{desc}</p>
-            <button onClick={() => setMostrarInfo(false)} className="w-full mt-4 py-2.5 rounded-xl font-bold text-sm cursor-pointer" style={{ background: BRAND.bg, color: BRAND.tinta }}>Entendi</button>
+            {linkUpgrade ? (
+              <>
+                <a href={linkUpgrade} className="block w-full mt-4 py-2.5 rounded-xl font-bold text-sm text-white text-center cursor-pointer" style={{ background: BRAND.rosa }}>Assinar Premium</a>
+                <button onClick={() => setMostrarInfo(false)} className="w-full mt-2 py-2 rounded-xl font-bold text-xs cursor-pointer text-slate-400">Agora não</button>
+              </>
+            ) : (
+              <button onClick={() => setMostrarInfo(false)} className="w-full mt-4 py-2.5 rounded-xl font-bold text-sm cursor-pointer" style={{ background: BRAND.bg, color: BRAND.tinta }}>Entendi</button>
+            )}
           </div>
         </div>
       )}
@@ -877,7 +884,7 @@ function HomeDashboard({ setPage, contracts, profile, userId }) {
         {profile.plano_tipo === "premium" ? (
           <HomeCard emoji="🪄" title="Catálogo inteligente" desc="Envie um link pra cliente descrever a festa que ela imagina, e uma Inteligência Artificial gera uma prévia visual, treinada nos kits que você realmente entrega." color="#8B5CF6" onClick={() => setPage("catalogo")} />
         ) : (
-          <LockedHomeCard emoji="🪄" title="Catálogo inteligente" desc="Envie um link pra cliente descrever a festa que ela imagina, e uma Inteligência Artificial gera uma prévia visual, treinada nos kits que você realmente entrega. Exclusivo do plano Premium." />
+          <LockedHomeCard emoji="🪄" title="Catálogo inteligente" desc="Envie um link pra cliente descrever a festa que ela imagina, e uma Inteligência Artificial gera uma prévia visual, treinada nos kits que você realmente entrega. Exclusivo do plano Premium." linkUpgrade={`https://buy.stripe.com/4gM8wIb4x5j0cfle5BfQI06?prefilled_email=${encodeURIComponent(profile.email || "")}`} />
         )}
       </div>
     </div>
