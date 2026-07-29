@@ -47,6 +47,12 @@ const SUPABASE_URL = "https://drizqsevvmyyrdgczjvf.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRyaXpxc2V2dm15eXJkZ2N6anZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzNDM0MzAsImV4cCI6MjA5ODkxOTQzMH0.uTzYirVcO-TFJ6BCyDY9A8_Etw4v32iWlOETWht_hxQ";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// TODO: trocar por a URL real do webhook do n8n quando ele estiver pronto
+// (o node que recebe { decoradora_id, tema, origem, whatsapp_cliente? },
+// confere os limites, chama o Nano Banana e devolve a URL da prévia gerada).
+const WEBHOOK_CATALOGO_GERAR = "https://waha-n8n.svqcg7.easypanel.host/webhook/catalogo-gerar-previa";
+
+
 /* ============================================================
    MARCA / TEMA (idêntico ao app anterior, agora carregado do
    perfil salvo no banco em vez do window.storage do Claude)
@@ -358,7 +364,7 @@ function AuthScreen({ onAuthed }) {
     setCarregando(true);
     const { error } = await sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.href });
     setCarregando(false);
-    if (error) { setErro("Erro ao enviar: " + error.message); return; }
+    if (error) { setErro("Erro ao enviar: " + traduzErroAuth(error)); return; }
     setAviso("Te mandamos um e-mail com um link pra você criar uma senha nova. Pode demorar alguns minutos e olhar o spam também.");
   }
 
@@ -387,6 +393,11 @@ function AuthScreen({ onAuthed }) {
     if (msg.includes("Invalid login credentials")) return "E-mail ou senha incorretos.";
     if (msg.includes("already registered")) return "Já existe uma conta com esse e-mail. Tente entrar em vez de cadastrar.";
     if (msg.includes("Password should be")) return "A senha precisa ter pelo menos 6 caracteres.";
+    if (msg.includes("Email not confirmed")) return "Seu e-mail ainda não foi confirmado. Verifique sua caixa de entrada (e o spam).";
+    if (msg.includes("security purposes")) return "Por segurança, aguarde alguns segundos antes de tentar de novo.";
+    if (msg.includes("User already registered")) return "Já existe uma conta com esse e-mail. Tente entrar em vez de cadastrar.";
+    if (msg.includes("Unable to validate email")) return "Esse e-mail não parece válido. Confira e tente de novo.";
+    if (msg.includes("Email rate limit exceeded")) return "Muitas tentativas com esse e-mail. Aguarde um pouco antes de tentar de novo.";
     return msg;
   }
 
@@ -863,7 +874,11 @@ function HomeDashboard({ setPage, contracts, profile, userId }) {
         <HomeCard emoji="📅" title="Agenda" desc="Veja o que precisa entregar e retirar em cada dia." color={BRAND.turquesa} onClick={() => setPage("agenda")} stat={entregasHoje > 0 ? `${entregasHoje} hoje` : "Nada hoje"} />
         <HomeCard emoji="🎯" title="Oportunidades" desc="Aniversários e clientes antigos pra reconquistar." color="#8B5CF6" onClick={() => setPage("oportunidades")} />
         <HomeCard emoji="📦" title="Estoque" desc="Seus materiais, com quantidade sempre atualizada." color="#F97316" onClick={() => setPage("estoque")} />
-        <LockedHomeCard emoji="🪄" title="Catálogo inteligente" desc="Envie um link pra cliente descrever a festa que ela imagina, e uma Inteligência Artificial gera uma prévia visual, treinada nos kits que você realmente entrega. Em breve!" />
+        {profile.plano_tipo === "premium" ? (
+          <HomeCard emoji="🪄" title="Catálogo inteligente" desc="Envie um link pra cliente descrever a festa que ela imagina, e uma Inteligência Artificial gera uma prévia visual, treinada nos kits que você realmente entrega." color="#8B5CF6" onClick={() => setPage("catalogo")} />
+        ) : (
+          <LockedHomeCard emoji="🪄" title="Catálogo inteligente" desc="Envie um link pra cliente descrever a festa que ela imagina, e uma Inteligência Artificial gera uma prévia visual, treinada nos kits que você realmente entrega. Exclusivo do plano Premium." />
+        )}
       </div>
     </div>
   );
@@ -2017,7 +2032,7 @@ function corEstoque(qtd) {
   return "#22C55E";
 }
 
-function EstoqueTab({ userId }) {
+function EstoqueTab({ userId, profile }) {
   const [itens, setItens] = useState(null);
   const [erro, setErro] = useState("");
   const [novoMaterial, setNovoMaterial] = useState("");
@@ -2086,6 +2101,11 @@ function EstoqueTab({ userId }) {
     if (!nome) { setErro("Digite o nome do material."); return; }
     const jaExiste = itens.some((i) => i.material.trim().toLowerCase() === nome.toLowerCase());
     if (jaExiste) { setErro(`Você já tem "${nome}" cadastrado no estoque. Em vez de criar de novo, edite a quantidade dele ali embaixo na lista.`); return; }
+    const limite = profile && profile.limite_pecas;
+    if (limite && itens.length >= limite) {
+      setErro(`Seu plano Básico permite até ${limite} peças cadastradas no estoque. Faça upgrade pro plano Premium pra cadastrar sem limite.`);
+      return;
+    }
     setSalvandoNovo(true);
     const row = { id: uid(), decoradora_id: userId, material: nome, modelo: "", quantidade: Math.max(0, Number(novaQtd) || 0), foto_data_url: novaFoto || null };
     const { error } = await sb.from("estoque_itens").insert(row);
@@ -2233,6 +2253,233 @@ function EstoqueTab({ userId }) {
           <button onClick={() => setFotoAmpliada(null)} className="absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center text-white text-xl cursor-pointer" style={{ background: "rgba(255,255,255,.15)" }}>✕</button>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ============================================================
+   CATÁLOGO INTELIGENTE (só plano Premium)
+
+   Diferente do resto do app, aqui as fotos vão pro Supabase Storage
+   (bucket "catalogo") em vez de base64 no banco — são até 8 fotos por
+   decoradora, e guardar isso como texto no banco incharia o tamanho
+   do banco (o mesmo problema de Egress/tamanho que já apareceu antes).
+============================================================ */
+const LIMITE_FOTOS_REFERENCIA = 8;
+
+async function dataUrlParaBlob(dataUrl) {
+  const resposta = await fetch(dataUrl);
+  return await resposta.blob();
+}
+
+function CatalogoTab({ userId, profile, onProfileUpdate }) {
+  const [referencias, setReferencias] = useState(null);
+  const [enviandoFoto, setEnviandoFoto] = useState(false);
+  const [descricaoNova, setDescricaoNova] = useState("");
+  const [erro, setErro] = useState("");
+
+  const [whatsappContato, setWhatsappContato] = useState(profile.whatsapp_contato || "");
+  const [salvandoWhatsapp, setSalvandoWhatsapp] = useState(false);
+  const [catalogoAtivo, setCatalogoAtivo] = useState(!!profile.catalogo_ativo);
+  const [salvandoAtivo, setSalvandoAtivo] = useState(false);
+
+  const [temaTeste, setTemaTeste] = useState("");
+  const [gerando, setGerando] = useState(false);
+  const [previaGerada, setPreviaGerada] = useState(null);
+  const [erroGeracao, setErroGeracao] = useState("");
+
+  const [linkCopiado, setLinkCopiado] = useState(false);
+
+  const linkCatalogo = `${window.location.origin}/c/${userId}`;
+
+  const carregarReferencias = useCallback(async () => {
+    const { data } = await sb.from("catalogo_referencias").select("*").eq("decoradora_id", userId).order("created_at", { ascending: true });
+    setReferencias(data || []);
+  }, [userId]);
+
+  useEffect(() => { carregarReferencias(); }, [carregarReferencias]);
+
+  async function handleFotoReferencia(e) {
+    setErro("");
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setErro("Escolha um arquivo de imagem."); return; }
+    if ((referencias || []).length >= LIMITE_FOTOS_REFERENCIA) {
+      setErro(`Você já tem ${LIMITE_FOTOS_REFERENCIA} fotos de referência, que é o limite. Apague alguma antes de subir outra.`);
+      return;
+    }
+    setEnviandoFoto(true);
+    try {
+      const dataUrl = await redimensionarImagem(file, 900);
+      const blob = await dataUrlParaBlob(dataUrl);
+      const nomeArquivo = `referencias/${userId}/${uid()}.jpg`;
+      const { error: erroUpload } = await sb.storage.from("catalogo").upload(nomeArquivo, blob, { contentType: "image/jpeg", upsert: false });
+      if (erroUpload) { setErro("Erro ao subir a foto: " + erroUpload.message); setEnviandoFoto(false); return; }
+      const { data: urlPublica } = sb.storage.from("catalogo").getPublicUrl(nomeArquivo);
+      const { error: erroInsert } = await sb.from("catalogo_referencias").insert({
+        decoradora_id: userId,
+        imagem_url: urlPublica.publicUrl,
+        descricao: descricaoNova.trim() || null,
+      });
+      if (erroInsert) { setErro("Erro ao salvar: " + erroInsert.message); setEnviandoFoto(false); return; }
+      setDescricaoNova("");
+      await carregarReferencias();
+    } catch (err) {
+      setErro("Erro inesperado: " + err.message);
+    }
+    setEnviandoFoto(false);
+    e.target.value = "";
+  }
+
+  async function excluirReferencia(item) {
+    setReferencias((lista) => lista.filter((r) => r.id !== item.id));
+    await sb.from("catalogo_referencias").delete().eq("id", item.id);
+    // tenta apagar o arquivo do Storage também; se falhar, não é grave
+    // (fica órfão no bucket, mas não aparece mais pra ninguém)
+    try {
+      const partes = item.imagem_url.split("/catalogo/");
+      if (partes[1]) await sb.storage.from("catalogo").remove([partes[1]]);
+    } catch (err) { /* ignora */ }
+  }
+
+  async function salvarWhatsapp() {
+    setSalvandoWhatsapp(true);
+    const { error } = await sb.from("decoradoras").update({ whatsapp_contato: whatsappContato.trim() }).eq("id", userId);
+    setSalvandoWhatsapp(false);
+    if (error) { setErro("Erro ao salvar WhatsApp: " + error.message); return; }
+    onProfileUpdate((p) => ({ ...p, whatsapp_contato: whatsappContato.trim() }));
+  }
+
+  async function alternarCatalogoAtivo() {
+    if (!whatsappContato.trim() && !catalogoAtivo) {
+      setErro("Cadastre seu WhatsApp de contato antes de ativar o catálogo.");
+      return;
+    }
+    const novoValor = !catalogoAtivo;
+    setSalvandoAtivo(true);
+    const { error } = await sb.from("decoradoras").update({ catalogo_ativo: novoValor }).eq("id", userId);
+    setSalvandoAtivo(false);
+    if (error) { setErro("Erro ao atualizar: " + error.message); return; }
+    setCatalogoAtivo(novoValor);
+    onProfileUpdate((p) => ({ ...p, catalogo_ativo: novoValor }));
+  }
+
+  function copiarLink() {
+    navigator.clipboard.writeText(linkCatalogo);
+    setLinkCopiado(true);
+    setTimeout(() => setLinkCopiado(false), 2000);
+  }
+
+  async function gerarPreviaComoDecoradora() {
+    setErroGeracao(""); setPreviaGerada(null);
+    if (!temaTeste.trim()) { setErroGeracao("Descreva o tema da festa primeiro."); return; }
+    setGerando(true);
+    try {
+      const resposta = await fetch(WEBHOOK_CATALOGO_GERAR, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decoradora_id: userId, tema: temaTeste.trim(), origem: "decoradora" }),
+      });
+      const dados = await resposta.json();
+      if (!resposta.ok || dados.erro) {
+        setErroGeracao(dados.erro || "Não foi possível gerar a prévia agora. Tente de novo em instantes.");
+      } else {
+        setPreviaGerada(dados.imagem_url);
+      }
+    } catch (err) {
+      setErroGeracao("Erro de conexão. Confira sua internet e tente de novo.");
+    }
+    setGerando(false);
+  }
+
+  if (referencias === null) return <div className="max-w-3xl mx-auto px-4 py-10 text-center text-slate-400 text-sm">Carregando...</div>;
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
+      <div className="mb-6">
+        <h2 className="fredoka text-2xl font-bold" style={{ color: BRAND.tinta }}>🪄 Catálogo inteligente</h2>
+        <p className="text-slate-400 text-sm mt-1">Seus clientes descrevem o tema da festa e recebem uma prévia visual gerada com IA, baseada nos seus kits reais.</p>
+      </div>
+
+      {erro && <div className="bg-red-50 text-red-600 text-sm rounded-xl px-4 py-3 mb-5">{erro}</div>}
+
+      {/* Ativar/desativar catálogo */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-5 flex items-center justify-between gap-4">
+        <div>
+          <p className="font-bold text-sm" style={{ color: BRAND.tinta }}>Catálogo {catalogoAtivo ? "ativo" : "desativado"}</p>
+          <p className="text-xs text-slate-400 mt-0.5">{catalogoAtivo ? "Seu link está funcionando." : "Ative pra liberar o link pros seus clientes."}</p>
+        </div>
+        <button onClick={alternarCatalogoAtivo} disabled={salvandoAtivo} className="shrink-0 px-5 py-2.5 rounded-xl font-bold text-sm text-white cursor-pointer disabled:opacity-50" style={{ background: catalogoAtivo ? "#DC2626" : BRAND.rosa }}>
+          {salvandoAtivo ? "..." : catalogoAtivo ? "Desativar" : "Ativar"}
+        </button>
+      </div>
+
+      {/* Link do catálogo */}
+      {catalogoAtivo && (
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-5">
+          <p className="font-bold text-sm mb-2" style={{ color: BRAND.tinta }}>Seu link pra mandar pros clientes</p>
+          <div className="flex gap-2">
+            <input readOnly value={linkCatalogo} className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm text-slate-500 bg-slate-50" />
+            <button onClick={copiarLink} className="px-4 py-2 rounded-xl font-bold text-sm text-white cursor-pointer shrink-0" style={{ background: BRAND.azul }}>
+              {linkCopiado ? "Copiado!" : "Copiar"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp de contato */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-5">
+        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Seu WhatsApp de contato</p>
+        <p className="text-xs text-slate-400 mb-3">É pra esse número que o cliente manda mensagem quando gosta de uma prévia.</p>
+        <div className="flex gap-2">
+          <input value={whatsappContato} onChange={(e) => setWhatsappContato(e.target.value)} placeholder="(11) 91234-5678" className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+          <button onClick={salvarWhatsapp} disabled={salvandoWhatsapp} className="px-4 py-2 rounded-xl font-bold text-sm text-white cursor-pointer shrink-0 disabled:opacity-50" style={{ background: BRAND.azul }}>
+            {salvandoWhatsapp ? "..." : "Salvar"}
+          </button>
+        </div>
+      </div>
+
+      {/* Fotos de referência */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-5">
+        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Fotos de referência ({(referencias || []).length}/{LIMITE_FOTOS_REFERENCIA})</p>
+        <p className="text-xs text-slate-400 mb-3">Suba fotos dos seus kits, arcos, vasos — o que você realmente entrega. A IA usa essas fotos como referência de estilo.</p>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          {(referencias || []).map((item) => (
+            <div key={item.id} className="relative group">
+              <img src={item.imagem_url} className="w-full aspect-square object-cover rounded-xl bg-slate-100" />
+              <button onClick={() => excluirReferencia(item)} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-xs flex items-center justify-center cursor-pointer">✕</button>
+              {item.descricao && <p className="text-[11px] text-slate-400 mt-1 truncate">{item.descricao}</p>}
+            </div>
+          ))}
+        </div>
+
+        {(referencias || []).length < LIMITE_FOTOS_REFERENCIA && (
+          <div>
+            <input value={descricaoNova} onChange={(e) => setDescricaoNova(e.target.value)} placeholder="Legenda (opcional) — ex: arco de balão rosa e dourado" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm mb-2" />
+            <label className="inline-block px-4 py-2 rounded-xl font-bold text-sm cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
+              {enviandoFoto ? "Enviando..." : "+ Subir foto"}
+              <input type="file" accept="image/*" onChange={handleFotoReferencia} disabled={enviandoFoto} className="hidden" />
+            </label>
+          </div>
+        )}
+      </div>
+
+      {/* Gerar prévia como decoradora (mesma ferramenta do cliente, uso interno) */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Gerar uma prévia você mesma</p>
+        <p className="text-xs text-slate-400 mb-3">Útil quando o cliente descreve por telefone ou pessoalmente. Conta dentro do seu limite mensal, igual as gerações feitas pelo link.</p>
+        <textarea value={temaTeste} onChange={(e) => setTemaTeste(e.target.value)} placeholder="Ex: festa de unicórnio rosa e dourado pra menina de 5 anos" rows={3} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm mb-3" />
+        <button onClick={gerarPreviaComoDecoradora} disabled={gerando} className="px-5 py-2.5 rounded-xl font-bold text-sm text-white cursor-pointer disabled:opacity-50" style={{ background: "#8B5CF6" }}>
+          {gerando ? "Gerando..." : "Gerar prévia"}
+        </button>
+        {erroGeracao && <p className="text-red-500 text-xs mt-2">{erroGeracao}</p>}
+        {previaGerada && (
+          <div className="mt-4">
+            <img src={previaGerada} className="w-full max-w-sm rounded-2xl border border-slate-100" />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -2890,7 +3137,9 @@ function App() {
         ) : page === "oportunidades" ? (
           <OportunidadesTab userId={session.user.id} profile={profile} />
         ) : page === "estoque" ? (
-          <EstoqueTab userId={session.user.id} />
+          <EstoqueTab userId={session.user.id} profile={profile} />
+        ) : page === "catalogo" ? (
+          <CatalogoTab userId={session.user.id} profile={profile} onProfileUpdate={setProfile} />
         ) : page === "perfil" ? (
           <PerfilTab profile={profile} userId={session.user.id} onSaved={setProfile} setPage={setPage} />
         ) : (
