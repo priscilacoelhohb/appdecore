@@ -351,7 +351,8 @@ function AuthScreen({ onAuthed }) {
         // porque a leitura direta via RLS não confiava no token
         // recém-criado a tempo dessa consulta.
         let planoInicial = {}; // se não achar nada, usa os padrões da tabela (basico/150)
-        const { data: pendenteLista } = await sb.rpc("consumir_pagamento_pendente", { p_email: email.trim() });
+        const { data: pendenteLista, error: erroRpc } = await sb.rpc("consumir_pagamento_pendente", { p_email: email.trim() });
+        if (erroRpc) console.error("Erro ao consultar pagamento pendente (cadastro):", erroRpc);
         const pendente = pendenteLista && pendenteLista[0];
         if (pendente) {
           planoInicial = {
@@ -398,7 +399,8 @@ function AuthScreen({ onAuthed }) {
         // Mesma checagem do handleCadastro: se pagou antes de confirmar o
         // e-mail/entrar pela primeira vez, a conta já nasce com o plano certo.
         let planoInicial = {};
-        const { data: pendenteLista } = await sb.rpc("consumir_pagamento_pendente", { p_email: email.trim() });
+        const { data: pendenteLista, error: erroRpc } = await sb.rpc("consumir_pagamento_pendente", { p_email: email.trim() });
+        if (erroRpc) console.error("Erro ao consultar pagamento pendente (login):", erroRpc);
         const pendente = pendenteLista && pendenteLista[0];
         if (pendente) {
           planoInicial = {
