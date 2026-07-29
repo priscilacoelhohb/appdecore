@@ -345,8 +345,23 @@ function AuthScreen({ onAuthed }) {
       const { data, error } = await sb.auth.signUp({ email: email.trim(), password: senha });
       if (error) { setErro(traduzErroAuth(error)); setCarregando(false); return; }
       if (data.session) {
+        // Confere se já tem um pagamento feito antes do cadastro
+        // (ex: pagou e só depois criou a conta — ordem comum no funil).
+        let planoInicial = {}; // se não achar nada, usa os padrões da tabela (basico/150)
+        const { data: pendente } = await sb.from("pagamentos_pendentes").select("*").eq("email", email.trim()).maybeSingle();
+        if (pendente) {
+          planoInicial = {
+            plano_tipo: pendente.plano_tipo,
+            limite_pecas: pendente.limite_pecas,
+            stripe_customer_id: pendente.stripe_customer_id,
+            stripe_subscription_id: pendente.stripe_subscription_id,
+          };
+        }
         // Confirmação de e-mail desligada: já entra direto e cria o perfil da loja.
-        await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim(), email: email.trim() });
+        await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim(), email: email.trim(), ...planoInicial });
+        if (pendente) {
+          await sb.from("pagamentos_pendentes").delete().eq("email", email.trim());
+        }
         onAuthed();
       } else {
         setAviso("Conta criada! Verifique seu e-mail para confirmar o cadastro e depois faça login.");
@@ -690,7 +705,7 @@ function TrialGate({ profile, onLogout, children }) {
       <>
         {status === "trial" && (
           <div className="text-center text-xs font-bold py-2" style={{ background: BRAND.amarelo, color: "#5c4200" }}>
-            🎁 Teste grátis — termina em {formatDateBR(profile.trial_fim)}
+            🎁 Teste grátis ({profile.plano_tipo === "premium" ? "Premium" : "Básico"}) — termina em {formatDateBR(profile.trial_fim)}
           </div>
         )}
         {children}
