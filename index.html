@@ -2338,20 +2338,6 @@ function EstoqueTab({ userId, profile }) {
 const TIPOS_EVENTO_KIT = ["Aniversário Infantil", "Mesversário", "Chá de Bebê/Fralda", "Festa Junina", "15 Anos", "Adulto", "Dia dos Pais/Mães", "Formatura", "Casamento/Noivado"];
 const PUBLICOS_KIT = ["Menina", "Menino", "Mulher", "Homem", "Unissex"];
 const NIVEIS_KIT = ["Minimalista", "Prata", "Ouro", "Diamante", "Luxo"];
-const PALETAS_COR_KIT = [
-  { valor: "Rosa e dourado", cores: ["#F9A8D4", "#FBBF24"] },
-  { valor: "Azul e branco", cores: ["#93C5FD", "#FFFFFF"] },
-  { valor: "Colorido vibrante", cores: ["#F87171", "#34D399", "#FBBF24"] },
-  { valor: "Tons pastéis", cores: ["#FBCFE8", "#BFDBFE", "#FDE68A"] },
-  { valor: "Branco e dourado", cores: ["#FFFFFF", "#FBBF24"] },
-  { valor: "Preto e dourado", cores: ["#111827", "#FBBF24"] },
-];
-
-const CORES_SOLIDAS_VARIACAO = [
-  { nome: "Rosa", hex: "#EC1E79" }, { nome: "Azul", hex: "#3B82F6" }, { nome: "Dourado", hex: "#D4AF37" },
-  { nome: "Prata", hex: "#C0C0C0" }, { nome: "Branco", hex: "#FFFFFF" }, { nome: "Preto", hex: "#111827" },
-  { nome: "Verde", hex: "#10B981" }, { nome: "Vermelho", hex: "#EF4444" }, { nome: "Roxo", hex: "#8B5CF6" }, { nome: "Amarelo", hex: "#FBBF24" },
-];
 
 // Select com opção de digitar um valor customizado, pra não travar
 // a decoradora numa lista fixa quando ela quiser algo diferente.
@@ -2730,19 +2716,31 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
     setFotosPendentes((p) => p.filter((f) => f.tempId !== tempId));
   }
 
-  // Variação de cor por IA
+  // Variação de cor / edição pontual por IA
   const [fotoBaseId, setFotoBaseId] = useState(fotos[0]?.id || null);
-  const [corDesejada, setCorDesejada] = useState("");
+  const [instrucaoEdicao, setInstrucaoEdicao] = useState("");
   const [gerandoVariacao, setGerandoVariacao] = useState(false);
   const [erroVariacao, setErroVariacao] = useState("");
   const [resultadoVariacao, setResultadoVariacao] = useState(null); // base64 puro, sem marca d'água ainda
   const [salvandoVariacao, setSalvandoVariacao] = useState(false);
+  const [usoMes, setUsoMes] = useState(null);
+
+  useEffect(() => {
+    if (!kit.id || !form.aceita_variacao_cor) return;
+    async function carregarUso() {
+      const hoje = new Date();
+      const inicioDoMes = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), 1)).toISOString();
+      const { data } = await sb.from("catalogo_geracoes").select("id").eq("decoradora_id", kit.decoradora_id || profile?.id).eq("sucesso", true).gte("created_at", inicioDoMes);
+      setUsoMes((data || []).length);
+    }
+    carregarUso();
+  }, [kit.id, form.aceita_variacao_cor]);
 
   async function gerarVariacao() {
     setErroVariacao(""); setResultadoVariacao(null);
     const fotoBase = fotos.find((f) => f.id === fotoBaseId) || fotos[0];
     if (!fotoBase) { setErroVariacao("Esse kit ainda não tem foto salva pra usar como base."); return; }
-    if (!corDesejada.trim()) { setErroVariacao("Escolha ou digite a cor desejada."); return; }
+    if (!instrucaoEdicao.trim()) { setErroVariacao("Descreve o que você quer alterar na foto."); return; }
     setGerandoVariacao(true);
     try {
       const resp = await fetch(WEBHOOK_VARIAR_COR, {
@@ -2752,8 +2750,7 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
           kit_id: kit.id,
           decoradora_id: kit.decoradora_id || profile?.id,
           imagem_url: fotoBase.imagem_url,
-          nome_peca: kit.nome,
-          cor_desejada: corDesejada.trim(),
+          instrucao: instrucaoEdicao.trim(),
         }),
       });
       const dados = await resp.json();
@@ -2761,6 +2758,7 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
         setErroVariacao(dados.erro || "Não conseguimos gerar a variação agora. Tente de novo.");
       } else {
         setResultadoVariacao(dados.imagem_base64);
+        setUsoMes((u) => (u === null ? null : u + 1));
       }
     } catch (err) {
       setErroVariacao("Erro de conexão. Confira sua internet e tente de novo.");
@@ -2779,7 +2777,7 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
     await onFotoGeradaSalva(kit.id, dataUrlFinal);
     setSalvandoVariacao(false);
     setResultadoVariacao(null);
-    setCorDesejada("");
+    setInstrucaoEdicao("");
   }
 
   return (
@@ -2840,19 +2838,6 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
           </div>
 
           <div>
-            <label className="text-xs font-bold text-slate-500 mb-1 block">Paleta de cor</label>
-            <div className="grid grid-cols-3 gap-2 mb-2">
-              {PALETAS_COR_KIT.map((p) => (
-                <button key={p.valor} onClick={() => set("cor", p.valor)} className="rounded-xl border-2 p-2 text-left cursor-pointer" style={{ borderColor: form.cor === p.valor ? BRAND.rosa : "#e5e7eb" }}>
-                  <div className="flex gap-1 mb-1">{p.cores.map((c, i) => <div key={i} className="w-3.5 h-3.5 rounded-full border border-white" style={{ background: c, boxShadow: "0 0 0 1px #eee" }} />)}</div>
-                  <p className="text-[10px] font-semibold leading-tight" style={{ color: BRAND.tinta }}>{p.valor}</p>
-                </button>
-              ))}
-            </div>
-            <input value={PALETAS_COR_KIT.some((p) => p.valor === form.cor) ? "" : (form.cor || "")} onChange={(e) => set("cor", e.target.value)} placeholder="Ou digite outra cor..." className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
-          </div>
-
-          <div>
             <label className="text-xs font-bold text-slate-500 mb-1 block">Preço (opcional)</label>
             <input value={form.preco || ""} onChange={(e) => set("preco", e.target.value.replace(/[^0-9.,]/g, ""))} placeholder="250,00" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
           </div>
@@ -2883,10 +2868,23 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
 
           {form.aceita_variacao_cor && kit.id && (
             fotos.length === 0 ? (
-              <p className="text-xs text-slate-400 rounded-xl px-3 py-2" style={{ background: "#F1F5F9" }}>Suba pelo menos 1 foto e salve o kit pra poder gerar variações de cor.</p>
+              <p className="text-xs text-slate-400 rounded-xl px-3 py-2" style={{ background: "#F1F5F9" }}>Suba pelo menos 1 foto e salve o kit pra poder gerar variações.</p>
             ) : (
               <div className="rounded-2xl p-4" style={{ background: "#F5F3FF", border: "1px solid #DDD6FE" }}>
-                <p className="font-bold text-sm mb-2" style={{ color: "#5B21B6" }}>🪄 Gerar variação de cor</p>
+                <p className="font-bold text-sm mb-1" style={{ color: "#5B21B6" }}>🪄 Catálogo Inteligente (IA)</p>
+                <p className="text-[11px] text-slate-500 mb-2">Peça pra trocar a cor de uma peça, tirar ou trocar um detalhe da foto. A IA mantém o resto da imagem exatamente igual, alterando só o que você pedir. Funciona melhor em fotos simples, com uma peça só.</p>
+
+                {usoMes !== null && (
+                  <div className="mb-3">
+                    <div className="flex justify-between text-[11px] font-semibold mb-1" style={{ color: "#5B21B6" }}>
+                      <span>{usoMes}/100 usadas esse mês</span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: "#E9D5FF" }}>
+                      <div className="h-full rounded-full" style={{ width: `${Math.min(100, usoMes)}%`, background: "#8B5CF6" }} />
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">Você ainda pode fazer {Math.max(0, 100 - usoMes)} alterações esse mês.</p>
+                  </div>
+                )}
 
                 {fotos.length > 1 && (
                   <div className="flex gap-2 mb-3 overflow-x-auto">
@@ -2898,19 +2896,22 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {CORES_SOLIDAS_VARIACAO.map((c) => (
-                    <button key={c.nome} onClick={() => setCorDesejada(c.nome)} className="w-7 h-7 rounded-full cursor-pointer" style={{ background: c.hex, border: corDesejada === c.nome ? "2px solid #5B21B6" : "1px solid #E5E7EB" }} title={c.nome} />
-                  ))}
-                </div>
-                <input value={corDesejada} onChange={(e) => setCorDesejada(e.target.value)} placeholder="Ou digite a cor (ex: rosa chiclete)" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm mb-2" />
+                <label className="text-xs font-semibold mb-1 block" style={{ color: "#5B21B6" }}>O que você quer alterar nessa foto?</label>
+                <textarea value={instrucaoEdicao} onChange={(e) => setInstrucaoEdicao(e.target.value)} placeholder="Ex: troque a cor do painel redondo pra vermelho" rows={2} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm mb-2" />
 
                 <button onClick={gerarVariacao} disabled={gerandoVariacao} className="w-full py-2.5 rounded-xl font-bold text-sm text-white cursor-pointer disabled:opacity-50" style={{ background: "#8B5CF6" }}>
-                  {gerandoVariacao ? "Gerando..." : "Gerar variação"}
+                  {gerandoVariacao ? "Gerando..." : "Gerar imagem"}
                 </button>
                 {erroVariacao && <p className="text-red-500 text-xs mt-2">{erroVariacao}</p>}
 
-                {resultadoVariacao && (
+                {gerandoVariacao && (
+                  <div className="mt-3 rounded-xl border border-slate-200 flex flex-col items-center justify-center py-8" style={{ background: "#fff" }}>
+                    <div className="w-8 h-8 rounded-full animate-spin" style={{ border: "3px solid #E9D5FF", borderTopColor: "#8B5CF6" }} />
+                    <p className="text-xs text-slate-400 mt-3">Gerando sua imagem...</p>
+                  </div>
+                )}
+
+                {resultadoVariacao && !gerandoVariacao && (
                   <div className="mt-3">
                     <img src={`data:image/jpeg;base64,${resultadoVariacao}`} className="w-full rounded-xl border border-slate-200 mb-2" />
                     <div className="flex gap-2">
@@ -2950,42 +2951,30 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
 }
 
 function SeletorPosicaoMarcaDagua({ posX, posY, onChange, logoPreview }) {
-  const containerRef = useRef(null);
-
-  function moverPara(clientX, clientY) {
-    const rect = containerRef.current.getBoundingClientRect();
-    let x = ((clientX - rect.left) / rect.width) * 100;
-    let y = ((clientY - rect.top) / rect.height) * 100;
-    x = Math.max(0, Math.min(100, Math.round(x)));
-    y = Math.max(0, Math.min(100, Math.round(y)));
-    onChange(x, y);
-  }
-
-  function onPointerDown(e) {
-    e.preventDefault();
-    moverPara(e.clientX, e.clientY);
-    function onMove(ev) { moverPara(ev.clientX, ev.clientY); }
-    function onUp() {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    }
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  }
-
+  const POSICOES = [
+    { nome: "Superior esquerda", x: 12, y: 12 },
+    { nome: "Superior direita", x: 88, y: 12 },
+    { nome: "Centro", x: 50, y: 50 },
+    { nome: "Inferior esquerda", x: 12, y: 88 },
+    { nome: "Inferior direita", x: 88, y: 88 },
+  ];
   return (
-    <div
-      ref={containerRef}
-      onPointerDown={onPointerDown}
-      className="relative w-full aspect-square rounded-2xl bg-slate-100 border-2 border-dashed border-slate-300 overflow-hidden select-none"
-      style={{ touchAction: "none", cursor: "crosshair" }}
-    >
-      <div className="absolute inset-0 flex items-center justify-center text-slate-300 text-xs pointer-events-none">foto do kit (exemplo)</div>
-      <div
-        className="absolute w-10 h-10 rounded-lg border-2 flex items-center justify-center text-sm pointer-events-none"
-        style={{ left: `calc(${posX}% - 20px)`, top: `calc(${posY}% - 20px)`, borderColor: BRAND.rosa, background: "rgba(236,30,121,0.15)" }}
-      >
-        {logoPreview ? <img src={logoPreview} className="w-6 h-6 object-contain opacity-70" /> : "🖼️"}
+    <div>
+      <div className="relative w-full aspect-square rounded-2xl bg-slate-100 border-2 border-dashed border-slate-300 overflow-hidden mb-3">
+        <div className="absolute inset-0 flex items-center justify-center text-slate-300 text-xs pointer-events-none">foto do kit (exemplo)</div>
+        <div
+          className="absolute w-10 h-10 rounded-lg border-2 flex items-center justify-center transition-all duration-300"
+          style={{ left: `calc(${posX}% - 20px)`, top: `calc(${posY}% - 20px)`, borderColor: BRAND.rosa, background: "rgba(236,30,121,0.15)" }}
+        >
+          {logoPreview ? <img src={logoPreview} className="w-6 h-6 object-contain opacity-70" /> : "🖼️"}
+        </div>
+      </div>
+      <div className="grid grid-cols-5 gap-1.5">
+        {POSICOES.map((p) => (
+          <button key={p.nome} onClick={() => onChange(p.x, p.y)} title={p.nome} className="py-2 rounded-lg text-[10px] font-bold cursor-pointer" style={{ background: posX === p.x && posY === p.y ? BRAND.rosa : "#F1F5F9", color: posX === p.x && posY === p.y ? "#fff" : BRAND.tinta }}>
+            {p.nome.split(" ")[0]}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -3094,7 +3083,7 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
       {form.catalogo_usar_marca_dagua && (
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
           <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Ajustes da marca d'água</p>
-          <p className="text-xs text-slate-400 mb-4">Arraste o quadradinho pra escolher onde sua logo aparece nas fotos.</p>
+          <p className="text-xs text-slate-400 mb-4">Escolha onde sua logo aparece nas fotos.</p>
 
           <SeletorPosicaoMarcaDagua posX={form.catalogo_marca_dagua_pos_x} posY={form.catalogo_marca_dagua_pos_y} logoPreview={form.logo_data_url} onChange={(x, y) => { set("catalogo_marca_dagua_pos_x", x); set("catalogo_marca_dagua_pos_y", y); }} />
 
