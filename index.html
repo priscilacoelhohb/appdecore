@@ -51,6 +51,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // (o node que recebe { decoradora_id, tema, origem, whatsapp_cliente? },
 // confere os limites, chama o Nano Banana e devolve a URL da prévia gerada).
 const WEBHOOK_CATALOGO_GERAR = "https://waha-n8n.svqcg7.easypanel.host/webhook/catalogo-gerar-previa";
+const WEBHOOK_VARIAR_COR = "https://waha-n8n.svqcg7.easypanel.host/webhook/catalogo-variar-cor";
 
 
 /* ============================================================
@@ -2346,6 +2347,12 @@ const PALETAS_COR_KIT = [
   { valor: "Preto e dourado", cores: ["#111827", "#FBBF24"] },
 ];
 
+const CORES_SOLIDAS_VARIACAO = [
+  { nome: "Rosa", hex: "#EC1E79" }, { nome: "Azul", hex: "#3B82F6" }, { nome: "Dourado", hex: "#D4AF37" },
+  { nome: "Prata", hex: "#C0C0C0" }, { nome: "Branco", hex: "#FFFFFF" }, { nome: "Preto", hex: "#111827" },
+  { nome: "Verde", hex: "#10B981" }, { nome: "Vermelho", hex: "#EF4444" }, { nome: "Roxo", hex: "#8B5CF6" }, { nome: "Amarelo", hex: "#FBBF24" },
+];
+
 // Select com opção de digitar um valor customizado, pra não travar
 // a decoradora numa lista fixa quando ela quiser algo diferente.
 function SelectComOutro({ label, valor, opcoes, onChange, placeholderOutro }) {
@@ -2381,7 +2388,10 @@ async function dataUrlParaBlob(dataUrl) {
 
 // Desenha a logo da decoradora por cima da foto, com transparência,
 // centralizada — tudo no navegador, sem custo, sem IA.
-function aplicarMarcaDagua(dataUrlFoto, logoDataUrl) {
+function aplicarMarcaDagua(dataUrlFoto, logoDataUrl, opacidade, posX, posY) {
+  const alfa = (opacidade ?? 45) / 100;
+  const px = (posX ?? 50) / 100;
+  const py = (posY ?? 50) / 100;
   return new Promise((resolve) => {
     const imgFoto = new Image();
     imgFoto.onload = () => {
@@ -2395,8 +2405,10 @@ function aplicarMarcaDagua(dataUrlFoto, logoDataUrl) {
         imgLogo.onload = () => {
           const larguraLogo = imgFoto.width * 0.13;
           const alturaLogo = larguraLogo * (imgLogo.height / imgLogo.width || 1);
-          ctx.globalAlpha = 0.45;
-          ctx.drawImage(imgLogo, (canvas.width - larguraLogo) / 2, (canvas.height - alturaLogo) / 2, larguraLogo, alturaLogo);
+          const x = px * (canvas.width - larguraLogo);
+          const y = py * (canvas.height - alturaLogo);
+          ctx.globalAlpha = alfa;
+          ctx.drawImage(imgLogo, x, y, larguraLogo, alturaLogo);
           ctx.globalAlpha = 1;
           resolve(canvas.toDataURL("image/jpeg", 0.85));
         };
@@ -2519,7 +2531,7 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
     try {
       let dataUrl = await redimensionarImagem(file, 1000);
       if (profile.catalogo_usar_marca_dagua !== false) {
-        dataUrl = (await aplicarMarcaDagua(dataUrl, profile.logo_data_url)) || dataUrl;
+        dataUrl = (await aplicarMarcaDagua(dataUrl, profile.logo_data_url, profile.catalogo_marca_dagua_opacidade, profile.catalogo_marca_dagua_pos_x, profile.catalogo_marca_dagua_pos_y)) || dataUrl;
       }
       const blob = await dataUrlParaBlob(dataUrl);
       const nomeArquivo = `kits/${userId}/${kitId}/${uid()}.jpg`;
@@ -2536,6 +2548,25 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
   async function excluirFotoKit(foto) {
     setFotosPorKit((f) => ({ ...f, [foto.kit_id]: (f[foto.kit_id] || []).filter((x) => x.id !== foto.id) }));
     await sb.from("catalogo_kit_fotos").delete().eq("id", foto.id);
+  }
+
+  // Salva o resultado de uma variação de cor (já com marca d'água aplicada
+  // pelo próprio modal) como uma nova foto oficial do kit.
+  async function salvarFotoGerada(kitId, dataUrlComMarca) {
+    setErro("");
+    try {
+      const fotosAtuais = fotosPorKit[kitId] || [];
+      if (fotosAtuais.length >= 5) { setErro("Máximo de 5 fotos por kit. Apague uma antes de salvar essa."); return; }
+      const blob = await dataUrlParaBlob(dataUrlComMarca);
+      const nomeArquivo = `kits/${userId}/${kitId}/${uid()}-ia.jpg`;
+      const { error: erroUpload } = await sb.storage.from("catalogo").upload(nomeArquivo, blob, { contentType: "image/jpeg", upsert: false });
+      if (erroUpload) { setErro("Erro ao salvar a variação: " + erroUpload.message); return; }
+      const { data: urlPublica } = sb.storage.from("catalogo").getPublicUrl(nomeArquivo);
+      await sb.from("catalogo_kit_fotos").insert({ kit_id: kitId, imagem_url: urlPublica.publicUrl, ordem: fotosAtuais.length, gerada_por_ia: true });
+      await carregarKits();
+    } catch (err) {
+      setErro("Erro inesperado: " + err.message);
+    }
   }
 
   if (kits === null) return <div className="max-w-3xl mx-auto px-4 py-10 text-center text-slate-400 text-sm">Carregando...</div>;
@@ -2572,6 +2603,7 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
         <KitEditorModal
           kit={editando}
           fotos={editando.id ? (fotosPorKit[editando.id] || []) : []}
+          profile={profile}
           onFechar={() => setEditando(null)}
           onSalvar={async (dados, arquivosPendentes) => {
             const kitId = await salvarKit(dados);
@@ -2582,6 +2614,7 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
             setEditando(null);
           }}
           onExcluirFoto={excluirFotoKit}
+          onFotoGeradaSalva={salvarFotoGerada}
         />
       )}
     </div>
@@ -2678,7 +2711,7 @@ function KitsLista({ kits, fotosPorKit, onNovo, onEditar, onExcluir }) {
   );
 }
 
-function KitEditorModal({ kit, fotos, onFechar, onSalvar, onExcluirFoto }) {
+function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto, onFotoGeradaSalva }) {
   const [form, setForm] = useState(kit);
   const [salvando, setSalvando] = useState(false);
   const [fotosPendentes, setFotosPendentes] = useState([]); // {tempId, file, previewUrl} — ainda não subiram
@@ -2695,6 +2728,58 @@ function KitEditorModal({ kit, fotos, onFechar, onSalvar, onExcluirFoto }) {
 
   function removerFotoPendente(tempId) {
     setFotosPendentes((p) => p.filter((f) => f.tempId !== tempId));
+  }
+
+  // Variação de cor por IA
+  const [fotoBaseId, setFotoBaseId] = useState(fotos[0]?.id || null);
+  const [corDesejada, setCorDesejada] = useState("");
+  const [gerandoVariacao, setGerandoVariacao] = useState(false);
+  const [erroVariacao, setErroVariacao] = useState("");
+  const [resultadoVariacao, setResultadoVariacao] = useState(null); // base64 puro, sem marca d'água ainda
+  const [salvandoVariacao, setSalvandoVariacao] = useState(false);
+
+  async function gerarVariacao() {
+    setErroVariacao(""); setResultadoVariacao(null);
+    const fotoBase = fotos.find((f) => f.id === fotoBaseId) || fotos[0];
+    if (!fotoBase) { setErroVariacao("Esse kit ainda não tem foto salva pra usar como base."); return; }
+    if (!corDesejada.trim()) { setErroVariacao("Escolha ou digite a cor desejada."); return; }
+    setGerandoVariacao(true);
+    try {
+      const resp = await fetch(WEBHOOK_VARIAR_COR, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kit_id: kit.id,
+          decoradora_id: kit.decoradora_id || profile?.id,
+          imagem_url: fotoBase.imagem_url,
+          nome_peca: kit.nome,
+          cor_desejada: corDesejada.trim(),
+        }),
+      });
+      const dados = await resp.json();
+      if (!resp.ok || dados.erro) {
+        setErroVariacao(dados.erro || "Não conseguimos gerar a variação agora. Tente de novo.");
+      } else {
+        setResultadoVariacao(dados.imagem_base64);
+      }
+    } catch (err) {
+      setErroVariacao("Erro de conexão. Confira sua internet e tente de novo.");
+    }
+    setGerandoVariacao(false);
+  }
+
+  async function salvarVariacaoComoFoto() {
+    if (!resultadoVariacao) return;
+    setSalvandoVariacao(true);
+    const usarMarca = profile?.catalogo_usar_marca_dagua !== false;
+    const dataUrlBruto = `data:image/jpeg;base64,${resultadoVariacao}`;
+    const dataUrlFinal = usarMarca
+      ? (await aplicarMarcaDagua(dataUrlBruto, profile?.logo_data_url, profile?.catalogo_marca_dagua_opacidade, profile?.catalogo_marca_dagua_pos_x, profile?.catalogo_marca_dagua_pos_y)) || dataUrlBruto
+      : dataUrlBruto;
+    await onFotoGeradaSalva(kit.id, dataUrlFinal);
+    setSalvandoVariacao(false);
+    setResultadoVariacao(null);
+    setCorDesejada("");
   }
 
   return (
@@ -2796,6 +2881,50 @@ function KitEditorModal({ kit, fotos, onFechar, onSalvar, onExcluirFoto }) {
             </button>
           </div>
 
+          {form.aceita_variacao_cor && kit.id && (
+            fotos.length === 0 ? (
+              <p className="text-xs text-slate-400 rounded-xl px-3 py-2" style={{ background: "#F1F5F9" }}>Suba pelo menos 1 foto e salve o kit pra poder gerar variações de cor.</p>
+            ) : (
+              <div className="rounded-2xl p-4" style={{ background: "#F5F3FF", border: "1px solid #DDD6FE" }}>
+                <p className="font-bold text-sm mb-2" style={{ color: "#5B21B6" }}>🪄 Gerar variação de cor</p>
+
+                {fotos.length > 1 && (
+                  <div className="flex gap-2 mb-3 overflow-x-auto">
+                    {fotos.map((f) => (
+                      <button key={f.id} onClick={() => setFotoBaseId(f.id)} className="shrink-0 w-12 h-12 rounded-lg overflow-hidden cursor-pointer" style={{ border: fotoBaseId === f.id ? "2px solid #8B5CF6" : "2px solid transparent" }}>
+                        <img src={f.imagem_url} className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {CORES_SOLIDAS_VARIACAO.map((c) => (
+                    <button key={c.nome} onClick={() => setCorDesejada(c.nome)} className="w-7 h-7 rounded-full cursor-pointer" style={{ background: c.hex, border: corDesejada === c.nome ? "2px solid #5B21B6" : "1px solid #E5E7EB" }} title={c.nome} />
+                  ))}
+                </div>
+                <input value={corDesejada} onChange={(e) => setCorDesejada(e.target.value)} placeholder="Ou digite a cor (ex: rosa chiclete)" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm mb-2" />
+
+                <button onClick={gerarVariacao} disabled={gerandoVariacao} className="w-full py-2.5 rounded-xl font-bold text-sm text-white cursor-pointer disabled:opacity-50" style={{ background: "#8B5CF6" }}>
+                  {gerandoVariacao ? "Gerando..." : "Gerar variação"}
+                </button>
+                {erroVariacao && <p className="text-red-500 text-xs mt-2">{erroVariacao}</p>}
+
+                {resultadoVariacao && (
+                  <div className="mt-3">
+                    <img src={`data:image/jpeg;base64,${resultadoVariacao}`} className="w-full rounded-xl border border-slate-200 mb-2" />
+                    <div className="flex gap-2">
+                      <button onClick={salvarVariacaoComoFoto} disabled={salvandoVariacao} className="flex-1 py-2 rounded-xl font-bold text-xs text-white cursor-pointer disabled:opacity-50" style={{ background: "#8B5CF6" }}>
+                        {salvandoVariacao ? "Salvando..." : "✓ Salvar como foto do kit"}
+                      </button>
+                      <button onClick={() => setResultadoVariacao(null)} className="px-3 py-2 rounded-xl font-bold text-xs cursor-pointer" style={{ background: "#F1F5F9", color: BRAND.tinta }}>Descartar</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          )}
+
           <button
             onClick={async () => { setSalvando(true); await onSalvar(form, fotosPendentes.map((f) => f.file)); setSalvando(false); }}
             disabled={salvando}
@@ -2820,10 +2949,55 @@ function KitEditorModal({ kit, fotos, onFechar, onSalvar, onExcluirFoto }) {
   );
 }
 
+function SeletorPosicaoMarcaDagua({ posX, posY, onChange, logoPreview }) {
+  const containerRef = useRef(null);
+
+  function moverPara(clientX, clientY) {
+    const rect = containerRef.current.getBoundingClientRect();
+    let x = ((clientX - rect.left) / rect.width) * 100;
+    let y = ((clientY - rect.top) / rect.height) * 100;
+    x = Math.max(0, Math.min(100, Math.round(x)));
+    y = Math.max(0, Math.min(100, Math.round(y)));
+    onChange(x, y);
+  }
+
+  function onPointerDown(e) {
+    e.preventDefault();
+    moverPara(e.clientX, e.clientY);
+    function onMove(ev) { moverPara(ev.clientX, ev.clientY); }
+    function onUp() {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      onPointerDown={onPointerDown}
+      className="relative w-full aspect-square rounded-2xl bg-slate-100 border-2 border-dashed border-slate-300 overflow-hidden select-none"
+      style={{ touchAction: "none", cursor: "crosshair" }}
+    >
+      <div className="absolute inset-0 flex items-center justify-center text-slate-300 text-xs pointer-events-none">foto do kit (exemplo)</div>
+      <div
+        className="absolute w-10 h-10 rounded-lg border-2 flex items-center justify-center text-sm pointer-events-none"
+        style={{ left: `calc(${posX}% - 20px)`, top: `calc(${posY}% - 20px)`, borderColor: BRAND.rosa, background: "rgba(236,30,121,0.15)" }}
+      >
+        {logoPreview ? <img src={logoPreview} className="w-6 h-6 object-contain opacity-70" /> : "🖼️"}
+      </div>
+    </div>
+  );
+}
+
 function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
   const [form, setForm] = useState({
     logo_data_url: profile.logo_data_url || "",
     catalogo_usar_marca_dagua: profile.catalogo_usar_marca_dagua !== false,
+    catalogo_marca_dagua_opacidade: profile.catalogo_marca_dagua_opacidade ?? 45,
+    catalogo_marca_dagua_pos_x: profile.catalogo_marca_dagua_pos_x ?? 50,
+    catalogo_marca_dagua_pos_y: profile.catalogo_marca_dagua_pos_y ?? 50,
     catalogo_banner_url: profile.catalogo_banner_url || "",
     catalogo_cor_destaque: profile.catalogo_cor_destaque || "#EC1E79",
     catalogo_texto_boasvindas: profile.catalogo_texto_boasvindas || "",
@@ -2916,6 +3090,29 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
           </div>
         ))}
       </div>
+
+      {form.catalogo_usar_marca_dagua && (
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+          <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Ajustes da marca d'água</p>
+          <p className="text-xs text-slate-400 mb-4">Arraste o quadradinho pra escolher onde sua logo aparece nas fotos.</p>
+
+          <SeletorPosicaoMarcaDagua posX={form.catalogo_marca_dagua_pos_x} posY={form.catalogo_marca_dagua_pos_y} logoPreview={form.logo_data_url} onChange={(x, y) => { set("catalogo_marca_dagua_pos_x", x); set("catalogo_marca_dagua_pos_y", y); }} />
+
+          <div className="mt-4">
+            <label className="text-xs font-bold text-slate-500 mb-1 flex justify-between">
+              <span>Transparência</span>
+              <span>{form.catalogo_marca_dagua_opacidade}%</span>
+            </label>
+            <input
+              type="range" min="10" max="90" step="5"
+              value={form.catalogo_marca_dagua_opacidade}
+              onChange={(e) => set("catalogo_marca_dagua_opacidade", parseInt(e.target.value))}
+              className="w-full cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-slate-400"><span>Bem sutil</span><span>Bem visível</span></div>
+          </div>
+        </div>
+      )}
 
       {form.catalogo_ativo && (
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
