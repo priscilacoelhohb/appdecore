@@ -2473,7 +2473,7 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
     }
     setEditando({
       id: null, nome: "", itens_inclusos: [], tipo_evento: "", publico: "", nivel: "", tema: "", cor: "",
-      preco: "", status: "rascunho", aceita_variacao_cor: false, em_destaque: false,
+      preco: "", status: "publicado", aceita_variacao_cor: true, em_destaque: false,
     });
   }
 
@@ -2970,12 +2970,13 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
     catalogo_marca_dagua_pos_x: profile.catalogo_marca_dagua_pos_x ?? 50,
     catalogo_marca_dagua_pos_y: profile.catalogo_marca_dagua_pos_y ?? 50,
     catalogo_banner_url: profile.catalogo_banner_url || "",
+    catalogo_banner_mobile_url: profile.catalogo_banner_mobile_url || "",
     catalogo_cor_destaque: profile.catalogo_cor_destaque || "#EC1E79",
     catalogo_texto_boasvindas: profile.catalogo_texto_boasvindas || "",
     catalogo_mostrar_valores: profile.catalogo_mostrar_valores !== false,
     catalogo_instagram: profile.catalogo_instagram || "",
     whatsapp_contato: profile.whatsapp_contato || "",
-    catalogo_ativo: !!profile.catalogo_ativo,
+    catalogo_ativo: profile.catalogo_ativo !== false,
   });
   const [salvando, setSalvando] = useState(false);
 
@@ -3036,12 +3037,23 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
           </div>
         )}
 
-        <label className="text-xs font-bold text-slate-500 mb-1 block">Banner / capa do catálogo</label>
+        <label className="text-xs font-bold text-slate-500 mb-1 block">Banner do catálogo (computador)</label>
+        <p className="text-[11px] text-slate-400 mb-2">Tamanho ideal: 1200 x 400px (bem largo e baixo).</p>
         <div className="flex items-center gap-3 mb-4">
           {form.catalogo_banner_url ? <img src={form.catalogo_banner_url} className="w-24 h-14 rounded-xl object-cover" /> : <div className="w-24 h-14 rounded-xl bg-slate-100" />}
           <label className="px-3 py-2 rounded-xl font-bold text-xs cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
             Trocar banner
             <input type="file" accept="image/*" className="hidden" onChange={(e) => handleUploadImagem("catalogo_banner_url", e.target.files[0], 1200)} />
+          </label>
+        </div>
+
+        <label className="text-xs font-bold text-slate-500 mb-1 block">Banner do catálogo (celular)</label>
+        <p className="text-[11px] text-slate-400 mb-2">Tamanho ideal: 800 x 600px (mais quadrado, fica melhor na tela do celular).</p>
+        <div className="flex items-center gap-3 mb-4">
+          {form.catalogo_banner_mobile_url ? <img src={form.catalogo_banner_mobile_url} className="w-14 h-14 rounded-xl object-cover" /> : <div className="w-14 h-14 rounded-xl bg-slate-100" />}
+          <label className="px-3 py-2 rounded-xl font-bold text-xs cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
+            Trocar banner
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => handleUploadImagem("catalogo_banner_mobile_url", e.target.files[0], 800)} />
           </label>
         </div>
 
