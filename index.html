@@ -941,9 +941,9 @@ function HomeDashboard({ setPage, contracts, profile, userId }) {
         <HomeCard emoji="🎯" title="Oportunidades" desc="Aniversários e clientes antigos pra reconquistar." color="#8B5CF6" onClick={() => setPage("oportunidades")} />
         <HomeCard emoji="📦" title="Estoque" desc="Seus materiais, com quantidade sempre atualizada." color="#F97316" onClick={() => setPage("estoque")} />
         {profile.plano_tipo === "premium" ? (
-          <HomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Monte seu catálogo com fotos reais dos seus kits. Envie o link e o cliente escolhe direto pelo WhatsApp." color="#8B5CF6" onClick={() => setPage("catalogo")} />
+          <HomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Vitrine dos seus kits com fotos reais, filtros por categoria e botão de WhatsApp pronto. Ainda edita as fotos com IA — troque cores e detalhes sem precisar tirar foto nova." color="#8B5CF6" onClick={() => setPage("catalogo")} />
         ) : (
-          <LockedHomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Monte seu catálogo com fotos reais dos seus kits. Envie o link e o cliente escolhe direto pelo WhatsApp. Exclusivo do plano Premium." linkUpgrade={`https://buy.stripe.com/4gM8wIb4x5j0cfle5BfQI06?prefilled_email=${encodeURIComponent(profile.email || "")}`} />
+          <LockedHomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Vitrine dos seus kits com fotos reais, filtros por categoria e botão de WhatsApp pronto. Ainda edita as fotos com IA — troque cores e detalhes sem precisar tirar foto nova. Exclusivo do plano Premium." linkUpgrade={`https://buy.stripe.com/4gM8wIb4x5j0cfle5BfQI06?prefilled_email=${encodeURIComponent(profile.email || "")}`} />
         )}
       </div>
     </div>
@@ -1017,7 +1017,7 @@ const MAX_LOGO_BYTES = 1.5 * 1024 * 1024;
 
 // Redimensiona uma imagem no navegador antes de guardar, pra fotos de
 // estoque não pesarem o banco de dados (várias peças = várias fotos).
-function redimensionarImagem(file, larguraMaxima) {
+function redimensionarImagem(file, larguraMaxima, formato) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -1029,7 +1029,11 @@ function redimensionarImagem(file, larguraMaxima) {
         canvas.height = img.height * escala;
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.8));
+        if (formato === "image/png") {
+          resolve(canvas.toDataURL("image/png"));
+        } else {
+          resolve(canvas.toDataURL("image/jpeg", 0.8));
+        }
       };
       img.onerror = reject;
       img.src = e.target.result;
@@ -2724,6 +2728,7 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
   const [resultadoVariacao, setResultadoVariacao] = useState(null); // base64 puro, sem marca d'água ainda
   const [salvandoVariacao, setSalvandoVariacao] = useState(false);
   const [usoMes, setUsoMes] = useState(null);
+  const [fotoAmpliada, setFotoAmpliada] = useState(null);
 
   useEffect(() => {
     if (!kit.id || !form.aceita_variacao_cor) return;
@@ -2804,13 +2809,13 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
             <div className="grid grid-cols-3 gap-2 mb-2">
               {fotos.map((f) => (
                 <div key={f.id} className="relative aspect-square">
-                  <img src={f.imagem_url} className="w-full h-full object-cover rounded-xl bg-slate-100" />
+                  <img src={f.imagem_url} onClick={() => setFotoAmpliada(f.imagem_url)} className="w-full h-full object-cover rounded-xl bg-slate-100 cursor-pointer" />
                   <button onClick={() => onExcluirFoto(f)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center cursor-pointer">✕</button>
                 </div>
               ))}
               {fotosPendentes.map((f) => (
                 <div key={f.tempId} className="relative aspect-square">
-                  <img src={f.previewUrl} className="w-full h-full object-cover rounded-xl bg-slate-100 opacity-80" />
+                  <img src={f.previewUrl} onClick={() => setFotoAmpliada(f.previewUrl)} className="w-full h-full object-cover rounded-xl bg-slate-100 opacity-80 cursor-pointer" />
                   <span className="absolute bottom-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-black/60 text-white">nova</span>
                   <button onClick={() => removerFotoPendente(f.tempId)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center cursor-pointer">✕</button>
                 </div>
@@ -2946,36 +2951,13 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
           )}
         </div>
       </div>
-    </div>
-  );
-}
 
-function SeletorPosicaoMarcaDagua({ posX, posY, onChange, logoPreview }) {
-  const POSICOES = [
-    { nome: "Superior esquerda", x: 12, y: 12 },
-    { nome: "Superior direita", x: 88, y: 12 },
-    { nome: "Centro", x: 50, y: 50 },
-    { nome: "Inferior esquerda", x: 12, y: 88 },
-    { nome: "Inferior direita", x: 88, y: 88 },
-  ];
-  return (
-    <div>
-      <div className="relative w-full aspect-square rounded-2xl bg-slate-100 border-2 border-dashed border-slate-300 overflow-hidden mb-3">
-        <div className="absolute inset-0 flex items-center justify-center text-slate-300 text-xs pointer-events-none">foto do kit (exemplo)</div>
-        <div
-          className="absolute w-10 h-10 rounded-lg border-2 flex items-center justify-center transition-all duration-300"
-          style={{ left: `calc(${posX}% - 20px)`, top: `calc(${posY}% - 20px)`, borderColor: BRAND.rosa, background: "rgba(236,30,121,0.15)" }}
-        >
-          {logoPreview ? <img src={logoPreview} className="w-6 h-6 object-contain opacity-70" /> : "🖼️"}
+      {fotoAmpliada && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.9)" }} onClick={() => setFotoAmpliada(null)}>
+          <img src={fotoAmpliada} className="max-w-full max-h-full rounded-2xl object-contain" />
+          <button onClick={() => setFotoAmpliada(null)} className="absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center text-white text-xl cursor-pointer" style={{ background: "rgba(255,255,255,.15)" }}>✕</button>
         </div>
-      </div>
-      <div className="grid grid-cols-5 gap-1.5">
-        {POSICOES.map((p) => (
-          <button key={p.nome} onClick={() => onChange(p.x, p.y)} title={p.nome} className="py-2 rounded-lg text-[10px] font-bold cursor-pointer" style={{ background: posX === p.x && posY === p.y ? BRAND.rosa : "#F1F5F9", color: posX === p.x && posY === p.y ? "#fff" : BRAND.tinta }}>
-            {p.nome.split(" ")[0]}
-          </button>
-        ))}
-      </div>
+      )}
     </div>
   );
 }
@@ -3001,7 +2983,8 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
 
   async function handleUploadImagem(campo, file, largura) {
     if (!file) return;
-    const dataUrl = await redimensionarImagem(file, largura);
+    const formato = campo === "logo_data_url" ? "image/png" : "image/jpeg";
+    const dataUrl = await redimensionarImagem(file, largura, formato);
     set(campo, dataUrl);
   }
 
@@ -3029,13 +3012,29 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
         <p className="font-bold text-sm mb-3" style={{ color: BRAND.tinta }}>Identidade visual</p>
 
         <label className="text-xs font-bold text-slate-500 mb-1 block">Logo</label>
-        <div className="flex items-center gap-3 mb-4">
-          {form.logo_data_url ? <img src={form.logo_data_url} className="w-14 h-14 rounded-xl object-cover" /> : <div className="w-14 h-14 rounded-xl bg-slate-100" />}
+        <div className="flex items-center gap-3 mb-2">
+          {form.logo_data_url ? <img src={form.logo_data_url} className="w-14 h-14 rounded-xl object-contain bg-slate-50" /> : <div className="w-14 h-14 rounded-xl bg-slate-100" />}
           <label className="px-3 py-2 rounded-xl font-bold text-xs cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
             Trocar logo
             <input type="file" accept="image/*" className="hidden" onChange={(e) => handleUploadImagem("logo_data_url", e.target.files[0], 300)} />
           </label>
         </div>
+
+        {form.catalogo_usar_marca_dagua && (
+          <div className="mb-4 pl-1">
+            <label className="text-xs font-bold text-slate-500 mb-1 flex justify-between">
+              <span>Transparência da marca d'água</span>
+              <span>{form.catalogo_marca_dagua_opacidade}%</span>
+            </label>
+            <input
+              type="range" min="10" max="90" step="5"
+              value={form.catalogo_marca_dagua_opacidade}
+              onChange={(e) => set("catalogo_marca_dagua_opacidade", parseInt(e.target.value))}
+              className="w-full cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-slate-400"><span>Bem sutil</span><span>Bem visível</span></div>
+          </div>
+        )}
 
         <label className="text-xs font-bold text-slate-500 mb-1 block">Banner / capa do catálogo</label>
         <div className="flex items-center gap-3 mb-4">
@@ -3079,29 +3078,6 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
           </div>
         ))}
       </div>
-
-      {form.catalogo_usar_marca_dagua && (
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
-          <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Ajustes da marca d'água</p>
-          <p className="text-xs text-slate-400 mb-4">Escolha onde sua logo aparece nas fotos.</p>
-
-          <SeletorPosicaoMarcaDagua posX={form.catalogo_marca_dagua_pos_x} posY={form.catalogo_marca_dagua_pos_y} logoPreview={form.logo_data_url} onChange={(x, y) => { set("catalogo_marca_dagua_pos_x", x); set("catalogo_marca_dagua_pos_y", y); }} />
-
-          <div className="mt-4">
-            <label className="text-xs font-bold text-slate-500 mb-1 flex justify-between">
-              <span>Transparência</span>
-              <span>{form.catalogo_marca_dagua_opacidade}%</span>
-            </label>
-            <input
-              type="range" min="10" max="90" step="5"
-              value={form.catalogo_marca_dagua_opacidade}
-              onChange={(e) => set("catalogo_marca_dagua_opacidade", parseInt(e.target.value))}
-              className="w-full cursor-pointer"
-            />
-            <div className="flex justify-between text-[10px] text-slate-400"><span>Bem sutil</span><span>Bem visível</span></div>
-          </div>
-        </div>
-      )}
 
       {form.catalogo_ativo && (
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
