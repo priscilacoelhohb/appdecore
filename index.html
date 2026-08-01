@@ -743,7 +743,7 @@ function TrialGate({ profile, onLogout, children }) {
             : "Sua conta está com o acesso pausado no momento. Fale com a gente pra regularizar."}
         </p>
         {status === "trial" && (
-          <a href={`https://buy.stripe.com/fZu6oA6OhdPw9396D9fQI02?prefilled_email=${encodeURIComponent(profile.email || "")}`} className="block w-full py-3 rounded-xl font-bold text-white cursor-pointer text-center mb-3" style={{ background: BRAND.rosa || BRAND.azul }}>Assinar agora</a>
+          <a href={`${profile.plano_tipo === "premium" ? "https://buy.stripe.com/4gM5kwgoRh1I7Z57HdfQI08" : "https://buy.stripe.com/dRm4gsdcFfXE7Z51iPfQI07"}?prefilled_email=${encodeURIComponent(profile.email || "")}`} className="block w-full py-3 rounded-xl font-bold text-white cursor-pointer text-center mb-3" style={{ background: BRAND.rosa || BRAND.azul }}>Assinar agora</a>
         )}
         <button onClick={onLogout} className="w-full py-3 rounded-xl font-bold text-white cursor-pointer" style={{ background: BRAND.azul }}>Sair</button>
       </div>
@@ -943,7 +943,7 @@ function HomeDashboard({ setPage, contracts, profile, userId }) {
         {profile.plano_tipo === "premium" ? (
           <HomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Vitrine dos seus kits com fotos reais, filtros por categoria e botão de WhatsApp pronto. Ainda edita as fotos com IA — troque cores e detalhes sem precisar tirar foto nova." color="#8B5CF6" onClick={() => setPage("catalogo")} />
         ) : (
-          <LockedHomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Vitrine dos seus kits com fotos reais, filtros por categoria e botão de WhatsApp pronto. Ainda edita as fotos com IA — troque cores e detalhes sem precisar tirar foto nova. Exclusivo do plano Premium." linkUpgrade={`https://buy.stripe.com/4gM8wIb4x5j0cfle5BfQI06?prefilled_email=${encodeURIComponent(profile.email || "")}`} />
+          <LockedHomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Vitrine dos seus kits com fotos reais, filtros por categoria e botão de WhatsApp pronto. Ainda edita as fotos com IA — troque cores e detalhes sem precisar tirar foto nova. Exclusivo do plano Premium." linkUpgrade={`https://buy.stripe.com/4gM5kwgoRh1I7Z57HdfQI08?prefilled_email=${encodeURIComponent(profile.email || "")}`} />
         )}
       </div>
     </div>
