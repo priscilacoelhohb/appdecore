@@ -119,10 +119,19 @@ function formatDateLong(str) { const d = parseDateLocal(str); if (!d) return "";
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
 function computeFinance(c, percentualSinal) {
   const valor = parseValorBR(c.valor);
-  const pct = (percentualSinal === undefined || percentualSinal === null) ? 50 : Number(percentualSinal);
   let pago = 0;
   if (c.statusPagamento === "pago") pago = valor;
-  else if (c.statusPagamento === "sinal") pago = valor * (pct / 100);
+  else if (c.statusPagamento === "sinal") {
+    // Prioriza o valor exato do sinal (em reais) que a decoradora digitou.
+    // Só cai pro cálculo por percentual quando não tem um valor exato salvo
+    // (contratos antigos, ou quando ela deixou em branco pra usar o padrão da loja).
+    if (c.valorSinal && parseValorBR(c.valorSinal) > 0) {
+      pago = parseValorBR(c.valorSinal);
+    } else {
+      const pct = (percentualSinal === undefined || percentualSinal === null) ? 50 : Number(percentualSinal);
+      pago = valor * (pct / 100);
+    }
+  }
   return { valor, pago, pendente: Math.max(valor - pago, 0) };
 }
 // Igual ao computeFinance, mas pra relatórios financeiros: se já foi pago o sinal e o dia
@@ -225,6 +234,7 @@ function contractToDb(c, decoradoraId) {
     data_retirada: c.dataRetirada || null, hora_retirada_ini: c.horaRetiradaIni, hora_retirada_fim: c.horaRetiradaFim,
     data_devolucao: c.dataDevolucao || null, hora_devolucao_ini: c.horaDevolucaoIni, hora_devolucao_fim: c.horaDevolucaoFim,
     status_pagamento: c.statusPagamento, forma_pagamento: c.formaPagamento || "Pix", sinal_percentual_contrato: c.sinalPercentualContrato ? Number(c.sinalPercentualContrato) : null,
+    sinal_valor: c.valorSinal ? parseValorBR(c.valorSinal) : null,
     multa_percentual: c.multaPercentual ? Number(c.multaPercentual) : null,
     sem_multa: !!c.semMulta,
   };
@@ -239,6 +249,7 @@ function contractFromDb(r) {
     dataRetirada: r.data_retirada || "", horaRetiradaIni: r.hora_retirada_ini || "09:00", horaRetiradaFim: r.hora_retirada_fim || "13:00",
     dataDevolucao: r.data_devolucao || "", horaDevolucaoIni: r.hora_devolucao_ini || "09:00", horaDevolucaoFim: r.hora_devolucao_fim || "19:00",
     statusPagamento: r.status_pagamento || "sinal", formaPagamento: r.forma_pagamento || "Pix", sinalPercentualContrato: r.sinal_percentual_contrato || "",
+    valorSinal: r.sinal_valor != null ? String(r.sinal_valor).replace(".", ",") : "",
     multaPercentual: r.multa_percentual != null ? String(r.multa_percentual) : "",
     semMulta: !!r.sem_multa,
     assinadoEm: r.assinado_em || null,
@@ -1015,6 +1026,13 @@ function SignaturePad({ value, onChange }) {
 ============================================================ */
 const MAX_LOGO_BYTES = 1.5 * 1024 * 1024;
 
+// Lê a foto de um item do estoque: prefere o link novo (foto_url, guardado no
+// Storage — leve), e só usa o base64 antigo (foto_data_url) se o item ainda
+// não foi migrado. Assim o app funciona igual pros dois formatos coexistindo.
+function fotoDoItem(item) {
+  return (item && (item.foto_url || item.foto_data_url)) || null;
+}
+
 // Redimensiona uma imagem no navegador antes de guardar, pra fotos de
 // estoque não pesarem o banco de dados (várias peças = várias fotos).
 function redimensionarImagem(file, larguraMaxima, formato) {
@@ -1605,8 +1623,7 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
 
   function startNew() { setForm(CAMPOS_VAZIOS); setEditingId(null); setErro(""); setSalvo(false); setShowForm(true); setItensSelecionados({}); setItensSelecionadosOriginais({}); setModoMaterial(estoqueItens.length > 0 ? "estoque" : "manual"); }
   async function editContract(c) {
-    const valorSinalCalculado = c.sinalPercentualContrato ? (parseValorBR(c.valor) * Number(c.sinalPercentualContrato) / 100).toFixed(2).replace(".", ",") : "";
-    setForm({ ...CAMPOS_VAZIOS, ...c, valorSinal: valorSinalCalculado }); setEditingId(c.id); setErro(""); setSalvo(false); setShowForm(true);
+    setForm({ ...CAMPOS_VAZIOS, ...c }); setEditingId(c.id); setErro(""); setSalvo(false); setShowForm(true);
     const { data } = await sb.from("contract_estoque_itens").select("estoque_item_id, quantidade").eq("contract_id", c.id);
     const mapa = {};
     (data || []).forEach((r) => { mapa[r.estoque_item_id] = r.quantidade; });
@@ -1798,8 +1815,8 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
                     const qtdSelecionada = itensSelecionados[item.id] || 0;
                     return (
                       <div key={item.id} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg" style={qtdSelecionada > 0 ? { background: BRAND.azul + "18" } : { background: "transparent" }}>
-                        {item.foto_data_url ? (
-                          <img src={item.foto_data_url} loading="lazy" className="w-7 h-7 rounded object-cover shrink-0" />
+                        {fotoDoItem(item) ? (
+                          <img src={fotoDoItem(item)} loading="lazy" className="w-7 h-7 rounded object-cover shrink-0" />
                         ) : (
                           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corEstoque(item.quantidade) }} />
                         )}
@@ -1847,6 +1864,11 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
                     <b style={{ color: BRAND.tinta }}>{pctSinalEfetivo(form, profile)}%</b>
                     {!form.valorSinal && " (preencha \"Valor do sinal\" ali em cima pra usar um valor diferente)"}
                   </span>
+                </div>
+              )}
+              {form.statusPagamento !== "pago" && parseValorBR(form.valor) > 0 && (
+                <div className="mt-2 text-xs font-semibold" style={{ color: BRAND.tinta }}>
+                  Falta pagar: <b style={{ color: BRAND.rosa }}>{formatBRL(computeFinance(form, pctSinalEfetivo(form, profile)).pendente)}</b>
                 </div>
               )}
             </Field>
@@ -2109,6 +2131,7 @@ function EstoqueTab({ userId, profile }) {
   const [novaQtd, setNovaQtd] = useState("");
   const [salvandoNovo, setSalvandoNovo] = useState(false);
   const [novaFoto, setNovaFoto] = useState("");
+  const novoItemIdRef = useRef(null); // id pré-gerado quando a foto do novo item é escolhida
   const [observacoesMateriais, setObservacoesMateriais] = useState([]);
   const [enviandoFotoId, setEnviandoFotoId] = useState(null);
   const [busca, setBusca] = useState("");
@@ -2136,12 +2159,28 @@ function EstoqueTab({ userId, profile }) {
     await sb.from("estoque_itens").update({ quantidade: q }).eq("id", item.id);
   }
 
+  // Sobe a foto pro Storage (bucket "estoque") e devolve o link público.
+  // Se der qualquer erro no upload, devolve null e mostra o erro — nunca
+  // trava o resto do fluxo.
+  async function subirFotoEstoque(file, itemId) {
+    const dataUrl = await redimensionarImagem(file, 500);
+    const blob = await dataUrlParaBlob(dataUrl);
+    const nomeArquivo = `${userId}/${itemId}/${uid()}.jpg`;
+    const { error: erroUpload } = await sb.storage.from("estoque").upload(nomeArquivo, blob, { contentType: "image/jpeg", upsert: false });
+    if (erroUpload) { setErro("Erro ao subir a foto: " + erroUpload.message); return null; }
+    const { data: urlPublica } = sb.storage.from("estoque").getPublicUrl(nomeArquivo);
+    return urlPublica.publicUrl;
+  }
+
   async function handleFotoNovoItem(e) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) { setErro("Escolha um arquivo de imagem."); return; }
-    const foto = await redimensionarImagem(file, 500);
-    setNovaFoto(foto);
+    // Gera o id do item já aqui (mesmo antes de salvar) pra poder organizar a
+    // foto na pasta certa do Storage e usar o mesmo id no insert depois.
+    if (!novoItemIdRef.current) novoItemIdRef.current = uid();
+    const url = await subirFotoEstoque(file, novoItemIdRef.current);
+    if (url) setNovaFoto(url);
   }
 
   async function handleFotoItemExistente(item, e) {
@@ -2149,15 +2188,20 @@ function EstoqueTab({ userId, profile }) {
     if (!file) return;
     if (!file.type.startsWith("image/")) { setErro("Escolha um arquivo de imagem."); return; }
     setEnviandoFotoId(item.id);
-    const foto = await redimensionarImagem(file, 500);
-    setItens((lista) => lista.map((i) => i.id === item.id ? { ...i, foto_data_url: foto } : i));
-    await sb.from("estoque_itens").update({ foto_data_url: foto }).eq("id", item.id);
+    const url = await subirFotoEstoque(file, item.id);
+    if (url) {
+      // Ao trocar a foto de um item que ainda estava no formato antigo
+      // (base64), aproveita e já limpa o foto_data_url velho — é a mesma
+      // ação que a pessoa já ia fazer (trocar a foto), sem risco extra.
+      setItens((lista) => lista.map((i) => i.id === item.id ? { ...i, foto_url: url, foto_data_url: null } : i));
+      await sb.from("estoque_itens").update({ foto_url: url, foto_data_url: null }).eq("id", item.id);
+    }
     setEnviandoFotoId(null);
   }
 
   async function removerFotoItem(item) {
-    setItens((lista) => lista.map((i) => i.id === item.id ? { ...i, foto_data_url: null } : i));
-    await sb.from("estoque_itens").update({ foto_data_url: null }).eq("id", item.id);
+    setItens((lista) => lista.map((i) => i.id === item.id ? { ...i, foto_url: null, foto_data_url: null } : i));
+    await sb.from("estoque_itens").update({ foto_url: null, foto_data_url: null }).eq("id", item.id);
   }
 
   async function excluirItem(id) {
@@ -2177,11 +2221,11 @@ function EstoqueTab({ userId, profile }) {
       return;
     }
     setSalvandoNovo(true);
-    const row = { id: uid(), decoradora_id: userId, material: nome, modelo: "", quantidade: Math.max(0, Number(novaQtd) || 0), foto_data_url: novaFoto || null };
+    const row = { id: novoItemIdRef.current || uid(), decoradora_id: userId, material: nome, modelo: "", quantidade: Math.max(0, Number(novaQtd) || 0), foto_url: novaFoto || null };
     const { error } = await sb.from("estoque_itens").insert(row);
     setSalvandoNovo(false);
     if (error) { setErro("Erro ao salvar: " + error.message); return; }
-    setNovoMaterial(""); setNovaQtd(""); setNovaFoto("");
+    setNovoMaterial(""); setNovaQtd(""); setNovaFoto(""); novoItemIdRef.current = null;
     await carregar();
   }
 
@@ -2286,8 +2330,8 @@ function EstoqueTab({ userId, profile }) {
                   <div className="w-10 h-10 rounded-lg overflow-hidden flex items-center justify-center shrink-0 relative" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>
                     {enviandoFotoId === item.id ? (
                       <span className="text-[9px] text-slate-400">...</span>
-                    ) : item.foto_data_url ? (
-                      <img src={item.foto_data_url} loading="lazy" onClick={() => setFotoAmpliada(item.foto_data_url)} className="w-full h-full object-cover cursor-zoom-in" />
+                    ) : fotoDoItem(item) ? (
+                      <img src={fotoDoItem(item)} loading="lazy" onClick={() => setFotoAmpliada(fotoDoItem(item))} className="w-full h-full object-cover cursor-zoom-in" />
                     ) : (
                       <span className="text-sm">📷</span>
                     )}
@@ -2309,7 +2353,7 @@ function EstoqueTab({ userId, profile }) {
                     <input type="number" className="w-14 text-center rounded-lg border-2 border-slate-200 py-1 text-sm font-bold" value={item.quantidade} onChange={(e) => atualizarQuantidade(item, e.target.value)} />
                     <button onClick={() => atualizarQuantidade(item, item.quantidade + 1)} className="w-7 h-7 rounded-lg font-bold cursor-pointer" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>+</button>
                   </div>
-                  {item.foto_data_url && <button onClick={() => removerFotoItem(item)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 cursor-pointer shrink-0" title="Remover foto">🖼️✕</button>}
+                  {fotoDoItem(item) && <button onClick={() => removerFotoItem(item)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 cursor-pointer shrink-0" title="Remover foto">🖼️✕</button>}
                   <button onClick={() => excluirItem(item.id)} className="p-1.5 rounded-lg hover:bg-rose-50 text-rose-400 cursor-pointer shrink-0">🗑</button>
                 </div>
               ))}
@@ -3439,11 +3483,11 @@ function AgendaTab({ userId, profile }) {
   useEffect(() => {
     (async () => {
       const { data } = await sb.from("contract_estoque_itens")
-        .select("contract_id, estoque_itens(material, modelo, foto_data_url)")
+        .select("contract_id, estoque_itens(material, modelo, foto_url, foto_data_url)")
         .eq("decoradora_id", userId);
       const mapa = {};
       (data || []).forEach((r) => {
-        if (!r.estoque_itens || !r.estoque_itens.foto_data_url) return;
+        if (!r.estoque_itens || !fotoDoItem(r.estoque_itens)) return;
         (mapa[r.contract_id] = mapa[r.contract_id] || []).push(r.estoque_itens);
       });
       setFotosPorContrato(mapa);
@@ -3594,7 +3638,7 @@ function AgendaTab({ userId, profile }) {
                           {(fotosPorContrato[e.contractId] || []).length > 0 && (
                             <div className="flex gap-1.5 flex-wrap">
                               {fotosPorContrato[e.contractId].map((f, i) => (
-                                <img key={i} src={f.foto_data_url} loading="lazy" title={f.modelo ? `${f.material} — ${f.modelo}` : f.material} className="w-12 h-12 rounded-lg object-cover" style={{ border: "1px solid #e2e8f0" }} />
+                                <img key={i} src={fotoDoItem(f)} loading="lazy" title={f.modelo ? `${f.material} — ${f.modelo}` : f.material} className="w-12 h-12 rounded-lg object-cover" style={{ border: "1px solid #e2e8f0" }} />
                               ))}
                             </div>
                           )}
