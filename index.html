@@ -55,6 +55,13 @@ const SUPABASE_URL = "https://drizqsevvmyyrdgczjvf.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRyaXpxc2V2dm15eXJkZ2N6anZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzNDM0MzAsImV4cCI6MjA5ODkxOTQzMH0.uTzYirVcO-TFJ6BCyDY9A8_Etw4v32iWlOETWht_hxQ";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// TODO: trocar por a URL real do webhook do n8n quando ele estiver pronto
+// (o node que recebe { decoradora_id, tema, origem, whatsapp_cliente? },
+// confere os limites, chama o Nano Banana e devolve a URL da prévia gerada).
+const WEBHOOK_CATALOGO_GERAR = "https://waha-n8n.svqcg7.easypanel.host/webhook/catalogo-gerar-previa";
+const WEBHOOK_VARIAR_COR = "https://waha-n8n.svqcg7.easypanel.host/webhook/catalogo-variar-cor";
+
+
 /* ============================================================
    MARCA / TEMA (idêntico ao app anterior, agora carregado do
    perfil salvo no banco em vez do window.storage do Claude)
@@ -120,10 +127,19 @@ function formatDateLong(str) { const d = parseDateLocal(str); if (!d) return "";
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
 function computeFinance(c, percentualSinal) {
   const valor = parseValorBR(c.valor);
-  const pct = (percentualSinal === undefined || percentualSinal === null) ? 50 : Number(percentualSinal);
   let pago = 0;
   if (c.statusPagamento === "pago") pago = valor;
-  else if (c.statusPagamento === "sinal") pago = valor * (pct / 100);
+  else if (c.statusPagamento === "sinal") {
+    // Prioriza o valor exato do sinal (em reais) que a decoradora digitou.
+    // Só cai pro cálculo por percentual quando não tem um valor exato salvo
+    // (contratos antigos, ou quando ela deixou em branco pra usar o padrão da loja).
+    if (c.valorSinal && parseValorBR(c.valorSinal) > 0) {
+      pago = parseValorBR(c.valorSinal);
+    } else {
+      const pct = (percentualSinal === undefined || percentualSinal === null) ? 50 : Number(percentualSinal);
+      pago = valor * (pct / 100);
+    }
+  }
   return { valor, pago, pendente: Math.max(valor - pago, 0) };
 }
 // Igual ao computeFinance, mas pra relatórios financeiros: se já foi pago o sinal e o dia
@@ -146,7 +162,7 @@ function pctSinalEfetivo(c, profile) {
 // Texto padrão do corpo do contrato (cláusulas 1 a 6). Cada decoradora pode
 // reescrever isso do jeito dela em Configurações — os {{campos}} continuam
 // sendo preenchidos automaticamente com os dados de cada contrato.
-const MODELO_CONTRATO_PADRAO = `CONTRATANTE e CONTRATADA acordam a retirada do produto no dia {{DATA_RETIRADA}}, das {{HORA_RETIRADA_INI}} às {{HORA_RETIRADA_FIM}}, no endereço informado pela CONTRATADA, e a devolução no mesmo endereço no dia {{DATA_DEVOLUCAO}}, das {{HORA_DEVOLUCAO_INI}} às {{HORA_DEVOLUCAO_FIM}}. O atraso na devolução gera multa de 10% do valor por hora de atraso, podendo chegar ao valor integral do produto caso ultrapasse o dia combinado para a entrega.
+const MODELO_CONTRATO_PADRAO = `CONTRATANTE e CONTRATADA acordam a retirada do produto no dia {{DATA_RETIRADA}}, das {{HORA_RETIRADA_INI}} às {{HORA_RETIRADA_FIM}}, no endereço informado pela CONTRATADA, e a devolução no mesmo endereço no dia {{DATA_DEVOLUCAO}}, das {{HORA_DEVOLUCAO_INI}} às {{HORA_DEVOLUCAO_FIM}}. O atraso na devolução gera multa de {{MULTA_PCT}}% do valor por hora de atraso, podendo chegar ao valor integral do produto caso ultrapasse o dia combinado para a entrega.
 
 1. OBJETO
 1.1. Este contrato tem por objeto a prestação do serviço conforme solicitado na ordem de serviço, anexa a este documento.
@@ -157,7 +173,7 @@ const MODELO_CONTRATO_PADRAO = `CONTRATANTE e CONTRATADA acordam a retirada do p
 3. VALOR E FORMA DE PAGAMENTO
 3.1. O valor total do serviço é de {{VALOR}}, a ser pago via {{FORMA_PAGAMENTO}}.
 3.2. É necessário pagar {{SINAL_PCT}}% do valor no ato do agendamento para garantir a data; sem esse sinal, a data não fica reservada.
-3.3. Será cobrada multa de 10% do valor por hora de atraso na devolução dos itens alugados/emprestados.
+3.3. Será cobrada multa de {{MULTA_PCT}}% do valor por hora de atraso na devolução dos itens alugados/emprestados.
 3.4. As peças locadas pelo serviço de Pegue e Monte e as peças avulsas deverão ser devolvidas na data e horário previamente acordados. Caso a devolução não ocorra no mesmo dia previsto, será cobrado o valor integral de uma nova locação das peças, sem prejuízo de outras cobranças decorrentes de danos ou extravio.
 
 4. OBRIGAÇÕES DAS PARTES
@@ -186,6 +202,8 @@ function preencherModeloContrato(template, dados, profile) {
     "{{VALOR}}": formatBRL(dados.valor),
     "{{FORMA_PAGAMENTO}}": dados.formaPagamento || "Pix",
     "{{SINAL_PCT}}": String(pctSinalEfetivo(dados, profile)),
+    "{{MULTA_PCT}}": String(dados.multaPercentual || "10"),
+    "{{CLAUSULA_MULTA}}": dados.semMulta ? "Não haverá cobrança de multa por atraso na devolução." : `O atraso na devolução gera multa de ${dados.multaPercentual || "10"}% do valor por hora de atraso.`,
     "{{DATA_RETIRADA}}": dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___",
     "{{HORA_RETIRADA_INI}}": dados.horaRetiradaIni || "___",
     "{{HORA_RETIRADA_FIM}}": dados.horaRetiradaFim || "___",
@@ -224,6 +242,9 @@ function contractToDb(c, decoradoraId) {
     data_retirada: c.dataRetirada || null, hora_retirada_ini: c.horaRetiradaIni, hora_retirada_fim: c.horaRetiradaFim,
     data_devolucao: c.dataDevolucao || null, hora_devolucao_ini: c.horaDevolucaoIni, hora_devolucao_fim: c.horaDevolucaoFim,
     status_pagamento: c.statusPagamento, forma_pagamento: c.formaPagamento || "Pix", sinal_percentual_contrato: c.sinalPercentualContrato ? Number(c.sinalPercentualContrato) : null,
+    sinal_valor: c.valorSinal ? parseValorBR(c.valorSinal) : null,
+    multa_percentual: c.multaPercentual ? Number(c.multaPercentual) : null,
+    sem_multa: !!c.semMulta,
   };
 }
 function contractFromDb(r) {
@@ -236,6 +257,9 @@ function contractFromDb(r) {
     dataRetirada: r.data_retirada || "", horaRetiradaIni: r.hora_retirada_ini || "09:00", horaRetiradaFim: r.hora_retirada_fim || "13:00",
     dataDevolucao: r.data_devolucao || "", horaDevolucaoIni: r.hora_devolucao_ini || "09:00", horaDevolucaoFim: r.hora_devolucao_fim || "19:00",
     statusPagamento: r.status_pagamento || "sinal", formaPagamento: r.forma_pagamento || "Pix", sinalPercentualContrato: r.sinal_percentual_contrato || "",
+    valorSinal: r.sinal_valor != null ? String(r.sinal_valor).replace(".", ",") : "",
+    multaPercentual: r.multa_percentual != null ? String(r.multa_percentual) : "",
+    semMulta: !!r.sem_multa,
     assinadoEm: r.assinado_em || null,
     devolvido: r.devolvido || false,
     observacoes: r.observacoes || "",
@@ -341,8 +365,25 @@ function AuthScreen({ onAuthed }) {
       const { data, error } = await sb.auth.signUp({ email: email.trim(), password: senha });
       if (error) { setErro(traduzErroAuth(error)); setCarregando(false); return; }
       if (data.session) {
+        // Confere se já tem um pagamento feito antes do cadastro
+        // (ex: pagou e só depois criou a conta — ordem comum no funil).
+        // Usa uma função no banco (RPC) em vez de ler a tabela direto,
+        // porque a leitura direta via RLS não confiava no token
+        // recém-criado a tempo dessa consulta.
+        let planoInicial = {}; // se não achar nada, usa os padrões da tabela (basico/150)
+        const { data: pendenteLista, error: erroRpc } = await sb.rpc("consumir_pagamento_pendente", { p_email: email.trim() });
+        if (erroRpc) console.error("Erro ao consultar pagamento pendente (cadastro):", erroRpc);
+        const pendente = pendenteLista && pendenteLista[0];
+        if (pendente) {
+          planoInicial = {
+            plano_tipo: pendente.plano_tipo,
+            limite_pecas: pendente.limite_pecas,
+            stripe_customer_id: pendente.stripe_customer_id,
+            stripe_subscription_id: pendente.stripe_subscription_id,
+          };
+        }
         // Confirmação de e-mail desligada: já entra direto e cria o perfil da loja.
-        await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim(), email: email.trim() });
+        await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim(), email: email.trim(), ...planoInicial });
         onAuthed();
       } else {
         setAviso("Conta criada! Verifique seu e-mail para confirmar o cadastro e depois faça login.");
@@ -360,7 +401,7 @@ function AuthScreen({ onAuthed }) {
     setCarregando(true);
     const { error } = await sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.href });
     setCarregando(false);
-    if (error) { setErro("Erro ao enviar: " + error.message); return; }
+    if (error) { setErro("Erro ao enviar: " + traduzErroAuth(error)); return; }
     setAviso("Te mandamos um e-mail com um link pra você criar uma senha nova. Pode demorar alguns minutos e olhar o spam também.");
   }
 
@@ -375,7 +416,21 @@ function AuthScreen({ onAuthed }) {
       // tenha sido feito antes da confirmação de e-mail).
       const { data: perfilExistente } = await sb.from("decoradoras").select("id").eq("id", data.user.id).maybeSingle();
       if (!perfilExistente) {
-        await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim() || "Minha Loja", email: email.trim() });
+        // Mesma checagem do handleCadastro: se pagou antes de confirmar o
+        // e-mail/entrar pela primeira vez, a conta já nasce com o plano certo.
+        let planoInicial = {};
+        const { data: pendenteLista, error: erroRpc } = await sb.rpc("consumir_pagamento_pendente", { p_email: email.trim() });
+        if (erroRpc) console.error("Erro ao consultar pagamento pendente (login):", erroRpc);
+        const pendente = pendenteLista && pendenteLista[0];
+        if (pendente) {
+          planoInicial = {
+            plano_tipo: pendente.plano_tipo,
+            limite_pecas: pendente.limite_pecas,
+            stripe_customer_id: pendente.stripe_customer_id,
+            stripe_subscription_id: pendente.stripe_subscription_id,
+          };
+        }
+        await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim() || "Minha Loja", email: email.trim(), ...planoInicial });
       }
       onAuthed();
     } catch (err) {
@@ -389,6 +444,11 @@ function AuthScreen({ onAuthed }) {
     if (msg.includes("Invalid login credentials")) return "E-mail ou senha incorretos.";
     if (msg.includes("already registered")) return "Já existe uma conta com esse e-mail. Tente entrar em vez de cadastrar.";
     if (msg.includes("Password should be")) return "A senha precisa ter pelo menos 6 caracteres.";
+    if (msg.includes("Email not confirmed")) return "Seu e-mail ainda não foi confirmado. Verifique sua caixa de entrada (e o spam).";
+    if (msg.includes("security purposes")) return "Por segurança, aguarde alguns segundos antes de tentar de novo.";
+    if (msg.includes("User already registered")) return "Já existe uma conta com esse e-mail. Tente entrar em vez de cadastrar.";
+    if (msg.includes("Unable to validate email")) return "Esse e-mail não parece válido. Confira e tente de novo.";
+    if (msg.includes("Email rate limit exceeded")) return "Muitas tentativas com esse e-mail. Aguarde um pouco antes de tentar de novo.";
     return msg;
   }
 
@@ -681,7 +741,7 @@ function TrialGate({ profile, onLogout, children }) {
       <>
         {status === "trial" && (
           <div className="text-center text-xs font-bold py-2" style={{ background: BRAND.amarelo, color: "#5c4200" }}>
-            🎁 Teste grátis — termina em {formatDateBR(profile.trial_fim)}
+            🎁 Teste grátis ({profile.plano_tipo === "premium" ? "Premium" : "Básico"}) — termina em {formatDateBR(profile.trial_fim)}
           </div>
         )}
         {children}
@@ -698,9 +758,12 @@ function TrialGate({ profile, onLogout, children }) {
         </h2>
         <p className="text-sm text-slate-400 mb-6">
           {status === "trial"
-            ? "Seus 7 dias grátis chegaram ao fim. Fale com a gente pra continuar usando o painel."
+            ? "Seus 7 dias grátis chegaram ao fim. Assine agora pra continuar usando o painel."
             : "Sua conta está com o acesso pausado no momento. Fale com a gente pra regularizar."}
         </p>
+        {status === "trial" && (
+          <a href={`${profile.plano_tipo === "premium" ? "https://buy.stripe.com/4gM5kwgoRh1I7Z57HdfQI08" : "https://buy.stripe.com/dRm4gsdcFfXE7Z51iPfQI07"}?prefilled_email=${encodeURIComponent(profile.email || "")}`} className="block w-full py-3 rounded-xl font-bold text-white cursor-pointer text-center mb-3" style={{ background: BRAND.rosa || BRAND.azul }}>Assinar agora</a>
+        )}
         <button onClick={onLogout} className="w-full py-3 rounded-xl font-bold text-white cursor-pointer" style={{ background: BRAND.azul }}>Sair</button>
       </div>
     </div>
@@ -763,6 +826,21 @@ function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, use
   );
 }
 
+function IconVarinhaMagica({ className, style }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={style}>
+      <path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72Z" />
+      <path d="m14 7 3 3" />
+      <path d="M5 6v4" />
+      <path d="M19 14v4" />
+      <path d="M10 2v2" />
+      <path d="M7 8H3" />
+      <path d="M21 16h-4" />
+      <path d="M11 3H9" />
+    </svg>
+  );
+}
+
 function HomeCard({ emoji, title, desc, color, onClick, stat }) {
   return (
     <button onClick={onClick} className="group w-full text-left bg-white rounded-3xl p-6 shadow-sm hover:shadow-xl transition-all active:scale-[0.98] border-2 border-transparent hover:border-current cursor-pointer" style={{ color }}>
@@ -776,20 +854,32 @@ function HomeCard({ emoji, title, desc, color, onClick, stat }) {
   );
 }
 
-function LockedHomeCard({ emoji, title, desc }) {
+function LockedHomeCard({ emoji, title, desc, linkUpgrade }) {
   const [mostrarInfo, setMostrarInfo] = useState(false);
   return (
     <div className="relative">
       <button
         onClick={() => setMostrarInfo(true)}
         title={desc}
-        className="group w-full text-left bg-slate-50 rounded-3xl p-6 border-2 border-dashed border-slate-200 cursor-pointer relative overflow-hidden"
+        className="group w-full text-left bg-slate-50 rounded-3xl p-6 border-2 border-dashed border-slate-200 cursor-pointer relative overflow-hidden transition-all duration-500 hover:border-slate-300 hover:shadow-md hover:bg-slate-100/60"
       >
         <div className="absolute top-4 right-4 text-lg">🔒</div>
-        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4 text-2xl text-white" style={{ background: "#94a3b8" }}>{emoji}</div>
+        <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4 text-2xl text-white transition-transform duration-500 group-hover:scale-105" style={{ background: "#94a3b8" }}>{emoji}</div>
         <h3 className="fredoka text-lg font-bold text-slate-400">{title}</h3>
         <p className="text-sm text-slate-400 mt-1 leading-snug">{desc}</p>
-        <span className="inline-block mt-2 text-[11px] font-bold px-2.5 py-1 rounded-full" style={{ background: "#94a3b818", color: "#64748b" }}>Em breve</span>
+        {linkUpgrade ? (
+          <span
+            className="inline-flex items-center gap-1 mt-2 text-[11px] font-bold px-2.5 py-1 rounded-full transition-all duration-500"
+            style={{ background: "#94a3b818", color: "#64748b" }}
+          >
+            Premium
+            <span className="transition-all duration-500 group-hover:translate-x-1 group-hover:opacity-100 opacity-70" style={{ color: BRAND.rosa }}>
+              · fazer upgrade →
+            </span>
+          </span>
+        ) : (
+          <span className="inline-block mt-2 text-[11px] font-bold px-2.5 py-1 rounded-full" style={{ background: "#94a3b818", color: "#64748b" }}>Em breve</span>
+        )}
       </button>
       {mostrarInfo && (
         <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.5)" }} onClick={() => setMostrarInfo(false)}>
@@ -797,7 +887,14 @@ function LockedHomeCard({ emoji, title, desc }) {
             <div className="text-3xl mb-2">🔒{emoji}</div>
             <p className="fredoka text-lg font-bold mb-2" style={{ color: BRAND.tinta }}>{title}</p>
             <p className="text-sm text-slate-500 leading-relaxed">{desc}</p>
-            <button onClick={() => setMostrarInfo(false)} className="w-full mt-4 py-2.5 rounded-xl font-bold text-sm cursor-pointer" style={{ background: BRAND.bg, color: BRAND.tinta }}>Entendi</button>
+            {linkUpgrade ? (
+              <>
+                <a href={linkUpgrade} className="block w-full mt-4 py-2.5 rounded-xl font-bold text-sm text-white text-center cursor-pointer" style={{ background: BRAND.rosa }}>Assinar Premium</a>
+                <button onClick={() => setMostrarInfo(false)} className="w-full mt-2 py-2 rounded-xl font-bold text-xs cursor-pointer text-slate-400">Agora não</button>
+              </>
+            ) : (
+              <button onClick={() => setMostrarInfo(false)} className="w-full mt-4 py-2.5 rounded-xl font-bold text-sm cursor-pointer" style={{ background: BRAND.bg, color: BRAND.tinta }}>Entendi</button>
+            )}
           </div>
         </div>
       )}
@@ -862,7 +959,11 @@ function HomeDashboard({ setPage, contracts, profile, userId }) {
         <HomeCard emoji="📅" title="Agenda" desc="Veja o que precisa entregar e retirar em cada dia." color={BRAND.turquesa} onClick={() => setPage("agenda")} stat={entregasHoje > 0 ? `${entregasHoje} hoje` : "Nada hoje"} />
         <HomeCard emoji="🎯" title="Oportunidades" desc="Aniversários e clientes antigos pra reconquistar." color="#8B5CF6" onClick={() => setPage("oportunidades")} />
         <HomeCard emoji="📦" title="Estoque" desc="Seus materiais, com quantidade sempre atualizada." color="#F97316" onClick={() => setPage("estoque")} />
-        <LockedHomeCard emoji="🪄" title="Catálogo inteligente" desc="Envie um link pra cliente descrever a festa que ela imagina, e uma Inteligência Artificial gera uma prévia visual, treinada nos kits que você realmente entrega. Em breve!" />
+        {profile.plano_tipo === "premium" ? (
+          <HomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Vitrine dos seus kits com fotos reais, filtros por categoria e botão de WhatsApp pronto. Ainda edita as fotos com IA — troque cores e detalhes sem precisar tirar foto nova." color="#8B5CF6" onClick={() => setPage("catalogo")} />
+        ) : (
+          <LockedHomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Vitrine dos seus kits com fotos reais, filtros por categoria e botão de WhatsApp pronto. Ainda edita as fotos com IA — troque cores e detalhes sem precisar tirar foto nova. Exclusivo do plano Premium." linkUpgrade={`https://buy.stripe.com/4gM5kwgoRh1I7Z57HdfQI08?prefilled_email=${encodeURIComponent(profile.email || "")}`} />
+        )}
       </div>
     </div>
   );
@@ -933,9 +1034,16 @@ function SignaturePad({ value, onChange }) {
 ============================================================ */
 const MAX_LOGO_BYTES = 1.5 * 1024 * 1024;
 
+// Lê a foto de um item do estoque: prefere o link novo (foto_url, guardado no
+// Storage — leve), e só usa o base64 antigo (foto_data_url) se o item ainda
+// não foi migrado. Assim o app funciona igual pros dois formatos coexistindo.
+function fotoDoItem(item) {
+  return (item && (item.foto_url || item.foto_data_url)) || null;
+}
+
 // Redimensiona uma imagem no navegador antes de guardar, pra fotos de
 // estoque não pesarem o banco de dados (várias peças = várias fotos).
-function redimensionarImagem(file, larguraMaxima) {
+function redimensionarImagem(file, larguraMaxima, formato) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -947,7 +1055,11 @@ function redimensionarImagem(file, larguraMaxima) {
         canvas.height = img.height * escala;
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.8));
+        if (formato === "image/png") {
+          resolve(canvas.toDataURL("image/png"));
+        } else {
+          resolve(canvas.toDataURL("image/jpeg", 0.8));
+        }
       };
       img.onerror = reject;
       img.src = e.target.result;
@@ -1077,7 +1189,7 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
           </p>
         </div>
         <div className="bg-slate-50 rounded-xl p-3 mb-3 text-[11px] text-slate-500 leading-relaxed">
-          <b>Campos disponíveis (preenchem sozinhos):</b> {"{{VALOR}}"}, {"{{FORMA_PAGAMENTO}}"}, {"{{SINAL_PCT}}"}, {"{{DATA_RETIRADA}}"}, {"{{HORA_RETIRADA_INI}}"}, {"{{HORA_RETIRADA_FIM}}"}, {"{{DATA_DEVOLUCAO}}"}, {"{{HORA_DEVOLUCAO_INI}}"}, {"{{HORA_DEVOLUCAO_FIM}}"}, {"{{NOME_CONTRATANTE}}"}, {"{{NOME_LOJA}}"}
+          <b>Campos disponíveis (preenchem sozinhos):</b> {"{{VALOR}}"}, {"{{FORMA_PAGAMENTO}}"}, {"{{SINAL_PCT}}"}, {"{{MULTA_PCT}}"}, {"{{CLAUSULA_MULTA}}"}, {"{{DATA_RETIRADA}}"}, {"{{HORA_RETIRADA_INI}}"}, {"{{HORA_RETIRADA_FIM}}"}, {"{{DATA_DEVOLUCAO}}"}, {"{{HORA_DEVOLUCAO_INI}}"}, {"{{HORA_DEVOLUCAO_FIM}}"}, {"{{NOME_CONTRATANTE}}"}, {"{{NOME_LOJA}}"}
         </div>
         <div className="space-y-2 mb-3">
           {[...Object.entries(TIPO_SERVICO_LABELS), ...((form.tipos_customizados || []).map((t) => [t, t]))].map(([chave, label]) => {
@@ -1107,6 +1219,21 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
                         <button type="button" onClick={() => { const novo = { ...(form.modelos_contrato || {}) }; delete novo[chave]; set("modelos_contrato", novo); }} className="text-xs font-bold px-3 py-2 rounded-lg cursor-pointer" style={{ color: "#94a3b8", background: "#f1f5f9" }}>Limpar (volta a usar o padrão)</button>
                       )}
                     </div>
+                    {temTexto && form.modelos_contrato[chave].length > 3500 && (
+                      <p className="text-xs font-bold mt-2 px-3 py-2 rounded-lg" style={{ color: "#B45309", background: "#FEF3C7" }}>⚠️ Esse texto está bem mais longo que o normal ({form.modelos_contrato[chave].length} caracteres). Confira abaixo, na pré-visualização, se não ficou nada colado duas vezes por engano — isso é o texto exato que o cliente vai ver ao assinar.</p>
+                    )}
+                    {temTexto && (
+                      <div className="mt-3">
+                        <p className="text-xs font-bold mb-1.5" style={{ color: BRAND.tinta }}>👁️ Veja como vai aparecer pro cliente:</p>
+                        <div className="bg-white border-2 rounded-xl p-3.5 text-[12px] leading-relaxed whitespace-pre-line max-h-64 overflow-y-auto" style={{ borderColor: "#e2e8f0", color: BRAND.tinta }}>
+                          {preencherModeloContrato(
+                            form.modelos_contrato[chave],
+                            { valor: "150,00", formaPagamento: "Pix", dataRetirada: new Date().toISOString().slice(0, 10), horaRetiradaIni: "09:00", horaRetiradaFim: "13:00", dataDevolucao: new Date().toISOString().slice(0, 10), horaDevolucaoIni: "09:00", horaDevolucaoFim: "19:00", contratanteNome: "Cliente Exemplo", multaPercentual: form.multaPercentual },
+                            form
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1161,7 +1288,7 @@ const CAMPOS_VAZIOS = {
   produtoNome: "", materialEntregue: "", materialObservacoes: "", valor: "",
   dataRetirada: "", horaRetiradaIni: "09:00", horaRetiradaFim: "13:00",
   dataDevolucao: "", horaDevolucaoIni: "09:00", horaDevolucaoFim: "19:00",
-  statusPagamento: "sinal", sinalPercentualContrato: "", valorSinal: "", formaPagamento: "Pix",
+  statusPagamento: "sinal", sinalPercentualContrato: "", valorSinal: "", formaPagamento: "Pix", multaPercentual: "", semMulta: false,
 };
 
 function ContratoPreview({ dados, profile }) {
@@ -1204,7 +1331,7 @@ function ContratoPreview({ dados, profile }) {
           {dados.tipoServico === "decoracao" ? (
             <>CONTRATANTE e CONTRATADA acordam a montagem da decoração no dia <b>{dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___"}</b>, das {dados.horaRetiradaIni} às {dados.horaRetiradaFim}, no endereço informado pela CONTRATANTE, e a desmontagem/retirada dos itens no dia <b>{dados.dataDevolucao ? formatDateLong(dados.dataDevolucao) : "___"}</b>, das {dados.horaDevolucaoIni} às {dados.horaDevolucaoFim}.</>
           ) : (
-            <>CONTRATANTE e CONTRATADA acordam a retirada do produto no dia <b>{dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___"}</b>, das {dados.horaRetiradaIni} às {dados.horaRetiradaFim}, no endereço informado pela CONTRATADA, e a devolução no mesmo endereço no dia <b>{dados.dataDevolucao ? formatDateLong(dados.dataDevolucao) : "___"}</b>, das {dados.horaDevolucaoIni} às {dados.horaDevolucaoFim}. O atraso na devolução gera multa de 10% do valor por hora de atraso, podendo chegar ao valor integral do produto caso ultrapasse o dia combinado para a entrega.</>
+            <>CONTRATANTE e CONTRATADA acordam a retirada do produto no dia <b>{dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___"}</b>, das {dados.horaRetiradaIni} às {dados.horaRetiradaFim}, no endereço informado pela CONTRATADA, e a devolução no mesmo endereço no dia <b>{dados.dataDevolucao ? formatDateLong(dados.dataDevolucao) : "___"}</b>, das {dados.horaDevolucaoIni} às {dados.horaDevolucaoFim}.{!dados.semMulta && ` O atraso na devolução gera multa de ${dados.multaPercentual || "10"}% do valor por hora de atraso, podendo chegar ao valor integral do produto caso ultrapasse o dia combinado para a entrega.`}</>
           )}
         </p>
         <p className="font-bold mb-0.5">1. OBJETO</p>
@@ -1216,7 +1343,7 @@ function ContratoPreview({ dados, profile }) {
         <p>3.2. É necessário pagar {pctSinalEfetivo(dados, profile)}% do valor no ato do agendamento para garantir a data; sem esse sinal, a data não fica reservada.</p>
         {dados.tipoServico !== "decoracao" && (
           <>
-            <p>3.3. Será cobrada multa de 10% do valor por hora de atraso na devolução dos itens alugados/emprestados.</p>
+            <p>3.3. {dados.semMulta ? "Não haverá cobrança de multa por atraso na devolução dos itens." : `Será cobrada multa de ${dados.multaPercentual || "10"}% do valor por hora de atraso na devolução dos itens alugados/emprestados.`}</p>
             <p className="mb-3">3.4. As peças locadas pelo serviço de Pegue e Monte e as peças avulsas deverão ser devolvidas na data e horário previamente acordados. Caso a devolução não ocorra no mesmo dia previsto, será cobrado o valor integral de uma nova locação das peças, sem prejuízo de outras cobranças decorrentes de danos ou extravio.</p>
           </>
         )}
@@ -1289,7 +1416,7 @@ function buildContractHtml(dados, profile) {
   const paragrafo = isDecoracao
     ? `CONTRATANTE e CONTRATADA acordam a montagem da decoração no dia <b>${dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___"}</b>, das ${dados.horaRetiradaIni} às ${dados.horaRetiradaFim}, e a desmontagem no dia <b>${dados.dataDevolucao ? formatDateLong(dados.dataDevolucao) : "___"}</b>, das ${dados.horaDevolucaoIni} às ${dados.horaDevolucaoFim}.`
     : `CONTRATANTE e CONTRATADA acordam a retirada do produto no dia <b>${dados.dataRetirada ? formatDateLong(dados.dataRetirada) : "___"}</b>, das ${dados.horaRetiradaIni} às ${dados.horaRetiradaFim}, e a devolução no dia <b>${dados.dataDevolucao ? formatDateLong(dados.dataDevolucao) : "___"}</b>, das ${dados.horaDevolucaoIni} às ${dados.horaDevolucaoFim}.`;
-  const clausula34 = !isDecoracao ? `<p>3.3. Multa de 10% do valor por hora de atraso na devolução.</p><p>3.4. Caso a devolução não ocorra no mesmo dia previsto, será cobrado o valor integral de nova locação, sem prejuízo de cobranças por danos.</p>` : "";
+  const clausula34 = !isDecoracao ? `<p>3.3. ${dados.semMulta ? "Não haverá cobrança de multa por atraso na devolução dos itens." : `Multa de ${dados.multaPercentual || "10"}% do valor por hora de atraso na devolução.`}</p><p>3.4. Caso a devolução não ocorra no mesmo dia previsto, será cobrado o valor integral de nova locação, sem prejuízo de cobranças por danos.</p>` : "";
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/><title>Contrato - ${escapar(dados.contratanteNome)}</title>
   <style>body{font-family:Arial,Helvetica,sans-serif;color:#181A33;max-width:780px;margin:0 auto;padding:0 0 40px}
   .header{background:${BRAND.azul};color:#fff;padding:24px 28px;display:flex;align-items:center;gap:14px}
@@ -1504,8 +1631,7 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
 
   function startNew() { setForm(CAMPOS_VAZIOS); setEditingId(null); setErro(""); setSalvo(false); setShowForm(true); setItensSelecionados({}); setItensSelecionadosOriginais({}); setModoMaterial(estoqueItens.length > 0 ? "estoque" : "manual"); }
   async function editContract(c) {
-    const valorSinalCalculado = c.sinalPercentualContrato ? (parseValorBR(c.valor) * Number(c.sinalPercentualContrato) / 100).toFixed(2).replace(".", ",") : "";
-    setForm({ ...CAMPOS_VAZIOS, ...c, valorSinal: valorSinalCalculado }); setEditingId(c.id); setErro(""); setSalvo(false); setShowForm(true);
+    setForm({ ...CAMPOS_VAZIOS, ...c }); setEditingId(c.id); setErro(""); setSalvo(false); setShowForm(true);
     const { data } = await sb.from("contract_estoque_itens").select("estoque_item_id, quantidade").eq("contract_id", c.id);
     const mapa = {};
     (data || []).forEach((r) => { mapa[r.estoque_item_id] = r.quantidade; });
@@ -1646,6 +1772,13 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
               <Field label="CPF"><input className={inputClass} value={form.contratanteCPF} onChange={(e) => set("contratanteCPF", e.target.value)} /></Field>
               <Field label="Valor do produto"><input className={inputClass} value={form.valor} onChange={(e) => set("valor", e.target.value.replace(/[^0-9.,]/g, ""))} placeholder="90,00" /></Field>
             </div>
+            <Field label="Multa por atraso na devolução (%)" hint={form.semMulta ? "Multa desativada pra este contrato" : "Cobrada por hora de atraso. Deixe em branco pra usar 10% (padrão)"}>
+              <div className="flex items-center gap-2 mb-2">
+                <input type="checkbox" id="semMulta" checked={!!form.semMulta} onChange={(e) => set("semMulta", e.target.checked)} className="w-4 h-4 rounded cursor-pointer" style={{ accentColor: BRAND.azul }} />
+                <label htmlFor="semMulta" className="text-xs font-semibold cursor-pointer" style={{ color: BRAND.tinta }}>Não cobrar multa por atraso neste contrato</label>
+              </div>
+              <input className={inputClass} value={form.multaPercentual} onChange={(e) => set("multaPercentual", e.target.value.replace(/[^0-9]/g, ""))} placeholder="10" disabled={!!form.semMulta} style={form.semMulta ? { opacity: 0.4, cursor: "not-allowed" } : {}} />
+            </Field>
             <Field label="Valor do sinal (R$)" hint={form.valorSinal && parseValorBR(form.valor) > 0 ? `= ${Math.round((parseValorBR(form.valorSinal) / parseValorBR(form.valor)) * 100)}% do valor do produto` : "Opcional — deixe em branco pra usar o percentual padrão da loja"}>
               <input
                 className={inputClass}
@@ -1690,8 +1823,8 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
                     const qtdSelecionada = itensSelecionados[item.id] || 0;
                     return (
                       <div key={item.id} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg" style={qtdSelecionada > 0 ? { background: BRAND.azul + "18" } : { background: "transparent" }}>
-                        {item.foto_data_url ? (
-                          <img src={item.foto_data_url} loading="lazy" className="w-7 h-7 rounded object-cover shrink-0" />
+                        {fotoDoItem(item) ? (
+                          <img src={fotoDoItem(item)} loading="lazy" className="w-7 h-7 rounded object-cover shrink-0" />
                         ) : (
                           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corEstoque(item.quantidade) }} />
                         )}
@@ -1739,6 +1872,11 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
                     <b style={{ color: BRAND.tinta }}>{pctSinalEfetivo(form, profile)}%</b>
                     {!form.valorSinal && " (preencha \"Valor do sinal\" ali em cima pra usar um valor diferente)"}
                   </span>
+                </div>
+              )}
+              {form.statusPagamento !== "pago" && parseValorBR(form.valor) > 0 && (
+                <div className="mt-2 text-xs font-semibold" style={{ color: BRAND.tinta }}>
+                  Falta pagar: <b style={{ color: BRAND.rosa }}>{formatBRL(computeFinance(form, pctSinalEfetivo(form, profile)).pendente)}</b>
                 </div>
               )}
             </Field>
@@ -1994,13 +2132,14 @@ function corEstoque(qtd) {
   return "#22C55E";
 }
 
-function EstoqueTab({ userId }) {
+function EstoqueTab({ userId, profile }) {
   const [itens, setItens] = useState(null);
   const [erro, setErro] = useState("");
   const [novoMaterial, setNovoMaterial] = useState("");
   const [novaQtd, setNovaQtd] = useState("");
   const [salvandoNovo, setSalvandoNovo] = useState(false);
   const [novaFoto, setNovaFoto] = useState("");
+  const novoItemIdRef = useRef(null); // id pré-gerado quando a foto do novo item é escolhida
   const [observacoesMateriais, setObservacoesMateriais] = useState([]);
   const [enviandoFotoId, setEnviandoFotoId] = useState(null);
   const [busca, setBusca] = useState("");
@@ -2028,12 +2167,28 @@ function EstoqueTab({ userId }) {
     await sb.from("estoque_itens").update({ quantidade: q }).eq("id", item.id);
   }
 
+  // Sobe a foto pro Storage (bucket "estoque") e devolve o link público.
+  // Se der qualquer erro no upload, devolve null e mostra o erro — nunca
+  // trava o resto do fluxo.
+  async function subirFotoEstoque(file, itemId) {
+    const dataUrl = await redimensionarImagem(file, 500);
+    const blob = await dataUrlParaBlob(dataUrl);
+    const nomeArquivo = `${userId}/${itemId}/${uid()}.jpg`;
+    const { error: erroUpload } = await sb.storage.from("estoque").upload(nomeArquivo, blob, { contentType: "image/jpeg", upsert: false });
+    if (erroUpload) { setErro("Erro ao subir a foto: " + erroUpload.message); return null; }
+    const { data: urlPublica } = sb.storage.from("estoque").getPublicUrl(nomeArquivo);
+    return urlPublica.publicUrl;
+  }
+
   async function handleFotoNovoItem(e) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) { setErro("Escolha um arquivo de imagem."); return; }
-    const foto = await redimensionarImagem(file, 500);
-    setNovaFoto(foto);
+    // Gera o id do item já aqui (mesmo antes de salvar) pra poder organizar a
+    // foto na pasta certa do Storage e usar o mesmo id no insert depois.
+    if (!novoItemIdRef.current) novoItemIdRef.current = uid();
+    const url = await subirFotoEstoque(file, novoItemIdRef.current);
+    if (url) setNovaFoto(url);
   }
 
   async function handleFotoItemExistente(item, e) {
@@ -2041,15 +2196,20 @@ function EstoqueTab({ userId }) {
     if (!file) return;
     if (!file.type.startsWith("image/")) { setErro("Escolha um arquivo de imagem."); return; }
     setEnviandoFotoId(item.id);
-    const foto = await redimensionarImagem(file, 500);
-    setItens((lista) => lista.map((i) => i.id === item.id ? { ...i, foto_data_url: foto } : i));
-    await sb.from("estoque_itens").update({ foto_data_url: foto }).eq("id", item.id);
+    const url = await subirFotoEstoque(file, item.id);
+    if (url) {
+      // Ao trocar a foto de um item que ainda estava no formato antigo
+      // (base64), aproveita e já limpa o foto_data_url velho — é a mesma
+      // ação que a pessoa já ia fazer (trocar a foto), sem risco extra.
+      setItens((lista) => lista.map((i) => i.id === item.id ? { ...i, foto_url: url, foto_data_url: null } : i));
+      await sb.from("estoque_itens").update({ foto_url: url, foto_data_url: null }).eq("id", item.id);
+    }
     setEnviandoFotoId(null);
   }
 
   async function removerFotoItem(item) {
-    setItens((lista) => lista.map((i) => i.id === item.id ? { ...i, foto_data_url: null } : i));
-    await sb.from("estoque_itens").update({ foto_data_url: null }).eq("id", item.id);
+    setItens((lista) => lista.map((i) => i.id === item.id ? { ...i, foto_url: null, foto_data_url: null } : i));
+    await sb.from("estoque_itens").update({ foto_url: null, foto_data_url: null }).eq("id", item.id);
   }
 
   async function excluirItem(id) {
@@ -2063,12 +2223,17 @@ function EstoqueTab({ userId }) {
     if (!nome) { setErro("Digite o nome do material."); return; }
     const jaExiste = itens.some((i) => i.material.trim().toLowerCase() === nome.toLowerCase());
     if (jaExiste) { setErro(`Você já tem "${nome}" cadastrado no estoque. Em vez de criar de novo, edite a quantidade dele ali embaixo na lista.`); return; }
+    const limite = profile && profile.limite_pecas;
+    if (limite && itens.length >= limite) {
+      setErro(`Seu plano Básico permite até ${limite} peças cadastradas no estoque. Faça upgrade pro plano Premium pra cadastrar sem limite.`);
+      return;
+    }
     setSalvandoNovo(true);
-    const row = { id: uid(), decoradora_id: userId, material: nome, modelo: "", quantidade: Math.max(0, Number(novaQtd) || 0), foto_data_url: novaFoto || null };
+    const row = { id: novoItemIdRef.current || uid(), decoradora_id: userId, material: nome, modelo: "", quantidade: Math.max(0, Number(novaQtd) || 0), foto_url: novaFoto || null };
     const { error } = await sb.from("estoque_itens").insert(row);
     setSalvandoNovo(false);
     if (error) { setErro("Erro ao salvar: " + error.message); return; }
-    setNovoMaterial(""); setNovaQtd(""); setNovaFoto("");
+    setNovoMaterial(""); setNovaQtd(""); setNovaFoto(""); novoItemIdRef.current = null;
     await carregar();
   }
 
@@ -2173,8 +2338,8 @@ function EstoqueTab({ userId }) {
                   <div className="w-10 h-10 rounded-lg overflow-hidden flex items-center justify-center shrink-0 relative" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>
                     {enviandoFotoId === item.id ? (
                       <span className="text-[9px] text-slate-400">...</span>
-                    ) : item.foto_data_url ? (
-                      <img src={item.foto_data_url} loading="lazy" onClick={() => setFotoAmpliada(item.foto_data_url)} className="w-full h-full object-cover cursor-zoom-in" />
+                    ) : fotoDoItem(item) ? (
+                      <img src={fotoDoItem(item)} loading="lazy" onClick={() => setFotoAmpliada(fotoDoItem(item))} className="w-full h-full object-cover cursor-zoom-in" />
                     ) : (
                       <span className="text-sm">📷</span>
                     )}
@@ -2196,7 +2361,7 @@ function EstoqueTab({ userId }) {
                     <input type="number" className="w-14 text-center rounded-lg border-2 border-slate-200 py-1 text-sm font-bold" value={item.quantidade} onChange={(e) => atualizarQuantidade(item, e.target.value)} />
                     <button onClick={() => atualizarQuantidade(item, item.quantidade + 1)} className="w-7 h-7 rounded-lg font-bold cursor-pointer" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>+</button>
                   </div>
-                  {item.foto_data_url && <button onClick={() => removerFotoItem(item)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 cursor-pointer shrink-0" title="Remover foto">🖼️✕</button>}
+                  {fotoDoItem(item) && <button onClick={() => removerFotoItem(item)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 cursor-pointer shrink-0" title="Remover foto">🖼️✕</button>}
                   <button onClick={() => excluirItem(item.id)} className="p-1.5 rounded-lg hover:bg-rose-50 text-rose-400 cursor-pointer shrink-0">🗑</button>
                 </div>
               ))}
@@ -2210,6 +2375,787 @@ function EstoqueTab({ userId }) {
           <button onClick={() => setFotoAmpliada(null)} className="absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center text-white text-xl cursor-pointer" style={{ background: "rgba(255,255,255,.15)" }}>✕</button>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ============================================================
+   CATÁLOGO DE KITS (só plano Premium)
+
+   Substitui o antigo "Catálogo Inteligente" baseado em IA por um
+   catálogo navegável de kits reais — a decoradora sobe fotos de
+   verdade dos kits que ela tem, o cliente folheia e manda WhatsApp.
+   A IA vira um recurso pontual (variação de cor), não a base.
+
+   As fotos vão pro Supabase Storage (bucket "catalogo", pasta
+   "kits/"), não base64 no banco — mesmo motivo de sempre (Egress).
+============================================================ */
+
+const TIPOS_EVENTO_KIT = ["Aniversário Infantil", "Mesversário", "Chá de Bebê/Fralda", "Festa Junina", "15 Anos", "Adulto", "Dia dos Pais/Mães", "Formatura", "Casamento/Noivado"];
+const PUBLICOS_KIT = ["Menina", "Menino", "Mulher", "Homem", "Unissex"];
+const NIVEIS_KIT = ["Minimalista", "Prata", "Ouro", "Diamante", "Luxo"];
+
+// Select com opção de digitar um valor customizado, pra não travar
+// a decoradora numa lista fixa quando ela quiser algo diferente.
+function SelectComOutro({ label, valor, opcoes, onChange, placeholderOutro }) {
+  const naLista = opcoes.includes(valor);
+  const [modoCustom, setModoCustom] = useState(!!valor && !naLista);
+  return (
+    <div>
+      <label className="text-xs font-bold text-slate-500 mb-1 block">{label}</label>
+      {!modoCustom ? (
+        <select
+          value={naLista ? valor : ""}
+          onChange={(e) => { if (e.target.value === "__outro__") { setModoCustom(true); onChange(""); } else { onChange(e.target.value); } }}
+          className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+        >
+          <option value="">—</option>
+          {opcoes.map((o) => <option key={o} value={o}>{o}</option>)}
+          <option value="__outro__">Outro (digitar)</option>
+        </select>
+      ) : (
+        <div className="flex gap-1">
+          <input autoFocus value={valor || ""} onChange={(e) => onChange(e.target.value)} placeholder={placeholderOutro} className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+          <button onClick={() => { setModoCustom(false); onChange(""); }} className="px-2 rounded-xl text-xs text-slate-400 cursor-pointer" title="Voltar pra lista">✕</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+async function dataUrlParaBlob(dataUrl) {
+  const resposta = await fetch(dataUrl);
+  return await resposta.blob();
+}
+
+// Desenha a logo da decoradora por cima da foto, com transparência,
+// centralizada — tudo no navegador, sem custo, sem IA.
+function aplicarMarcaDagua(dataUrlFoto, logoDataUrl, opacidade, posX, posY) {
+  const alfa = (opacidade ?? 45) / 100;
+  const px = (posX ?? 50) / 100;
+  const py = (posY ?? 50) / 100;
+  return new Promise((resolve) => {
+    const imgFoto = new Image();
+    imgFoto.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = imgFoto.width;
+      canvas.height = imgFoto.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(imgFoto, 0, 0);
+      if (logoDataUrl) {
+        const imgLogo = new Image();
+        imgLogo.onload = () => {
+          const larguraLogo = imgFoto.width * 0.13;
+          const alturaLogo = larguraLogo * (imgLogo.height / imgLogo.width || 1);
+          const x = px * (canvas.width - larguraLogo);
+          const y = py * (canvas.height - alturaLogo);
+          ctx.globalAlpha = alfa;
+          ctx.drawImage(imgLogo, x, y, larguraLogo, alturaLogo);
+          ctx.globalAlpha = 1;
+          resolve(canvas.toDataURL("image/jpeg", 0.85));
+        };
+        imgLogo.onerror = () => resolve(canvas.toDataURL("image/jpeg", 0.85));
+        imgLogo.src = logoDataUrl;
+      } else {
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      }
+    };
+    imgFoto.onerror = () => resolve(null);
+    imgFoto.src = dataUrlFoto;
+  });
+}
+
+function TagInput({ valores, onChange, placeholder }) {
+  const [texto, setTexto] = useState("");
+  function adicionar() {
+    const v = texto.trim();
+    if (!v) return;
+    onChange([...(valores || []), v]);
+    setTexto("");
+  }
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2 mb-2">
+        {(valores || []).map((v, i) => (
+          <span key={i} className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full" style={{ background: "#F1F5F9", color: BRAND.tinta }}>
+            {v}
+            <button onClick={() => onChange(valores.filter((_, idx) => idx !== i))} className="cursor-pointer">✕</button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); adicionar(); } }}
+          placeholder={placeholder}
+          className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm"
+        />
+        <button onClick={adicionar} className="px-3 py-2 rounded-xl font-bold text-sm cursor-pointer" style={{ background: "#F1F5F9", color: BRAND.tinta }}>+ Adicionar</button>
+      </div>
+    </div>
+  );
+}
+
+function CatalogoTab({ userId, profile, onProfileUpdate }) {
+  const [aba, setAba] = useState("kits"); // "kits" | "config"
+  const [kits, setKits] = useState(null);
+  const [fotosPorKit, setFotosPorKit] = useState({});
+  const [erro, setErro] = useState("");
+  const [editando, setEditando] = useState(null); // objeto do kit em edição, ou "novo"
+
+  const carregarKits = useCallback(async () => {
+    const { data: listaKits } = await sb.from("catalogo_kits").select("*").eq("decoradora_id", userId).order("created_at", { ascending: false });
+    const { data: listaFotos } = await sb.from("catalogo_kit_fotos").select("*").order("ordem", { ascending: true });
+    const agrupado = {};
+    (listaFotos || []).forEach((f) => { (agrupado[f.kit_id] = agrupado[f.kit_id] || []).push(f); });
+    setKits(listaKits || []);
+    setFotosPorKit(agrupado);
+  }, [userId]);
+
+  useEffect(() => { carregarKits(); }, [carregarKits]);
+
+  const limiteCatalogo = profile.limite_catalogo || 10;
+  const totalKits = (kits || []).length;
+
+  async function novoKit() {
+    if (totalKits >= limiteCatalogo) {
+      setErro(`Seu plano permite até ${limiteCatalogo} kits no catálogo. Apague algum antes de criar outro, ou faça upgrade.`);
+      return;
+    }
+    setEditando({
+      id: null, nome: "", itens_inclusos: [], tipo_evento: "", publico: "", nivel: "", tema: "", cor: "",
+      preco: "", status: "publicado", aceita_variacao_cor: true, em_destaque: false,
+    });
+  }
+
+  async function salvarKit(dadosKit) {
+    setErro("");
+    const linha = {
+      decoradora_id: userId,
+      nome: dadosKit.nome.trim(),
+      itens_inclusos: dadosKit.itens_inclusos || [],
+      tipo_evento: dadosKit.tipo_evento || null,
+      publico: dadosKit.publico || null,
+      nivel: dadosKit.nivel || null,
+      tema: dadosKit.tema || null,
+      cor: dadosKit.cor || null,
+      preco: dadosKit.preco ? parseFloat(String(dadosKit.preco).replace(",", ".")) : null,
+      status: dadosKit.status,
+      aceita_variacao_cor: !!dadosKit.aceita_variacao_cor,
+      em_destaque: !!dadosKit.em_destaque,
+    };
+    if (!linha.nome) { setErro("Digite o nome do kit."); return null; }
+
+    let kitId = dadosKit.id;
+    if (dadosKit.id) {
+      const { error } = await sb.from("catalogo_kits").update(linha).eq("id", dadosKit.id);
+      if (error) { setErro("Erro ao salvar: " + error.message); return null; }
+    } else {
+      const { data: novo, error } = await sb.from("catalogo_kits").insert(linha).select().single();
+      if (error) { setErro("Erro ao criar: " + error.message); return null; }
+      kitId = novo.id;
+    }
+    await carregarKits();
+    return kitId;
+  }
+
+  async function excluirKit(kit) {
+    setKits((lista) => lista.filter((k) => k.id !== kit.id));
+    await sb.from("catalogo_kits").delete().eq("id", kit.id);
+  }
+
+  async function adicionarFotoKit(kitId, file) {
+    setErro("");
+    if (!file || !file.type.startsWith("image/")) { setErro("Escolha um arquivo de imagem."); return; }
+    const fotosAtuais = fotosPorKit[kitId] || [];
+    if (fotosAtuais.length >= 5) { setErro("Máximo de 5 fotos por kit."); return; }
+    try {
+      let dataUrl = await redimensionarImagem(file, 1000);
+      if (profile.catalogo_usar_marca_dagua !== false) {
+        dataUrl = (await aplicarMarcaDagua(dataUrl, profile.logo_data_url, profile.catalogo_marca_dagua_opacidade, profile.catalogo_marca_dagua_pos_x, profile.catalogo_marca_dagua_pos_y)) || dataUrl;
+      }
+      const blob = await dataUrlParaBlob(dataUrl);
+      const nomeArquivo = `kits/${userId}/${kitId}/${uid()}.jpg`;
+      const { error: erroUpload } = await sb.storage.from("catalogo").upload(nomeArquivo, blob, { contentType: "image/jpeg", upsert: false });
+      if (erroUpload) { setErro("Erro ao subir a foto: " + erroUpload.message); return; }
+      const { data: urlPublica } = sb.storage.from("catalogo").getPublicUrl(nomeArquivo);
+      await sb.from("catalogo_kit_fotos").insert({ kit_id: kitId, imagem_url: urlPublica.publicUrl, ordem: fotosAtuais.length });
+      await carregarKits();
+    } catch (err) {
+      setErro("Erro inesperado: " + err.message);
+    }
+  }
+
+  async function excluirFotoKit(foto) {
+    setFotosPorKit((f) => ({ ...f, [foto.kit_id]: (f[foto.kit_id] || []).filter((x) => x.id !== foto.id) }));
+    await sb.from("catalogo_kit_fotos").delete().eq("id", foto.id);
+  }
+
+  // Salva o resultado de uma variação de cor (já com marca d'água aplicada
+  // pelo próprio modal) como uma nova foto oficial do kit.
+  async function salvarFotoGerada(kitId, dataUrlComMarca) {
+    setErro("");
+    try {
+      const fotosAtuais = fotosPorKit[kitId] || [];
+      if (fotosAtuais.length >= 5) { setErro("Máximo de 5 fotos por kit. Apague uma antes de salvar essa."); return; }
+      const blob = await dataUrlParaBlob(dataUrlComMarca);
+      const nomeArquivo = `kits/${userId}/${kitId}/${uid()}-ia.jpg`;
+      const { error: erroUpload } = await sb.storage.from("catalogo").upload(nomeArquivo, blob, { contentType: "image/jpeg", upsert: false });
+      if (erroUpload) { setErro("Erro ao salvar a variação: " + erroUpload.message); return; }
+      const { data: urlPublica } = sb.storage.from("catalogo").getPublicUrl(nomeArquivo);
+      await sb.from("catalogo_kit_fotos").insert({ kit_id: kitId, imagem_url: urlPublica.publicUrl, ordem: fotosAtuais.length, gerada_por_ia: true });
+      await carregarKits();
+    } catch (err) {
+      setErro("Erro inesperado: " + err.message);
+    }
+  }
+
+  if (kits === null) return <div className="max-w-3xl mx-auto px-4 py-10 text-center text-slate-400 text-sm">Carregando...</div>;
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
+      <div className="mb-6">
+        <h2 className="fredoka text-2xl font-bold flex items-center gap-2" style={{ color: BRAND.tinta }}><IconVarinhaMagica className="w-6 h-6" style={{ color: "#8B5CF6" }} /> Catálogo</h2>
+        <p className="text-slate-400 text-sm mt-1">Monte seu catálogo com fotos reais dos seus kits. O cliente navega e manda WhatsApp pronto pra fechar.</p>
+      </div>
+
+      <div className="flex gap-2 mb-6">
+        <button onClick={() => setAba("kits")} className="px-4 py-2 rounded-xl font-bold text-sm cursor-pointer" style={{ background: aba === "kits" ? BRAND.rosa : "#F1F5F9", color: aba === "kits" ? "#fff" : BRAND.tinta }}>Meus Kits ({totalKits})</button>
+        <button onClick={() => setAba("config")} className="px-4 py-2 rounded-xl font-bold text-sm cursor-pointer" style={{ background: aba === "config" ? BRAND.rosa : "#F1F5F9", color: aba === "config" ? "#fff" : BRAND.tinta }}>Configurações</button>
+      </div>
+
+      {erro && <div className="bg-red-50 text-red-600 text-sm rounded-xl px-4 py-3 mb-5">{erro}</div>}
+
+      {aba === "kits" && (
+        <KitsLista
+          kits={kits}
+          fotosPorKit={fotosPorKit}
+          onNovo={novoKit}
+          onEditar={(k) => setEditando(k)}
+          onExcluir={excluirKit}
+        />
+      )}
+
+      {aba === "config" && (
+        <ConfiguracoesCatalogo userId={userId} profile={profile} onProfileUpdate={onProfileUpdate} setErro={setErro} />
+      )}
+
+      {editando && (
+        <KitEditorModal
+          kit={editando}
+          fotos={editando.id ? (fotosPorKit[editando.id] || []) : []}
+          profile={profile}
+          onFechar={() => setEditando(null)}
+          onSalvar={async (dados, arquivosPendentes) => {
+            const kitId = await salvarKit(dados);
+            if (!kitId) return;
+            for (const arquivo of (arquivosPendentes || [])) {
+              await adicionarFotoKit(kitId, arquivo);
+            }
+            setEditando(null);
+          }}
+          onExcluirFoto={excluirFotoKit}
+          onFotoGeradaSalva={salvarFotoGerada}
+        />
+      )}
+    </div>
+  );
+}
+
+function ChipsFiltro({ label, opcoes, valor, onChange }) {
+  if (!opcoes.length) return null;
+  return (
+    <div className="mb-2.5">
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{label}</p>
+      <div className="flex gap-1.5 overflow-x-auto pb-1">
+        <button onClick={() => onChange("")} className="shrink-0 px-3 py-1 rounded-full text-xs font-semibold cursor-pointer" style={{ background: !valor ? BRAND.rosa : "#F1F5F9", color: !valor ? "#fff" : BRAND.tinta }}>Todos</button>
+        {opcoes.map((o) => (
+          <button key={o} onClick={() => onChange(o)} className="shrink-0 px-3 py-1 rounded-full text-xs font-semibold cursor-pointer" style={{ background: valor === o ? BRAND.rosa : "#F1F5F9", color: valor === o ? "#fff" : BRAND.tinta }}>{o}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function KitsLista({ kits, fotosPorKit, onNovo, onEditar, onExcluir }) {
+  const [busca, setBusca] = useState("");
+  const [filtroEvento, setFiltroEvento] = useState("");
+  const [filtroPublico, setFiltroPublico] = useState("");
+  const [filtroNivel, setFiltroNivel] = useState("");
+
+  const eventosDisponiveis = [...new Set((kits || []).map((k) => k.tipo_evento).filter(Boolean))];
+  const publicosDisponiveis = [...new Set((kits || []).map((k) => k.publico).filter(Boolean))];
+  const niveisDisponiveis = [...new Set((kits || []).map((k) => k.nivel).filter(Boolean))];
+
+  const filtrados = (kits || []).filter((k) =>
+    k.nome.toLowerCase().includes(busca.toLowerCase()) &&
+    (!filtroEvento || k.tipo_evento === filtroEvento) &&
+    (!filtroPublico || k.publico === filtroPublico) &&
+    (!filtroNivel || k.nivel === filtroNivel)
+  );
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-4">
+        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar kit..." className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+        <button onClick={onNovo} className="px-4 py-2 rounded-xl font-bold text-sm text-white cursor-pointer shrink-0" style={{ background: BRAND.rosa }}>+ Novo Kit</button>
+      </div>
+
+      <ChipsFiltro label="Tipo de evento" opcoes={eventosDisponiveis} valor={filtroEvento} onChange={setFiltroEvento} />
+      <ChipsFiltro label="Público" opcoes={publicosDisponiveis} valor={filtroPublico} onChange={setFiltroPublico} />
+      <ChipsFiltro label="Nível" opcoes={niveisDisponiveis} valor={filtroNivel} onChange={setFiltroNivel} />
+
+      {filtrados.length === 0 && (
+        <div className="text-center py-16 text-slate-400 text-sm">
+          {kits.length === 0 ? "Nenhum kit cadastrado ainda. Clica em \"+ Novo Kit\" pra começar." : "Nenhum kit encontrado com esse filtro."}
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-3">
+        {filtrados.map((kit) => {
+          const fotos = fotosPorKit[kit.id] || [];
+          return (
+            <div key={kit.id} className="text-left rounded-2xl overflow-hidden border border-slate-100 shadow-sm bg-white">
+              <button onClick={() => onEditar(kit)} className="block w-full cursor-pointer text-left">
+                <div className="relative aspect-square bg-slate-100">
+                  {fotos[0] ? <img src={fotos[0].imagem_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-3xl">🎁</div>}
+                  {kit.em_destaque && <span className="absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: BRAND.amarelo, color: "#5c4200" }}>⭐ Destaque</span>}
+                  <span className="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: kit.status === "publicado" ? "#DCFCE7" : "#F1F5F9", color: kit.status === "publicado" ? "#166534" : "#64748b" }}>
+                    {kit.status === "publicado" ? "Publicado" : "Rascunho"}
+                  </span>
+                </div>
+                <div className="p-3 pb-1">
+                  <p className="font-bold text-sm truncate" style={{ color: BRAND.tinta }}>{kit.nome}</p>
+                  {(kit.tipo_evento || kit.nivel) && (
+                    <p className="text-[11px] font-semibold truncate mt-0.5" style={{ color: "#8B5CF6" }}>
+                      {[kit.tipo_evento, kit.nivel].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
+                  {kit.preco && <p className="text-xs text-slate-400 mt-0.5">{formatBRL(kit.preco)}</p>}
+                </div>
+              </button>
+              <div className="flex gap-2 px-3 pb-3 pt-1">
+                <button onClick={() => onEditar(kit)} className="flex-1 py-1.5 rounded-lg text-xs font-bold cursor-pointer" style={{ background: "#F1F5F9", color: BRAND.tinta }}>✏️ Editar</button>
+                <button
+                  onClick={() => { if (window.confirm(`Apagar o kit "${kit.nome}"? Essa ação não pode ser desfeita.`)) onExcluir(kit); }}
+                  className="flex-1 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
+                  style={{ background: "#FEE2E2", color: "#B91C1C" }}
+                >
+                  🗑️ Excluir
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto, onFotoGeradaSalva }) {
+  const [form, setForm] = useState(kit);
+  const [salvando, setSalvando] = useState(false);
+  const [fotosPendentes, setFotosPendentes] = useState([]); // {tempId, file, previewUrl} — ainda não subiram
+  const set = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
+
+  const totalFotos = fotos.length + fotosPendentes.length;
+
+  function selecionarFoto(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    if (totalFotos >= 5) return;
+    const previewUrl = URL.createObjectURL(file);
+    setFotosPendentes((p) => [...p, { tempId: uid(), file, previewUrl }]);
+  }
+
+  function removerFotoPendente(tempId) {
+    setFotosPendentes((p) => p.filter((f) => f.tempId !== tempId));
+  }
+
+  // Variação de cor / edição pontual por IA
+  const [fotoBaseId, setFotoBaseId] = useState(fotos[0]?.id || null);
+  const [instrucaoEdicao, setInstrucaoEdicao] = useState("");
+  const [gerandoVariacao, setGerandoVariacao] = useState(false);
+  const [erroVariacao, setErroVariacao] = useState("");
+  const [resultadoVariacao, setResultadoVariacao] = useState(null); // base64 puro, sem marca d'água ainda
+  const [salvandoVariacao, setSalvandoVariacao] = useState(false);
+  const [usoMes, setUsoMes] = useState(null);
+  const [fotoAmpliada, setFotoAmpliada] = useState(null);
+
+  useEffect(() => {
+    if (!kit.id || !form.aceita_variacao_cor) return;
+    async function carregarUso() {
+      const hoje = new Date();
+      const inicioDoMes = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), 1)).toISOString();
+      const { data } = await sb.from("catalogo_geracoes").select("id").eq("decoradora_id", kit.decoradora_id || profile?.id).eq("sucesso", true).gte("created_at", inicioDoMes);
+      setUsoMes((data || []).length);
+    }
+    carregarUso();
+  }, [kit.id, form.aceita_variacao_cor]);
+
+  async function gerarVariacao() {
+    setErroVariacao(""); setResultadoVariacao(null);
+    const fotoBase = fotos.find((f) => f.id === fotoBaseId) || fotos[0];
+    if (!fotoBase) { setErroVariacao("Esse kit ainda não tem foto salva pra usar como base."); return; }
+    if (!instrucaoEdicao.trim()) { setErroVariacao("Descreve o que você quer alterar na foto."); return; }
+    setGerandoVariacao(true);
+    try {
+      const resp = await fetch(WEBHOOK_VARIAR_COR, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kit_id: kit.id,
+          decoradora_id: kit.decoradora_id || profile?.id,
+          imagem_url: fotoBase.imagem_url,
+          instrucao: instrucaoEdicao.trim(),
+        }),
+      });
+      const dados = await resp.json();
+      if (!resp.ok || dados.erro) {
+        setErroVariacao(dados.erro || "Não conseguimos gerar a variação agora. Tente de novo.");
+      } else {
+        setResultadoVariacao(dados.imagem_base64);
+        setUsoMes((u) => (u === null ? null : u + 1));
+      }
+    } catch (err) {
+      setErroVariacao("Erro de conexão. Confira sua internet e tente de novo.");
+    }
+    setGerandoVariacao(false);
+  }
+
+  async function salvarVariacaoComoFoto() {
+    if (!resultadoVariacao) return;
+    setSalvandoVariacao(true);
+    const usarMarca = profile?.catalogo_usar_marca_dagua !== false;
+    const dataUrlBruto = `data:image/jpeg;base64,${resultadoVariacao}`;
+    const dataUrlFinal = usarMarca
+      ? (await aplicarMarcaDagua(dataUrlBruto, profile?.logo_data_url, profile?.catalogo_marca_dagua_opacidade, profile?.catalogo_marca_dagua_pos_x, profile?.catalogo_marca_dagua_pos_y)) || dataUrlBruto
+      : dataUrlBruto;
+    await onFotoGeradaSalva(kit.id, dataUrlFinal);
+    setSalvandoVariacao(false);
+    setResultadoVariacao(null);
+    setInstrucaoEdicao("");
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={onFechar}>
+      <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full sm:max-w-lg max-h-[92vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="fredoka text-lg font-bold" style={{ color: BRAND.tinta }}>{kit.id ? "Editar Kit" : "Novo Kit"}</h3>
+          <button onClick={onFechar} className="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer" style={{ background: "#F1F5F9" }}>✕</button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">Nome do kit</label>
+            <input value={form.nome} onChange={(e) => set("nome", e.target.value)} placeholder="Ex: Kit Diamante Unicórnio" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">O que vem no kit</label>
+            <TagInput valores={form.itens_inclusos} onChange={(v) => set("itens_inclusos", v)} placeholder="Ex: Mesa cilindro (Enter pra adicionar)" />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">Fotos ({totalFotos}/5)</label>
+            <div className="grid grid-cols-3 gap-2 mb-2">
+              {fotos.map((f) => (
+                <div key={f.id} className="relative aspect-square">
+                  <img src={f.imagem_url} onClick={() => setFotoAmpliada(f.imagem_url)} className="w-full h-full object-cover rounded-xl bg-slate-100 cursor-pointer" />
+                  <button onClick={() => onExcluirFoto(f)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center cursor-pointer">✕</button>
+                </div>
+              ))}
+              {fotosPendentes.map((f) => (
+                <div key={f.tempId} className="relative aspect-square">
+                  <img src={f.previewUrl} onClick={() => setFotoAmpliada(f.previewUrl)} className="w-full h-full object-cover rounded-xl bg-slate-100 opacity-80 cursor-pointer" />
+                  <span className="absolute bottom-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-black/60 text-white">nova</span>
+                  <button onClick={() => removerFotoPendente(f.tempId)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center cursor-pointer">✕</button>
+                </div>
+              ))}
+            </div>
+            {totalFotos < 5 && (
+              <label className="inline-block px-4 py-2 rounded-xl font-bold text-sm cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
+                + Subir foto
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files[0]; if (f) selecionarFoto(f); e.target.value = ""; }} />
+              </label>
+            )}
+            {!kit.id && fotosPendentes.length > 0 && (
+              <p className="text-[11px] text-slate-400 mt-1.5">As fotos sobem junto quando você clicar em "Salvar Kit".</p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <SelectComOutro label="Tipo de evento" valor={form.tipo_evento} opcoes={TIPOS_EVENTO_KIT} onChange={(v) => set("tipo_evento", v)} placeholderOutro="Digite o tipo de evento" />
+            <SelectComOutro label="Público" valor={form.publico} opcoes={PUBLICOS_KIT} onChange={(v) => set("publico", v)} placeholderOutro="Digite o público" />
+            <SelectComOutro label="Nível" valor={form.nivel} opcoes={NIVEIS_KIT} onChange={(v) => set("nivel", v)} placeholderOutro="Digite o nível" />
+            <div>
+              <label className="text-xs font-bold text-slate-500 mb-1 block">Tema</label>
+              <input value={form.tema || ""} onChange={(e) => set("tema", e.target.value)} placeholder="Ex: Futebol" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">Preço (opcional)</label>
+            <input value={form.preco || ""} onChange={(e) => set("preco", e.target.value.replace(/[^0-9.,]/g, ""))} placeholder="250,00" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+          </div>
+
+          <div className="flex items-center justify-between py-2">
+            <span className="text-sm font-semibold" style={{ color: BRAND.tinta }}>Publicado (visível no catálogo)</span>
+            <button onClick={() => set("status", form.status === "publicado" ? "rascunho" : "publicado")} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors" style={{ background: form.status === "publicado" ? BRAND.rosa : "#e5e7eb" }}>
+              <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all" style={{ left: form.status === "publicado" ? 26 : 4 }} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between py-2">
+            <span className="text-sm font-semibold" style={{ color: BRAND.tinta }}>Kit em destaque</span>
+            <button onClick={() => set("em_destaque", !form.em_destaque)} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors" style={{ background: form.em_destaque ? BRAND.rosa : "#e5e7eb" }}>
+              <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all" style={{ left: form.em_destaque ? 26 : 4 }} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between py-2">
+            <div>
+              <span className="text-sm font-semibold block" style={{ color: BRAND.tinta }}>Aceita variação de cor (IA)</span>
+              <span className="text-xs text-slate-400">Funciona melhor em fotos de peça única e simples, como cilindros ou bases lisas.</span>
+            </div>
+            <button onClick={() => set("aceita_variacao_cor", !form.aceita_variacao_cor)} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors shrink-0 ml-3" style={{ background: form.aceita_variacao_cor ? "#8B5CF6" : "#e5e7eb" }}>
+              <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all" style={{ left: form.aceita_variacao_cor ? 26 : 4 }} />
+            </button>
+          </div>
+
+          {form.aceita_variacao_cor && kit.id && (
+            fotos.length === 0 ? (
+              <p className="text-xs text-slate-400 rounded-xl px-3 py-2" style={{ background: "#F1F5F9" }}>Suba pelo menos 1 foto e salve o kit pra poder gerar variações.</p>
+            ) : (
+              <div className="rounded-2xl p-4" style={{ background: "#F5F3FF", border: "1px solid #DDD6FE" }}>
+                <p className="font-bold text-sm mb-1" style={{ color: "#5B21B6" }}>🪄 Catálogo Inteligente (IA)</p>
+                <p className="text-[11px] text-slate-500 mb-2">Peça pra trocar a cor de uma peça, tirar ou trocar um detalhe da foto. A IA mantém o resto da imagem exatamente igual, alterando só o que você pedir. Funciona melhor em fotos simples, com uma peça só.</p>
+
+                {usoMes !== null && (
+                  <div className="mb-3">
+                    <div className="flex justify-between text-[11px] font-semibold mb-1" style={{ color: "#5B21B6" }}>
+                      <span>{usoMes}/100 usadas esse mês</span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: "#E9D5FF" }}>
+                      <div className="h-full rounded-full" style={{ width: `${Math.min(100, usoMes)}%`, background: "#8B5CF6" }} />
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">Você ainda pode fazer {Math.max(0, 100 - usoMes)} alterações esse mês.</p>
+                  </div>
+                )}
+
+                {fotos.length > 1 && (
+                  <div className="flex gap-2 mb-3 overflow-x-auto">
+                    {fotos.map((f) => (
+                      <button key={f.id} onClick={() => setFotoBaseId(f.id)} className="shrink-0 w-12 h-12 rounded-lg overflow-hidden cursor-pointer" style={{ border: fotoBaseId === f.id ? "2px solid #8B5CF6" : "2px solid transparent" }}>
+                        <img src={f.imagem_url} className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <label className="text-xs font-semibold mb-1 block" style={{ color: "#5B21B6" }}>O que você quer alterar nessa foto?</label>
+                <textarea value={instrucaoEdicao} onChange={(e) => setInstrucaoEdicao(e.target.value)} placeholder="Ex: troque a cor do painel redondo pra vermelho" rows={2} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm mb-2" />
+
+                <button onClick={gerarVariacao} disabled={gerandoVariacao} className="w-full py-2.5 rounded-xl font-bold text-sm text-white cursor-pointer disabled:opacity-50" style={{ background: "#8B5CF6" }}>
+                  {gerandoVariacao ? "Gerando..." : "Gerar imagem"}
+                </button>
+                {erroVariacao && <p className="text-red-500 text-xs mt-2">{erroVariacao}</p>}
+
+                {gerandoVariacao && (
+                  <div className="mt-3 rounded-xl border border-slate-200 flex flex-col items-center justify-center py-8" style={{ background: "#fff" }}>
+                    <div className="w-8 h-8 rounded-full animate-spin" style={{ border: "3px solid #E9D5FF", borderTopColor: "#8B5CF6" }} />
+                    <p className="text-xs text-slate-400 mt-3">Gerando sua imagem...</p>
+                  </div>
+                )}
+
+                {resultadoVariacao && !gerandoVariacao && (
+                  <div className="mt-3">
+                    <img src={`data:image/jpeg;base64,${resultadoVariacao}`} className="w-full rounded-xl border border-slate-200 mb-2" />
+                    <div className="flex gap-2">
+                      <button onClick={salvarVariacaoComoFoto} disabled={salvandoVariacao} className="flex-1 py-2 rounded-xl font-bold text-xs text-white cursor-pointer disabled:opacity-50" style={{ background: "#8B5CF6" }}>
+                        {salvandoVariacao ? "Salvando..." : "✓ Salvar como foto do kit"}
+                      </button>
+                      <button onClick={() => setResultadoVariacao(null)} className="px-3 py-2 rounded-xl font-bold text-xs cursor-pointer" style={{ background: "#F1F5F9", color: BRAND.tinta }}>Descartar</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          )}
+
+          <button
+            onClick={async () => { setSalvando(true); await onSalvar(form, fotosPendentes.map((f) => f.file)); setSalvando(false); }}
+            disabled={salvando}
+            className="w-full py-3 rounded-2xl font-bold text-sm text-white cursor-pointer disabled:opacity-50"
+            style={{ background: BRAND.rosa }}
+          >
+            {salvando ? "Salvando..." : "Salvar Kit"}
+          </button>
+
+          {kit.id && (
+            <button
+              onClick={() => navigator.clipboard.writeText(`https://appdecore.com.br/catalogo-cliente.html?d=${kit.decoradora_id}&kit=${kit.id}`)}
+              className="w-full py-2.5 rounded-2xl font-bold text-xs cursor-pointer"
+              style={{ background: "#F1F5F9", color: BRAND.tinta }}
+            >
+              🔗 Copiar link só deste kit
+            </button>
+          )}
+        </div>
+      </div>
+
+      {fotoAmpliada && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.9)" }} onClick={() => setFotoAmpliada(null)}>
+          <img src={fotoAmpliada} className="max-w-full max-h-full rounded-2xl object-contain" />
+          <button onClick={() => setFotoAmpliada(null)} className="absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center text-white text-xl cursor-pointer" style={{ background: "rgba(255,255,255,.15)" }}>✕</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
+  const [form, setForm] = useState({
+    logo_data_url: profile.logo_data_url || "",
+    catalogo_usar_marca_dagua: profile.catalogo_usar_marca_dagua !== false,
+    catalogo_marca_dagua_opacidade: profile.catalogo_marca_dagua_opacidade ?? 45,
+    catalogo_marca_dagua_pos_x: profile.catalogo_marca_dagua_pos_x ?? 50,
+    catalogo_marca_dagua_pos_y: profile.catalogo_marca_dagua_pos_y ?? 50,
+    catalogo_banner_url: profile.catalogo_banner_url || "",
+    catalogo_banner_mobile_url: profile.catalogo_banner_mobile_url || "",
+    catalogo_cor_destaque: profile.catalogo_cor_destaque || "#EC1E79",
+    catalogo_texto_boasvindas: profile.catalogo_texto_boasvindas || "",
+    catalogo_mostrar_valores: profile.catalogo_mostrar_valores !== false,
+    catalogo_instagram: profile.catalogo_instagram || "",
+    whatsapp_contato: profile.whatsapp_contato || "",
+    catalogo_ativo: profile.catalogo_ativo !== false,
+  });
+  const [salvando, setSalvando] = useState(false);
+
+  const set = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
+
+  async function handleUploadImagem(campo, file, largura) {
+    if (!file) return;
+    const formato = campo === "logo_data_url" ? "image/png" : "image/jpeg";
+    const dataUrl = await redimensionarImagem(file, largura, formato);
+    set(campo, dataUrl);
+  }
+
+  function formatarWhatsappBR(bruto) {
+    let digitos = (bruto || "").replace(/\D/g, "");
+    if (!digitos) return "";
+    if (!digitos.startsWith("55")) digitos = "55" + digitos;
+    return digitos;
+  }
+
+  async function salvar() {
+    setSalvando(true);
+    const linha = { ...form, whatsapp_contato: formatarWhatsappBR(form.whatsapp_contato) };
+    const { error } = await sb.from("decoradoras").update(linha).eq("id", userId);
+    setSalvando(false);
+    if (error) { setErro("Erro ao salvar configurações: " + error.message); return; }
+    onProfileUpdate((p) => ({ ...p, ...linha }));
+  }
+
+  const linkCatalogo = `https://appdecore.com.br/catalogo-cliente.html?d=${userId}`;
+
+  return (
+    <div className="space-y-5">
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+        <p className="font-bold text-sm mb-3" style={{ color: BRAND.tinta }}>Identidade visual</p>
+
+        <label className="text-xs font-bold text-slate-500 mb-1 block">Logo</label>
+        <div className="flex items-center gap-3 mb-2">
+          {form.logo_data_url ? <img src={form.logo_data_url} className="w-14 h-14 rounded-xl object-contain bg-slate-50" /> : <div className="w-14 h-14 rounded-xl bg-slate-100" />}
+          <label className="px-3 py-2 rounded-xl font-bold text-xs cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
+            Trocar logo
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => handleUploadImagem("logo_data_url", e.target.files[0], 300)} />
+          </label>
+        </div>
+
+        {form.catalogo_usar_marca_dagua && (
+          <div className="mb-4 pl-1">
+            <label className="text-xs font-bold text-slate-500 mb-1 flex justify-between">
+              <span>Transparência da marca d'água</span>
+              <span>{form.catalogo_marca_dagua_opacidade}%</span>
+            </label>
+            <input
+              type="range" min="10" max="90" step="5"
+              value={form.catalogo_marca_dagua_opacidade}
+              onChange={(e) => set("catalogo_marca_dagua_opacidade", parseInt(e.target.value))}
+              className="w-full cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-slate-400"><span>Bem sutil</span><span>Bem visível</span></div>
+          </div>
+        )}
+
+        <label className="text-xs font-bold text-slate-500 mb-1 block">Banner do catálogo (computador)</label>
+        <p className="text-[11px] text-slate-400 mb-2">Tamanho ideal: 1200 x 400px (bem largo e baixo).</p>
+        <div className="flex items-center gap-3 mb-4">
+          {form.catalogo_banner_url ? <img src={form.catalogo_banner_url} className="w-24 h-14 rounded-xl object-cover" /> : <div className="w-24 h-14 rounded-xl bg-slate-100" />}
+          <label className="px-3 py-2 rounded-xl font-bold text-xs cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
+            Trocar banner
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => handleUploadImagem("catalogo_banner_url", e.target.files[0], 1200)} />
+          </label>
+        </div>
+
+        <label className="text-xs font-bold text-slate-500 mb-1 block">Banner do catálogo (celular)</label>
+        <p className="text-[11px] text-slate-400 mb-2">Tamanho ideal: 800 x 600px (mais quadrado, fica melhor na tela do celular).</p>
+        <div className="flex items-center gap-3 mb-4">
+          {form.catalogo_banner_mobile_url ? <img src={form.catalogo_banner_mobile_url} className="w-14 h-14 rounded-xl object-cover" /> : <div className="w-14 h-14 rounded-xl bg-slate-100" />}
+          <label className="px-3 py-2 rounded-xl font-bold text-xs cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
+            Trocar banner
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => handleUploadImagem("catalogo_banner_mobile_url", e.target.files[0], 800)} />
+          </label>
+        </div>
+
+        <label className="text-xs font-bold text-slate-500 mb-1 block">Cor de destaque</label>
+        <input type="color" value={form.catalogo_cor_destaque} onChange={(e) => set("catalogo_cor_destaque", e.target.value)} className="w-16 h-10 rounded-lg border border-slate-200 cursor-pointer" />
+      </div>
+
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+        <p className="font-bold text-sm mb-3" style={{ color: BRAND.tinta }}>Textos e contato</p>
+
+        <label className="text-xs font-bold text-slate-500 mb-1 block">Texto de boas-vindas</label>
+        <textarea value={form.catalogo_texto_boasvindas} onChange={(e) => set("catalogo_texto_boasvindas", e.target.value)} rows={2} placeholder="Ex: Bem-vinda ao catálogo da Studio Encanto! 💕" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm mb-4" />
+
+        <label className="text-xs font-bold text-slate-500 mb-1 block">WhatsApp de contato</label>
+        <input value={form.whatsapp_contato} onChange={(e) => set("whatsapp_contato", e.target.value)} placeholder="(11) 91234-5678" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm mb-4" />
+
+        <label className="text-xs font-bold text-slate-500 mb-1 block">Instagram (opcional)</label>
+        <input value={form.catalogo_instagram} onChange={(e) => set("catalogo_instagram", e.target.value)} placeholder="@sualoja" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+      </div>
+
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 space-y-3">
+        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Preferências</p>
+
+        {[
+          ["catalogo_ativo", "Catálogo ativo", "Libera o link pros clientes"],
+          ["catalogo_mostrar_valores", "Mostrar valores", "Cliente vê o preço de cada kit"],
+          ["catalogo_usar_marca_dagua", "Usar marca d'água", "Sua logo aparece sutil nas fotos"],
+        ].map(([campo, titulo, desc]) => (
+          <div key={campo} className="flex items-center justify-between py-1">
+            <div><span className="text-sm font-semibold block" style={{ color: BRAND.tinta }}>{titulo}</span><span className="text-xs text-slate-400">{desc}</span></div>
+            <button onClick={() => set(campo, !form[campo])} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors shrink-0 ml-3" style={{ background: form[campo] ? BRAND.rosa : "#e5e7eb" }}>
+              <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all" style={{ left: form[campo] ? 26 : 4 }} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {form.catalogo_ativo && (
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+          <p className="font-bold text-sm mb-2" style={{ color: BRAND.tinta }}>Seu link</p>
+          <div className="flex gap-2">
+            <input readOnly value={linkCatalogo} className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm text-slate-500 bg-slate-50" />
+            <button onClick={() => navigator.clipboard.writeText(linkCatalogo)} className="px-4 py-2 rounded-xl font-bold text-sm text-white cursor-pointer shrink-0" style={{ background: BRAND.azul }}>Copiar</button>
+          </div>
+        </div>
+      )}
+
+      <button onClick={salvar} disabled={salvando} className="w-full py-3 rounded-2xl font-bold text-sm text-white cursor-pointer disabled:opacity-50" style={{ background: BRAND.rosa }}>
+        {salvando ? "Salvando..." : "Salvar Configurações"}
+      </button>
     </div>
   );
 }
@@ -2554,11 +3500,11 @@ function AgendaTab({ userId, profile }) {
   useEffect(() => {
     (async () => {
       const { data } = await sb.from("contract_estoque_itens")
-        .select("contract_id, estoque_itens(material, modelo, foto_data_url)")
+        .select("contract_id, estoque_itens(material, modelo, foto_url, foto_data_url)")
         .eq("decoradora_id", userId);
       const mapa = {};
       (data || []).forEach((r) => {
-        if (!r.estoque_itens || !r.estoque_itens.foto_data_url) return;
+        if (!r.estoque_itens || !fotoDoItem(r.estoque_itens)) return;
         (mapa[r.contract_id] = mapa[r.contract_id] || []).push(r.estoque_itens);
       });
       setFotosPorContrato(mapa);
@@ -2709,7 +3655,7 @@ function AgendaTab({ userId, profile }) {
                           {(fotosPorContrato[e.contractId] || []).length > 0 && (
                             <div className="flex gap-1.5 flex-wrap">
                               {fotosPorContrato[e.contractId].map((f, i) => (
-                                <img key={i} src={f.foto_data_url} loading="lazy" title={f.modelo ? `${f.material} — ${f.modelo}` : f.material} className="w-12 h-12 rounded-lg object-cover" style={{ border: "1px solid #e2e8f0" }} />
+                                <img key={i} src={fotoDoItem(f)} loading="lazy" title={f.modelo ? `${f.material} — ${f.modelo}` : f.material} className="w-12 h-12 rounded-lg object-cover" style={{ border: "1px solid #e2e8f0" }} />
                               ))}
                             </div>
                           )}
@@ -2936,7 +3882,9 @@ function App() {
         ) : page === "oportunidades" ? (
           <OportunidadesTab userId={session.user.id} profile={profile} />
         ) : page === "estoque" ? (
-          <EstoqueTab userId={session.user.id} />
+          <EstoqueTab userId={session.user.id} profile={profile} />
+        ) : page === "catalogo" ? (
+          <CatalogoTab userId={session.user.id} profile={profile} onProfileUpdate={setProfile} />
         ) : page === "perfil" ? (
           <PerfilTab profile={profile} userId={session.user.id} onSaved={setProfile} setPage={setPage} />
         ) : (
