@@ -2994,7 +2994,7 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
 
           {kit.id && (
             <button
-              onClick={() => navigator.clipboard.writeText(`https://appdecore.com.br/catalogo-cliente.html?d=${kit.decoradora_id}&kit=${kit.id}`)}
+              onClick={() => navigator.clipboard.writeText(`https://appdecore.com.br/catalogo-cliente.html?d=${profile.catalogo_slug || kit.decoradora_id}&kit=${kit.id}`)}
               className="w-full py-2.5 rounded-2xl font-bold text-xs cursor-pointer"
               style={{ background: "#F1F5F9", color: BRAND.tinta }}
             >
@@ -3029,7 +3029,30 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
     catalogo_instagram: profile.catalogo_instagram || "",
     whatsapp_contato: profile.whatsapp_contato || "",
     catalogo_ativo: profile.catalogo_ativo !== false,
+    catalogo_slug: profile.catalogo_slug || "",
   });
+  const [erroSlug, setErroSlug] = useState("");
+  const [checandoSlug, setChecandoSlug] = useState(false);
+  const [slugDisponivel, setSlugDisponivel] = useState(null); // null=não checado, true/false=resultado
+
+  function normalizarSlug(texto) {
+    return (texto || "")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // tira acento
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, "") // só letra, número, espaço e hífen
+      .trim().replace(/\s+/g, "-").replace(/-+/g, "-");
+  }
+
+  async function checarSlugDisponivel() {
+    const slug = form.catalogo_slug;
+    if (!slug) { setSlugDisponivel(null); setErroSlug(""); return; }
+    if (slug.length < 3) { setErroSlug("Use pelo menos 3 letras."); setSlugDisponivel(false); return; }
+    setChecandoSlug(true);
+    const { data } = await sb.from("decoradoras").select("id").eq("catalogo_slug", slug).neq("id", userId).maybeSingle();
+    setChecandoSlug(false);
+    if (data) { setSlugDisponivel(false); setErroSlug("Esse nome já está sendo usado por outra loja. Tenta outro."); }
+    else { setSlugDisponivel(true); setErroSlug(""); }
+  }
   const [salvando, setSalvando] = useState(false);
 
   const set = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
@@ -3049,15 +3072,25 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
   }
 
   async function salvar() {
+    if (form.catalogo_slug) {
+      setChecandoSlug(true);
+      const { data } = await sb.from("decoradoras").select("id").eq("catalogo_slug", form.catalogo_slug).neq("id", userId).maybeSingle();
+      setChecandoSlug(false);
+      if (data) { setErroSlug("Esse nome já está sendo usado por outra loja. Tenta outro antes de salvar."); setSlugDisponivel(false); return; }
+    }
     setSalvando(true);
-    const linha = { ...form, whatsapp_contato: formatarWhatsappBR(form.whatsapp_contato) };
+    const linha = { ...form, whatsapp_contato: formatarWhatsappBR(form.whatsapp_contato), catalogo_slug: form.catalogo_slug || null };
     const { error } = await sb.from("decoradoras").update(linha).eq("id", userId);
     setSalvando(false);
-    if (error) { setErro("Erro ao salvar configurações: " + error.message); return; }
+    if (error) {
+      if (error.message && error.message.includes("catalogo_slug")) setErro("Esse nome de link já está em uso. Escolhe outro.");
+      else setErro("Erro ao salvar configurações: " + error.message);
+      return;
+    }
     onProfileUpdate((p) => ({ ...p, ...linha }));
   }
 
-  const linkCatalogo = `https://appdecore.com.br/catalogo-cliente.html?d=${userId}`;
+  const linkCatalogo = `https://appdecore.com.br/catalogo-cliente.html?d=${form.catalogo_slug || userId}`;
 
   return (
     <div className="space-y-5">
@@ -3145,6 +3178,28 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
 
       {form.catalogo_ativo && (
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+          <p className="font-bold text-sm mb-2" style={{ color: BRAND.tinta }}>Nome do seu link</p>
+          <p className="text-xs text-slate-400 mb-2">Em vez de um monte de número, coloque o nome da sua loja — fica mais bonito e fácil de lembrar.</p>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs text-slate-400 shrink-0 hidden sm:inline">catalogo-cliente.html?d=</span>
+            <input
+              value={form.catalogo_slug}
+              onChange={(e) => { setForm((f) => ({ ...f, catalogo_slug: normalizarSlug(e.target.value) })); setSlugDisponivel(null); setErroSlug(""); }}
+              onBlur={checarSlugDisponivel}
+              placeholder="ex: pri-festas-decor"
+              className="flex-1 px-3 py-2 rounded-xl border-2 text-sm"
+              style={{ borderColor: slugDisponivel === false ? BRAND.rosa : slugDisponivel === true ? "#22C55E" : "#e2e8f0" }}
+            />
+          </div>
+          {checandoSlug && <p className="text-xs text-slate-400 mb-2">Checando se está disponível...</p>}
+          {!checandoSlug && slugDisponivel === true && <p className="text-xs font-semibold mb-2" style={{ color: "#22C55E" }}>✓ Esse nome está livre!</p>}
+          {!checandoSlug && erroSlug && <p className="text-xs font-semibold mb-2" style={{ color: BRAND.rosa }}>{erroSlug}</p>}
+          <p className="text-xs text-slate-400">Deixe em branco pra continuar usando o código automático.</p>
+        </div>
+      )}
+
+      {form.catalogo_ativo && (
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
           <p className="font-bold text-sm mb-2" style={{ color: BRAND.tinta }}>Seu link</p>
           <div className="flex gap-2">
             <input readOnly value={linkCatalogo} className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm text-slate-500 bg-slate-50" />
@@ -3168,6 +3223,52 @@ function FinanceiroTab({ userId, profile }) {
   const [novaDespesa, setNovaDespesa] = useState({ descricao: "", categoria: "baloes", valor: "", data: todayISO() });
   const [erroDespesa, setErroDespesa] = useState("");
   const [salvandoDespesa, setSalvandoDespesa] = useState(false);
+
+  // Filtro de período (não mexe nos dados, só filtra o que é exibido)
+  const [filtroInicio, setFiltroInicio] = useState(null); // null = sem filtro (mostra tudo, igual sempre foi)
+  const [filtroFim, setFiltroFim] = useState(null);
+  const [filtroAberto, setFiltroAberto] = useState(false);
+  const [rascunhoInicio, setRascunhoInicio] = useState("");
+  const [rascunhoFim, setRascunhoFim] = useState("");
+
+  function isoLocal(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+  function calcularAtalho(chave) {
+    const hoje = new Date(); const y = hoje.getFullYear(), m = hoje.getMonth(), d = hoje.getDate();
+    if (chave === "hoje") return [isoLocal(hoje), isoLocal(hoje)];
+    if (chave === "ontem") { const on = new Date(y, m, d - 1); return [isoLocal(on), isoLocal(on)]; }
+    if (chave === "7dias") { const ini = new Date(y, m, d - 6); return [isoLocal(ini), isoLocal(hoje)]; }
+    if (chave === "14dias") { const ini = new Date(y, m, d - 13); return [isoLocal(ini), isoLocal(hoje)]; }
+    if (chave === "30dias") { const ini = new Date(y, m, d - 29); return [isoLocal(ini), isoLocal(hoje)]; }
+    if (chave === "semana") { const ini = new Date(y, m, d - hoje.getDay()); return [isoLocal(ini), isoLocal(hoje)]; }
+    if (chave === "mes") { const ini = new Date(y, m, 1); return [isoLocal(ini), isoLocal(hoje)]; }
+    if (chave === "mespassado") { const ini = new Date(y, m - 1, 1); const fim = new Date(y, m, 0); return [isoLocal(ini), isoLocal(fim)]; }
+    if (chave === "ano") { const ini = new Date(y, 0, 1); return [isoLocal(ini), isoLocal(hoje)]; }
+    return [null, null]; // "maximo"
+  }
+  function aplicarAtalho(chave) {
+    const [ini, fim] = calcularAtalho(chave);
+    setFiltroInicio(ini); setFiltroFim(fim);
+    setFiltroAberto(false);
+  }
+  function abrirFiltro() {
+    setRascunhoInicio(filtroInicio || ""); setRascunhoFim(filtroFim || "");
+    setFiltroAberto(true);
+  }
+  function aplicarPersonalizado() {
+    setFiltroInicio(rascunhoInicio || null); setFiltroFim(rascunhoFim || null);
+    setFiltroAberto(false);
+  }
+  const filtroLabel = (!filtroInicio && !filtroFim) ? "Máximo (tudo)" : `${formatDateBR(filtroInicio)} — ${formatDateBR(filtroFim)}`;
+
+  function dentroDoPeriodo(dataStr) {
+    if (!filtroInicio && !filtroFim) return true;
+    if (!dataStr) return false;
+    if (filtroInicio && dataStr < filtroInicio) return false;
+    if (filtroFim && dataStr > filtroFim) return false;
+    return true;
+  }
+  const contractsFiltrados = useMemo(() => contracts.filter((c) => dentroDoPeriodo(c.dataRetirada)), [contracts, filtroInicio, filtroFim]);
+  const despesasFiltradas = useMemo(() => despesas.filter((d) => dentroDoPeriodo(d.data)), [despesas, filtroInicio, filtroFim]);
 
   const carregarDespesas = useCallback(async () => {
     const { data } = await sb.from("despesas").select("*").eq("decoradora_id", userId).order("data", { ascending: false });
@@ -3205,11 +3306,11 @@ function FinanceiroTab({ userId, profile }) {
 
   const totals = useMemo(() => {
     let recebido = 0, pendente = 0, faturado = 0;
-    contracts.forEach((c) => { const f = computeFinanceFaturamento(c, pctSinalEfetivo(c, profile)); recebido += f.pago; pendente += f.pendente; faturado += f.valor; });
+    contractsFiltrados.forEach((c) => { const f = computeFinanceFaturamento(c, pctSinalEfetivo(c, profile)); recebido += f.pago; pendente += f.pendente; faturado += f.valor; });
     return { recebido, pendente, faturado };
-  }, [contracts, profile.sinal_percentual]);
+  }, [contractsFiltrados, profile.sinal_percentual]);
 
-  const totalSaidas = useMemo(() => despesas.reduce((s, d) => s + (Number(d.valor) || 0), 0), [despesas]);
+  const totalSaidas = useMemo(() => despesasFiltradas.reduce((s, d) => s + (Number(d.valor) || 0), 0), [despesasFiltradas]);
   const lucroLiquido = totals.recebido - totalSaidas;
   const CATEGORIAS_DESPESA = { baloes: "Balões", materiais: "Materiais", transporte: "Transporte", mao_de_obra: "Mão de obra", outros: "Outros" };
 
@@ -3223,7 +3324,7 @@ function FinanceiroTab({ userId, profile }) {
       if (!map[key]) map[key] = { mes: MESES_ABREV[date.getMonth()], total: 0, order: date.getFullYear()*12+date.getMonth() };
       map[key].total += value;
     }
-    contracts.forEach((c) => {
+    contractsFiltrados.forEach((c) => {
       const valor = parseValorBR(c.valor);
       const dAssinatura = c.createdAt ? new Date(c.createdAt) : null;
       const dEvento = c.dataRetirada ? parseDateLocal(c.dataRetirada) : null;
@@ -3231,28 +3332,28 @@ function FinanceiroTab({ userId, profile }) {
       else if (c.statusPagamento === "sinal") { add(dAssinatura, valor*(pct/100)); add(dEvento, valor*(1-pct/100)); }
     });
     return Object.values(map).sort((a,b) => a.order-b.order).slice(-6);
-  }, [contracts, profile.sinal_percentual]);
+  }, [contractsFiltrados, profile.sinal_percentual]);
 
   const porTipoServico = useMemo(() => {
     const map = {};
-    contracts.forEach((c) => {
+    contractsFiltrados.forEach((c) => {
       const key = c.tipoServico || "pegue_monte";
       if (!map[key]) map[key] = { tipo: TIPO_SERVICO_LABELS[key] || key, total: 0, qtd: 0 };
       map[key].total += parseValorBR(c.valor);
       map[key].qtd += 1;
     });
     return Object.values(map).sort((a,b) => b.total-a.total);
-  }, [contracts]);
+  }, [contractsFiltrados]);
 
   const produtosRanking = useMemo(() => {
     const map = {};
-    contracts.forEach((c) => { const n = c.produtoNome || "Sem nome"; map[n] = (map[n]||0)+1; });
+    contractsFiltrados.forEach((c) => { const n = c.produtoNome || "Sem nome"; map[n] = (map[n]||0)+1; });
     return Object.entries(map).map(([name,value]) => ({name,value})).sort((a,b)=>b.value-a.value).slice(0,6);
-  }, [contracts]);
+  }, [contractsFiltrados]);
 
-  const aReceberLista = useMemo(() => contracts.filter((c) => computeFinanceFaturamento(c, pctSinalEfetivo(c, profile)).pendente > 0).sort((a,b) => (a.dataRetirada||"").localeCompare(b.dataRetirada||"")), [contracts, profile.sinal_percentual]);
-  const recebidoLista = useMemo(() => contracts.filter((c) => computeFinanceFaturamento(c, pctSinalEfetivo(c, profile)).pago > 0).sort((a,b) => (b.createdAt||0)-(a.createdAt||0)), [contracts, profile.sinal_percentual]);
-  const faturadoLista = useMemo(() => [...contracts].sort((a,b) => (b.createdAt||0)-(a.createdAt||0)), [contracts]);
+  const aReceberLista = useMemo(() => contractsFiltrados.filter((c) => computeFinanceFaturamento(c, pctSinalEfetivo(c, profile)).pendente > 0).sort((a,b) => (a.dataRetirada||"").localeCompare(b.dataRetirada||"")), [contractsFiltrados, profile.sinal_percentual]);
+  const recebidoLista = useMemo(() => contractsFiltrados.filter((c) => computeFinanceFaturamento(c, pctSinalEfetivo(c, profile)).pago > 0).sort((a,b) => (b.createdAt||0)-(a.createdAt||0)), [contractsFiltrados, profile.sinal_percentual]);
+  const faturadoLista = useMemo(() => [...contractsFiltrados].sort((a,b) => (b.createdAt||0)-(a.createdAt||0)), [contractsFiltrados]);
 
   const PIE_CORES = [BRAND.rosa, BRAND.amarelo, BRAND.turquesa, BRAND.roxo, "#3D5AFE", "#F97316"];
 
@@ -3264,13 +3365,62 @@ function FinanceiroTab({ userId, profile }) {
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
       <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Financeiro</h2>
-      <p className="text-sm text-slate-400 mb-5">Puxado automaticamente dos contratos preenchidos.</p>
+      <p className="text-sm text-slate-400 mb-3">Puxado automaticamente dos contratos preenchidos.</p>
+
+      <div className="relative mb-5">
+        <button onClick={() => (filtroAberto ? setFiltroAberto(false) : abrirFiltro())} className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 text-sm font-bold cursor-pointer" style={{ borderColor: (filtroInicio || filtroFim) ? BRAND.roxo : "#e2e8f0", color: (filtroInicio || filtroFim) ? BRAND.roxo : BRAND.tinta, background: (filtroInicio || filtroFim) ? BRAND.roxo + "10" : "#fff" }}>
+          📅 {filtroLabel}
+          <span className="text-xs">{filtroAberto ? "▾" : "▸"}</span>
+        </button>
+
+        {filtroAberto && (
+          <>
+            <div className="fixed inset-0 z-30" onClick={() => setFiltroAberto(false)} />
+            <div className="absolute left-0 top-full mt-2 z-40 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden" style={{ width: 320, maxWidth: "90vw" }}>
+              <div className="flex flex-col sm:flex-row">
+                <div className="flex sm:flex-col overflow-x-auto sm:overflow-visible border-b sm:border-b-0 sm:border-r border-slate-100" style={{ background: "#FAFAFC" }}>
+                  {[
+                    ["hoje", "Hoje"], ["ontem", "Ontem"], ["7dias", "Últimos 7 dias"], ["14dias", "Últimos 14 dias"],
+                    ["30dias", "Últimos 30 dias"], ["semana", "Esta semana"], ["mes", "Este mês"], ["mespassado", "Mês passado"],
+                    ["ano", "Este ano"], ["maximo", "Máximo"],
+                  ].map(([chave, label]) => (
+                    <button key={chave} type="button" onClick={() => aplicarAtalho(chave)} className="text-left text-xs font-semibold px-3.5 py-2.5 whitespace-nowrap sm:whitespace-normal hover:bg-white cursor-pointer" style={{ color: BRAND.tinta }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="p-3.5 flex-1">
+                  <p className="text-xs font-bold mb-2" style={{ color: BRAND.tinta }}>Período personalizado</p>
+                  <label className="block mb-2">
+                    <span className="block text-[11px] text-slate-400 mb-1">De</span>
+                    <input type="date" className={inputClass} value={rascunhoInicio} onChange={(e) => setRascunhoInicio(e.target.value)} />
+                  </label>
+                  <label className="block mb-3">
+                    <span className="block text-[11px] text-slate-400 mb-1">Até</span>
+                    <input type="date" className={inputClass} value={rascunhoFim} onChange={(e) => setRascunhoFim(e.target.value)} />
+                  </label>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setFiltroAberto(false)} className="flex-1 py-2 rounded-lg text-xs font-bold cursor-pointer" style={{ background: "#f1f5f9", color: "#64748b" }}>Cancelar</button>
+                    <button type="button" onClick={aplicarPersonalizado} className="flex-1 py-2 rounded-lg text-xs font-bold text-white cursor-pointer" style={{ background: BRAND.roxo }}>Atualizar</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {contractsFiltrados.length === 0 && (
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 mb-4 text-center text-slate-400 text-sm">
+          Nenhum contrato com data de retirada nesse período. Tenta outro filtro ali em cima. 👆
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
         <StatCard emoji="💰" label="Já recebido" value={formatBRL(totals.recebido)} color={BRAND.turquesa} active={activeDetail==="recebido"} onClick={() => setActiveDetail(activeDetail==="recebido"?null:"recebido")} />
         <StatCard emoji="⏳" label="A receber" value={formatBRL(totals.pendente)} color={BRAND.rosa} active={activeDetail==="pendente"} onClick={() => setActiveDetail(activeDetail==="pendente"?null:"pendente")} />
         <StatCard emoji="📈" label="Faturamento total" value={formatBRL(totals.faturado)} color={BRAND.azul} active={activeDetail==="faturado"} onClick={() => setActiveDetail(activeDetail==="faturado"?null:"faturado")} />
-        <StatCard emoji="📦" label="Contratos" value={contracts.length} color={BRAND.amarelo} active={activeDetail==="contratos"} onClick={() => setActiveDetail(activeDetail==="contratos"?null:"contratos")} />
+        <StatCard emoji="📦" label="Contratos" value={contractsFiltrados.length} color={BRAND.amarelo} active={activeDetail==="contratos"} onClick={() => setActiveDetail(activeDetail==="contratos"?null:"contratos")} />
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-4">
@@ -3334,7 +3484,7 @@ function FinanceiroTab({ userId, profile }) {
           </div>
 
           <div className="space-y-2">
-            {despesas.map((d) => (
+            {despesasFiltradas.map((d) => (
               <div key={d.id} className="flex items-center justify-between py-2.5 border-b border-slate-50 last:border-0">
                 <div className="min-w-0">
                   <p className="font-semibold text-sm truncate" style={{ color: BRAND.tinta }}>{d.descricao}</p>
@@ -3346,7 +3496,7 @@ function FinanceiroTab({ userId, profile }) {
                 </div>
               </div>
             ))}
-            {despesas.length === 0 && <p className="text-sm text-slate-400">Nenhuma saída registrada ainda.</p>}
+            {despesasFiltradas.length === 0 && <p className="text-sm text-slate-400">Nenhuma saída registrada ainda.</p>}
           </div>
         </div>
       )}
