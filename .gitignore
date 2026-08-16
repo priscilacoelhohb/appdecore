@@ -1,0 +1,14 @@
+# Segredos - nunca commitar
+chave*.txt
+*.env
+*.env.*
+
+# Material bruto local (não faz parte do site publicado — não estava no repo remoto)
+*.MOV
+*.mov
+*.cdr
+/versao anterior/
+
+# Sistema
+.DS_Store
+Thumbs.db
