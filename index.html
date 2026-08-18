@@ -380,6 +380,8 @@ function AuthScreen({ onAuthed }) {
             limite_pecas: pendente.limite_pecas,
             stripe_customer_id: pendente.stripe_customer_id,
             stripe_subscription_id: pendente.stripe_subscription_id,
+            cakto_subscription_id: pendente.cakto_subscription_id,
+            fonte_pagamento_ativa: pendente.cakto_subscription_id ? "cakto" : (pendente.stripe_customer_id ? "stripe" : null),
           };
         }
         // Confirmação de e-mail desligada: já entra direto e cria o perfil da loja.
@@ -428,6 +430,8 @@ function AuthScreen({ onAuthed }) {
             limite_pecas: pendente.limite_pecas,
             stripe_customer_id: pendente.stripe_customer_id,
             stripe_subscription_id: pendente.stripe_subscription_id,
+            cakto_subscription_id: pendente.cakto_subscription_id,
+            fonte_pagamento_ativa: pendente.cakto_subscription_id ? "cakto" : (pendente.stripe_customer_id ? "stripe" : null),
           };
         }
         await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim() || "Minha Loja", email: email.trim(), ...planoInicial });
@@ -2132,7 +2136,7 @@ function corEstoque(qtd) {
   return "#22C55E";
 }
 
-function EstoqueTab({ userId, profile }) {
+function EstoqueTab({ userId, profile, onProfileUpdate }) {
   const [itens, setItens] = useState(null);
   const [erro, setErro] = useState("");
   const [novoMaterial, setNovoMaterial] = useState("");
@@ -2223,10 +2227,19 @@ function EstoqueTab({ userId, profile }) {
     if (!nome) { setErro("Digite o nome do material."); return; }
     const jaExiste = itens.some((i) => i.material.trim().toLowerCase() === nome.toLowerCase());
     if (jaExiste) { setErro(`Você já tem "${nome}" cadastrado no estoque. Em vez de criar de novo, edite a quantidade dele ali embaixo na lista.`); return; }
-    const limite = profile && profile.limite_pecas;
+    let limite = profile && profile.limite_pecas;
     if (limite && itens.length >= limite) {
-      setErro(`Seu plano Básico permite até ${limite} peças cadastradas no estoque. Faça upgrade pro plano Premium pra cadastrar sem limite.`);
-      return;
+      // Revalida no banco antes de bloquear — evita bloqueio incorreto se o plano
+      // mudou (upgrade) depois que essa aba já tinha carregado o perfil antigo.
+      const { data: perfilAtual } = await sb.from("decoradoras").select("*").eq("id", userId).maybeSingle();
+      if (perfilAtual) {
+        if (onProfileUpdate) onProfileUpdate(perfilAtual);
+        limite = perfilAtual.limite_pecas;
+      }
+      if (limite && itens.length >= limite) {
+        setErro(`Seu plano Básico permite até ${limite} peças cadastradas no estoque. Faça upgrade pro plano Premium pra cadastrar sem limite.`);
+        return;
+      }
     }
     setSalvandoNovo(true);
     const row = { id: novoItemIdRef.current || uid(), decoradora_id: userId, material: nome, modelo: "", quantidade: Math.max(0, Number(novaQtd) || 0), foto_url: novaFoto || null };
@@ -2519,9 +2532,19 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
   const totalKits = (kits || []).length;
 
   async function novoKit() {
-    if (totalKits >= limiteCatalogo) {
-      setErro(`Seu plano permite até ${limiteCatalogo} kits no catálogo. Apague algum antes de criar outro, ou faça upgrade.`);
-      return;
+    let limiteAtual = limiteCatalogo;
+    if (totalKits >= limiteAtual) {
+      // Revalida no banco antes de bloquear — evita bloqueio incorreto se o plano
+      // mudou (upgrade) depois que essa aba já tinha carregado o perfil antigo.
+      const { data: perfilAtual } = await sb.from("decoradoras").select("*").eq("id", userId).maybeSingle();
+      if (perfilAtual) {
+        onProfileUpdate(perfilAtual);
+        limiteAtual = perfilAtual.limite_catalogo || 10;
+      }
+      if (totalKits >= limiteAtual) {
+        setErro(`Seu plano permite até ${limiteAtual} kits no catálogo. Apague algum antes de criar outro, ou faça upgrade.`);
+        return;
+      }
     }
     setEditando({
       id: null, nome: "", itens_inclusos: [], tipo_evento: "", publico: "", nivel: "", tema: "", cor: "",
@@ -4032,7 +4055,7 @@ function App() {
         ) : page === "oportunidades" ? (
           <OportunidadesTab userId={session.user.id} profile={profile} />
         ) : page === "estoque" ? (
-          <EstoqueTab userId={session.user.id} profile={profile} />
+          <EstoqueTab userId={session.user.id} profile={profile} onProfileUpdate={setProfile} />
         ) : page === "catalogo" ? (
           <CatalogoTab userId={session.user.id} profile={profile} onProfileUpdate={setProfile} />
         ) : page === "perfil" ? (
