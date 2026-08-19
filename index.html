@@ -382,6 +382,10 @@ function AuthScreen({ onAuthed }) {
             stripe_subscription_id: pendente.stripe_subscription_id,
             cakto_subscription_id: pendente.cakto_subscription_id,
             fonte_pagamento_ativa: pendente.cakto_subscription_id ? "cakto" : (pendente.stripe_customer_id ? "stripe" : null),
+            // Sem isso, a conta nascia com plano_tipo certo mas plano_status
+            // ainda em "trial" (o padrão da tabela) — ela pagou mas o app
+            // continuava tratando como se estivesse só testando de graça.
+            plano_status: "ativo",
           };
         }
         // Confirmação de e-mail desligada: já entra direto e cria o perfil da loja.
@@ -432,6 +436,7 @@ function AuthScreen({ onAuthed }) {
             stripe_subscription_id: pendente.stripe_subscription_id,
             cakto_subscription_id: pendente.cakto_subscription_id,
             fonte_pagamento_ativa: pendente.cakto_subscription_id ? "cakto" : (pendente.stripe_customer_id ? "stripe" : null),
+            plano_status: "ativo",
           };
         }
         await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim() || "Minha Loja", email: email.trim(), ...planoInicial });
