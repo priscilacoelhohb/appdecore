@@ -4018,13 +4018,28 @@ function AgendaTab({ userId, profile }) {
   );
 }
 
+// Detecta direto pelo endereço da página se esse acesso veio de um link de
+// recuperação de senha (o Supabase manda "type=recovery" no link, seja na
+// parte # ou na parte ?). Checar isso na hora, sem esperar nenhum evento
+// assíncrono, evita cair na tela errada quando esse evento demora ou falha
+// (acontece em alguns navegadores/apps de e-mail).
+function linkPareceRecuperacaoDeSenha() {
+  try {
+    const hash = window.location.hash || "";
+    const busca = window.location.search || "";
+    return hash.includes("type=recovery") || busca.includes("type=recovery");
+  } catch (e) {
+    return false;
+  }
+}
+
 function App() {
   const [session, setSession] = useState(undefined); // undefined = carregando, null = deslogado
   const [profile, setProfile] = useState(null);
   const [page, setPage] = useState("home");
   const [homeContracts, setHomeContracts] = useState([]);
   const [notificacoes, setNotificacoes] = useState([]);
-  const [modoRecuperacao, setModoRecuperacao] = useState(false);
+  const [modoRecuperacao, setModoRecuperacao] = useState(linkPareceRecuperacaoDeSenha);
   const [menuAberto, setMenuAberto] = useState(false);
   const [appConfig, setAppConfig] = useState(null);
 
@@ -4037,7 +4052,7 @@ function App() {
     sb.auth.getSession().then(({ data }) => setSession(data.session));
     const { data: listener } = sb.auth.onAuthStateChange((event, s) => {
       setSession(s);
-      if (event === "PASSWORD_RECOVERY") setModoRecuperacao(true);
+      if (event === "PASSWORD_RECOVERY" || linkPareceRecuperacaoDeSenha()) setModoRecuperacao(true);
     });
     return () => listener.subscription.unsubscribe();
   }, []);
