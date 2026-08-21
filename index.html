@@ -346,8 +346,20 @@ function SuccessBox({ children }) {
 /* ============================================================
    TELA DE LOGIN / CADASTRO (autenticação real via Supabase Auth)
 ============================================================ */
+// Lembra, só neste navegador/aparelho, se essa pessoa já entrou no
+// AppDecore alguma vez (cadastro novo ou login). Usamos isso pra decidir
+// se a tela abre em "Criar conta" (quem nunca usou, ex: acabou de pagar
+// e recebeu o link) ou "Entrar" (quem já é cliente) — muita decoradora
+// nova não enxergava a aba "Criar conta" e ficava travada na de login.
+function jaEntrouNesteAparelho() {
+  try { return localStorage.getItem("appdecore_ja_entrou") === "1"; } catch (e) { return false; }
+}
+function marcarJaEntrouNesteAparelho() {
+  try { localStorage.setItem("appdecore_ja_entrou", "1"); } catch (e) {}
+}
+
 function AuthScreen({ onAuthed }) {
-  const [modo, setModo] = useState("login"); // login | cadastro
+  const [modo, setModo] = useState(() => (jaEntrouNesteAparelho() ? "login" : "cadastro"));
   const [nomeLoja, setNomeLoja] = useState("");
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
@@ -390,6 +402,7 @@ function AuthScreen({ onAuthed }) {
         }
         // Confirmação de e-mail desligada: já entra direto e cria o perfil da loja.
         await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim(), email: email.trim(), ...planoInicial });
+        marcarJaEntrouNesteAparelho();
         onAuthed();
       } else {
         setAviso("Conta criada! Verifique seu e-mail para confirmar o cadastro e depois faça login.");
@@ -441,6 +454,7 @@ function AuthScreen({ onAuthed }) {
         }
         await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim() || "Minha Loja", email: email.trim(), ...planoInicial });
       }
+      marcarJaEntrouNesteAparelho();
       onAuthed();
     } catch (err) {
       setErro("Erro inesperado: " + err.message);
@@ -523,6 +537,7 @@ function ResetPasswordScreen({ onDone }) {
   const [senha2, setSenha2] = useState("");
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
+  const [salvo, setSalvo] = useState(false);
 
   async function handleSalvar() {
     setErro("");
@@ -532,7 +547,26 @@ function ResetPasswordScreen({ onDone }) {
     const { error } = await sb.auth.updateUser({ password: senha });
     setCarregando(false);
     if (error) { setErro("Erro ao salvar: " + error.message); return; }
-    onDone();
+    // Não confia que a sessão temporária do link de recuperação vai continuar
+    // válida pra entrar direto no painel (em alguns navegadores/apps de e-mail
+    // ela se perde bem nessa hora) — mostra confirmação clara aqui mesmo, em
+    // vez de deixar a pessoa "sumir" pra tela de login achando que deu erro.
+    setSalvo(true);
+  }
+
+  if (salvo) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6" style={{ background: `linear-gradient(160deg, ${BRAND.azul} 0%, ${BRAND.azulEscuro} 100%)` }}>
+        <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-8 text-center">
+          <div className="text-4xl mb-3">✅</div>
+          <h1 className="fredoka text-xl font-bold mb-2" style={{ color: BRAND.azul }}>Senha salva!</h1>
+          <p className="text-sm text-slate-500 mb-6">Sua nova senha já está ativa. Agora é só entrar com ela.</p>
+          <button onClick={onDone} className="w-full py-3 rounded-xl font-bold text-white cursor-pointer active:scale-95 transition" style={{ background: BRAND.rosa }}>
+            Ir para o login
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -1086,6 +1120,11 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
   const [salvando, setSalvando] = useState(false);
   const [novoTipo, setNovoTipo] = useState("");
   const [tipoContratoAberto, setTipoContratoAberto] = useState(null);
+  const [novaSenha, setNovaSenha] = useState("");
+  const [novaSenha2, setNovaSenha2] = useState("");
+  const [senhaErro, setSenhaErro] = useState("");
+  const [senhaSalvando, setSenhaSalvando] = useState(false);
+  const [senhaSalva, setSenhaSalva] = useState(false);
 
   function set(field, value) { setForm((f) => ({ ...f, [field]: value })); setSalvo(false); }
 
@@ -1132,6 +1171,17 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
       setErro("Erro inesperado: " + err.message);
     }
     setSalvando(false);
+  }
+
+  async function handleTrocarSenha() {
+    setSenhaErro(""); setSenhaSalva(false);
+    if (novaSenha.length < 6) { setSenhaErro("A senha precisa ter pelo menos 6 caracteres."); return; }
+    if (novaSenha !== novaSenha2) { setSenhaErro("As duas senhas digitadas são diferentes."); return; }
+    setSenhaSalvando(true);
+    const { error } = await sb.auth.updateUser({ password: novaSenha });
+    setSenhaSalvando(false);
+    if (error) { setSenhaErro("Erro ao salvar: " + error.message); return; }
+    setNovaSenha(""); setNovaSenha2(""); setSenhaSalva(true);
   }
 
   return (
@@ -1284,6 +1334,22 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
           </button>
           <button type="button" onClick={() => setPage("home")} className="px-5 py-3 rounded-xl font-bold text-sm text-slate-400 hover:bg-slate-50 cursor-pointer">Voltar</button>
         </div>
+      </div>
+
+      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 mt-5">
+        <p className="font-bold text-sm mb-0.5" style={{ color: BRAND.rosa }}>Trocar senha</p>
+        <p className="text-xs text-slate-400 mb-4">Digite a senha nova direto aqui — não precisa sair nem receber e-mail.</p>
+        <Field label="Nova senha" hint="Mínimo de 6 caracteres.">
+          <input className={inputClass} type="password" value={novaSenha} onChange={(e) => { setNovaSenha(e.target.value); setSenhaSalva(false); }} placeholder="••••••" />
+        </Field>
+        <Field label="Confirme a nova senha">
+          <input className={inputClass} type="password" value={novaSenha2} onChange={(e) => { setNovaSenha2(e.target.value); setSenhaSalva(false); }} placeholder="••••••" />
+        </Field>
+        <ErrorBox>{senhaErro}</ErrorBox>
+        <SuccessBox>{senhaSalva ? "Senha alterada com sucesso!" : ""}</SuccessBox>
+        <button type="button" disabled={senhaSalvando || !novaSenha} onClick={handleTrocarSenha} className="py-3 px-6 rounded-xl font-bold text-white active:scale-95 transition cursor-pointer disabled:opacity-60" style={{ background: BRAND.azul }}>
+          {senhaSalvando ? "Salvando..." : "Salvar nova senha"}
+        </button>
       </div>
     </div>
   );
