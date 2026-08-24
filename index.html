@@ -805,7 +805,7 @@ function TrialGate({ profile, onLogout, children }) {
             : "Sua conta está com o acesso pausado no momento. Fale com a gente pra regularizar."}
         </p>
         {status === "trial" && (
-          <a href={`${profile.plano_tipo === "premium" ? "https://buy.stripe.com/4gM5kwgoRh1I7Z57HdfQI08" : "https://buy.stripe.com/dRm4gsdcFfXE7Z51iPfQI07"}?prefilled_email=${encodeURIComponent(profile.email || "")}`} className="block w-full py-3 rounded-xl font-bold text-white cursor-pointer text-center mb-3" style={{ background: BRAND.rosa || BRAND.azul }}>Assinar agora</a>
+          <a href={profile.plano_tipo === "premium" ? `https://buy.stripe.com/4gM5kwgoRh1I7Z57HdfQI08?prefilled_email=${encodeURIComponent(profile.email || "")}` : "https://pay.cakto.com.br/b3o264t_975931"} className="block w-full py-3 rounded-xl font-bold text-white cursor-pointer text-center mb-3" style={{ background: BRAND.rosa || BRAND.azul }}>Assinar agora</a>
         )}
         <button onClick={onLogout} className="w-full py-3 rounded-xl font-bold text-white cursor-pointer" style={{ background: BRAND.azul }}>Sair</button>
       </div>
@@ -4018,19 +4018,52 @@ function AgendaTab({ userId, profile }) {
   );
 }
 
-// Detecta direto pelo endereço da página se esse acesso veio de um link de
-// recuperação de senha (o Supabase manda "type=recovery" no link, seja na
-// parte # ou na parte ?). Checar isso na hora, sem esperar nenhum evento
-// assíncrono, evita cair na tela errada quando esse evento demora ou falha
-// (acontece em alguns navegadores/apps de e-mail).
-function linkPareceRecuperacaoDeSenha() {
+// Detecta direto pelo endereço da página se esse acesso PODE ter vindo de
+// um link de e-mail (recuperação de senha ou link mágico) — cobre os dois
+// formatos que o Supabase usa: o antigo (#access_token=...&type=recovery)
+// e o mais novo/seguro (?code=...), que não tem a palavra "recovery" em
+// lugar nenhum do endereço. Enquanto não sabemos QUAL dos dois é (ou se
+// ele já venceu), não decidimos nada — só sinalizamos "pode ser link de
+// e-mail, espera confirmar antes de mostrar qualquer tela".
+function pareceLinkDeEmail() {
   try {
-    const hash = window.location.hash || "";
-    const busca = window.location.search || "";
-    return hash.includes("type=recovery") || busca.includes("type=recovery");
+    const tudo = (window.location.hash || "") + (window.location.search || "");
+    return tudo.includes("type=recovery") || tudo.includes("code=") || tudo.includes("access_token=");
   } catch (e) {
     return false;
   }
+}
+
+function linkDeEmailVenceu() {
+  try {
+    const tudo = (window.location.hash || "") + (window.location.search || "");
+    return tudo.includes("otp_expired") || tudo.includes("error=access_denied") || tudo.includes("error_code=otp_expired") || tudo.includes("error=");
+  } catch (e) {
+    return false;
+  }
+}
+
+function LinkVencidoScreen() {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: `linear-gradient(160deg, ${BRAND.azul} 0%, ${BRAND.azulEscuro} 100%)` }}>
+      <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-8 text-center">
+        <div className="text-4xl mb-3">⏰</div>
+        <h1 className="fredoka text-xl font-bold mb-2" style={{ color: BRAND.azul }}>Esse link venceu</h1>
+        <p className="text-sm text-slate-500 mb-6">Por segurança, links de acesso por e-mail só valem por um tempo limitado. Pede um link novo — é rapidinho.</p>
+        <button onClick={() => { window.location.href = "https://painel.appdecore.com.br"; }} className="w-full py-3 rounded-xl font-bold text-white cursor-pointer active:scale-95 transition" style={{ background: BRAND.rosa }}>
+          Pedir um novo acesso
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CarregandoLinkScreen() {
+  return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: BRAND.azul }}>
+      <span className="text-white">Confirmando seu acesso...</span>
+    </div>
+  );
 }
 
 function App() {
@@ -4039,7 +4072,12 @@ function App() {
   const [page, setPage] = useState("home");
   const [homeContracts, setHomeContracts] = useState([]);
   const [notificacoes, setNotificacoes] = useState([]);
-  const [modoRecuperacao, setModoRecuperacao] = useState(linkPareceRecuperacaoDeSenha);
+  const [modoRecuperacao, setModoRecuperacao] = useState(false);
+  const [linkVencido, setLinkVencido] = useState(linkDeEmailVenceu);
+  // Se o endereço parece ter vindo de um link de e-mail, fica "processando"
+  // até confirmar de verdade o que é — nunca decide login/cadastro/painel
+  // antes disso, pra não cair na tela errada por engano.
+  const [processandoLink, setProcessandoLink] = useState(pareceLinkDeEmail);
   const [menuAberto, setMenuAberto] = useState(false);
   const [appConfig, setAppConfig] = useState(null);
 
@@ -4049,13 +4087,37 @@ function App() {
   }, [session]);
 
   useEffect(() => {
-    sb.auth.getSession().then(({ data }) => setSession(data.session));
+    sb.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      // Sessão já resolvida e não é recuperação de senha? Então o link de
+      // e-mail (se tinha) já foi processado — libera a tela normal.
+      if (processandoLink && data.session && !linkPareceRecuperacaoAgora()) setProcessandoLink(false);
+    });
     const { data: listener } = sb.auth.onAuthStateChange((event, s) => {
       setSession(s);
-      if (event === "PASSWORD_RECOVERY" || linkPareceRecuperacaoDeSenha()) setModoRecuperacao(true);
+      if (event === "PASSWORD_RECOVERY") { setModoRecuperacao(true); setProcessandoLink(false); }
+      else if (event === "SIGNED_IN") setProcessandoLink(false);
     });
-    return () => listener.subscription.unsubscribe();
+    // Depois de alguns segundos, se ainda não resolveu nada (nem virou
+    // recuperação, nem logou), assume que o link estava vencido/inválido
+    // em vez de deixar a pessoa presa numa tela de "carregando" pra sempre.
+    const limite = setTimeout(() => {
+      setProcessandoLink((ainda) => {
+        if (ainda) setLinkVencido(true);
+        return false;
+      });
+    }, 5000);
+    return () => { listener.subscription.unsubscribe(); clearTimeout(limite); };
   }, []);
+
+  function linkPareceRecuperacaoAgora() {
+    try {
+      const tudo = (window.location.hash || "") + (window.location.search || "");
+      return tudo.includes("type=recovery");
+    } catch (e) {
+      return false;
+    }
+  }
 
   const carregarPerfil = useCallback(async (userId, emailUsuario, tentativa = 0) => {
     const { data } = await sb.from("decoradoras").select("*").eq("id", userId).maybeSingle();
@@ -4105,8 +4167,14 @@ function App() {
 
   async function handleLogout() { await sb.auth.signOut(); setPage("home"); }
 
+  if (linkVencido) {
+    return <LinkVencidoScreen />;
+  }
   if (modoRecuperacao) {
     return <ResetPasswordScreen onDone={() => setModoRecuperacao(false)} />;
+  }
+  if (processandoLink) {
+    return <CarregandoLinkScreen />;
   }
   if (session === undefined) {
     return <div className="min-h-screen flex items-center justify-center" style={{ background: BRAND.azul }}><span className="text-white">Carregando...</span></div>;
