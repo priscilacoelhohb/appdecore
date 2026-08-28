@@ -362,6 +362,7 @@ const IconChat = (p) => <Icon {...p}><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 
 const IconPuzzle = (p) => <Icon {...p}><path d="M4 7h4a1 1 0 0 0 1-1V5a2 2 0 1 1 4 0v1a1 1 0 0 0 1 1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-1a2 2 0 1 0 0 4h1a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-1a2 2 0 1 0-4 0v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h1a2 2 0 1 0 0-4H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1"/></Icon>;
 const IconPlay = (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><polygon points="10 8 16 12 10 16 10 8"/></Icon>;
 const IconMap = (p) => <Icon {...p}><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></Icon>;
+const IconUsers = (p) => <Icon {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></Icon>;
 const IconChevronDown = (p) => <Icon {...p}><polyline points="6 9 12 15 18 9"/></Icon>;
 const IconChevronRight = (p) => <Icon {...p}><polyline points="9 18 15 12 9 6"/></Icon>;
 const IconLogout = (p) => <Icon {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></Icon>;
@@ -639,7 +640,7 @@ function ResetPasswordScreen({ onDone }) {
 /* ============================================================
    MENU LATERAL (Suporte, Problemas e Soluções, Aprenda mais, Comunidade)
 ============================================================ */
-function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout }) {
+function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout, isOwner, setPage }) {
   const [secaoAberta, setSecaoAberta] = useState(null); // 'faq' | 'videos' | null
   const [montado, setMontado] = useState(false);
 
@@ -718,6 +719,13 @@ function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout }) 
             <span style={{ color: BRAND.azul }}><IconMap /></span>
             <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>Comunidade</span>
           </button>
+
+          {isOwner && (
+            <button onClick={() => { setPage("equipe"); onClose(); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer" style={{ minHeight: 44 }}>
+              <span style={{ color: BRAND.azul }}><IconUsers /></span>
+              <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>Gerenciar equipe</span>
+            </button>
+          )}
         </div>
 
         <div className="border-t border-slate-100 px-4 py-3 flex items-center gap-2.5">
@@ -1029,29 +1037,31 @@ function PrimeirosPassos({ setPage, profile, contracts, userId }) {
   );
 }
 
-function HomeDashboard({ setPage, contracts, profile, userId }) {
+function HomeDashboard({ setPage, contracts, profile, userId, isOwner, membership }) {
   const hoje = todayISO();
   const entregasHoje = contracts.filter((c) => c.dataRetirada === hoje || c.dataDevolucao === hoje).length;
   const aReceber = contracts.reduce((s, c) => s + computeFinanceFaturamento(c, pctSinalEfetivo(c, profile)).pendente, 0);
   const primeiroNome = (profile.nome_responsavel || "").trim().split(" ")[0];
+  const pode = (chave) => isOwner || !!(membership && membership.permissoes && membership.permissoes[chave]);
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
       <div className="mb-7">
         <h2 className="fredoka text-2xl font-bold" style={{ color: BRAND.tinta }}>{saudacaoPorHorario()}{primeiroNome ? `, ${primeiroNome}` : ""}! 👋</h2>
         <p className="text-slate-400 text-sm mt-1">O que vamos fazer hoje?</p>
       </div>
-      <PrimeirosPassos setPage={setPage} profile={profile} contracts={contracts} userId={userId} />
+      {isOwner && <PrimeirosPassos setPage={setPage} profile={profile} contracts={contracts} userId={userId} />}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-        <HomeCard emoji="📄" title="Preencher contrato" desc="Gere o contrato já pronto, só preenchendo nome, produto, valor e data." color={BRAND.rosa} onClick={() => setPage("contrato")} stat={`${contracts.length} contrato${contracts.length === 1 ? "" : "s"}`} />
-        <HomeCard emoji="💰" title="Financeiro" desc="Faturamento do mês, produto mais vendido e valores a receber." color={BRAND.amarelo} onClick={() => setPage("financeiro")} stat={formatBRL(aReceber) + " a receber"} />
-        <HomeCard emoji="📅" title="Agenda" desc="Veja o que precisa entregar e retirar em cada dia." color={BRAND.turquesa} onClick={() => setPage("agenda")} stat={entregasHoje > 0 ? `${entregasHoje} hoje` : "Nada hoje"} />
-        <HomeCard emoji="🎯" title="Oportunidades" desc="Aniversários e clientes antigos pra reconquistar." color="#8B5CF6" onClick={() => setPage("oportunidades")} />
-        <HomeCard emoji="📦" title="Estoque" desc="Seus materiais, com quantidade sempre atualizada." color="#F97316" onClick={() => setPage("estoque")} />
-        {profile.plano_tipo === "premium" ? (
+        {pode("contrato") && <HomeCard emoji="📄" title="Preencher contrato" desc="Gere o contrato já pronto, só preenchendo nome, produto, valor e data." color={BRAND.rosa} onClick={() => setPage("contrato")} stat={`${contracts.length} contrato${contracts.length === 1 ? "" : "s"}`} />}
+        {pode("financeiro") && <HomeCard emoji="💰" title="Financeiro" desc="Faturamento do mês, produto mais vendido e valores a receber." color={BRAND.amarelo} onClick={() => setPage("financeiro")} stat={formatBRL(aReceber) + " a receber"} />}
+        {pode("agenda") && <HomeCard emoji="📅" title="Agenda" desc="Veja o que precisa entregar e retirar em cada dia." color={BRAND.turquesa} onClick={() => setPage("agenda")} stat={entregasHoje > 0 ? `${entregasHoje} hoje` : "Nada hoje"} />}
+        {pode("oportunidades") && <HomeCard emoji="🎯" title="Oportunidades" desc="Aniversários e clientes antigos pra reconquistar." color="#8B5CF6" onClick={() => setPage("oportunidades")} />}
+        {pode("estoque") && <HomeCard emoji="📦" title="Estoque" desc="Seus materiais, com quantidade sempre atualizada." color="#F97316" onClick={() => setPage("estoque")} />}
+        {pode("catalogo") && (profile.plano_tipo === "premium" ? (
           <HomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Vitrine dos seus kits com fotos reais, filtros por categoria e botão de WhatsApp pronto. Ainda edita as fotos com IA — troque cores e detalhes sem precisar tirar foto nova." color="#8B5CF6" onClick={() => setPage("catalogo")} />
         ) : (
           <LockedHomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Vitrine dos seus kits com fotos reais, filtros por categoria e botão de WhatsApp pronto. Ainda edita as fotos com IA — troque cores e detalhes sem precisar tirar foto nova. Exclusivo do plano Premium." linkUpgrade={`https://buy.stripe.com/4gM5kwgoRh1I7Z57HdfQI08?prefilled_email=${encodeURIComponent(profile.email || "")}`} />
-        )}
+        ))}
+        {isOwner && <HomeCard emoji="🧑‍🤝‍🧑" title="Gerenciar equipe" desc="Dê acesso a funcionários, com permissões separadas pra cada área do app." color={BRAND.azul} onClick={() => setPage("equipe")} />}
       </div>
     </div>
   );
@@ -4122,9 +4132,325 @@ function CarregandoLinkScreen() {
   );
 }
 
+function pareceLinkDeConvite() {
+  try {
+    return new URLSearchParams(window.location.search).get("convite");
+  } catch (e) {
+    return null;
+  }
+}
+
+// Tela de quem foi convidada pra fazer parte da equipe de uma loja
+// (ver "Gerenciar equipe"). Funciona sem estar logada: confere o
+// convite pelo token da URL, cria a conta de verdade (sb.auth.signUp,
+// igual ao cadastro normal) e só depois vincula ela ao convite via RPC.
+function AceitarConviteScreen({ token, sessaoAtiva, onLogout }) {
+  const [detalhes, setDetalhes] = useState(undefined); // undefined = carregando, null = invalido/vencido
+  const [senha, setSenha] = useState("");
+  const [senha2, setSenha2] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  useEffect(() => {
+    if (sessaoAtiva) return;
+    sb.rpc("convite_detalhes", { p_token: token }).then(({ data, error }) => {
+      const linha = Array.isArray(data) ? data[0] : data;
+      if (error || !linha || !linha.valido) { setDetalhes(null); return; }
+      setDetalhes(linha);
+    });
+  }, [token, sessaoAtiva]);
+
+  async function aceitar() {
+    setErro("");
+    if (senha.length < 6) { setErro("A senha precisa ter pelo menos 6 caracteres."); return; }
+    if (senha !== senha2) { setErro("As duas senhas digitadas são diferentes."); return; }
+    setEnviando(true);
+    const { error: erroSignup } = await sb.auth.signUp({ email: detalhes.email, password: senha });
+    if (erroSignup) { setEnviando(false); setErro("Erro ao criar sua conta: " + erroSignup.message); return; }
+    const { data: aceitou, error: erroAceitar } = await sb.rpc("aceitar_convite_equipe", { p_token: token });
+    setEnviando(false);
+    if (erroAceitar || !aceitou) { setErro("Sua conta foi criada, mas não consegui vincular o convite. Fale com quem te convidou."); return; }
+    window.location.href = window.location.origin + window.location.pathname;
+  }
+
+  if (sessaoAtiva) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6" style={{ background: `linear-gradient(160deg, ${BRAND.azul} 0%, ${BRAND.azulEscuro} 100%)` }}>
+        <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-8 text-center">
+          <div className="text-4xl mb-3">🔒</div>
+          <h1 className="fredoka text-xl font-bold mb-2" style={{ color: BRAND.azul }}>Você já está logada</h1>
+          <p className="text-sm text-slate-500 mb-6">Pra aceitar esse convite, saia da conta atual primeiro e abra o link de novo.</p>
+          <button onClick={onLogout} className="w-full py-3 rounded-xl font-bold text-white cursor-pointer active:scale-95 transition" style={{ background: BRAND.rosa }}>Sair da conta atual</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (detalhes === undefined) {
+    return <div className="min-h-screen flex items-center justify-center" style={{ background: BRAND.azul }}><span className="text-white">Carregando convite...</span></div>;
+  }
+
+  if (detalhes === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6" style={{ background: `linear-gradient(160deg, ${BRAND.azul} 0%, ${BRAND.azulEscuro} 100%)` }}>
+        <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-8 text-center">
+          <div className="text-4xl mb-3">⏰</div>
+          <h1 className="fredoka text-xl font-bold mb-2" style={{ color: BRAND.azul }}>Esse convite não é mais válido</h1>
+          <p className="text-sm text-slate-500 mb-6">Pode ter vencido ou já ter sido usado. Peça pra quem te convidou mandar um novo.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: `linear-gradient(160deg, ${BRAND.azul} 0%, ${BRAND.azulEscuro} 100%)` }}>
+      <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-8">
+        <div className="text-4xl mb-3 text-center">🎉</div>
+        <h1 className="fredoka text-xl font-bold mb-2 text-center" style={{ color: BRAND.azul }}>Você foi convidada!</h1>
+        <p className="text-sm text-slate-500 mb-6 text-center">Pra fazer parte da equipe da <b>{detalhes.nome_loja}</b>, crie sua senha:</p>
+        <Field label="E-mail"><input className={inputClass} value={detalhes.email} disabled /></Field>
+        <Field label="Crie uma senha" hint="Mínimo de 6 caracteres.">
+          <input className={inputClass} type="password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="••••••" />
+        </Field>
+        <Field label="Confirme a senha">
+          <input className={inputClass} type="password" value={senha2} onChange={(e) => setSenha2(e.target.value)} placeholder="••••••" />
+        </Field>
+        <ErrorBox>{erro}</ErrorBox>
+        <button disabled={enviando} onClick={aceitar} className="w-full py-3 rounded-xl font-bold text-white cursor-pointer active:scale-95 transition disabled:opacity-60" style={{ background: BRAND.rosa }}>
+          {enviando ? "Entrando..." : "Aceitar convite e entrar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   GERENCIAR EQUIPE (convidar funcionarias, definir permissoes)
+============================================================ */
+const PERMISSOES_LABELS = [
+  ["contrato", "Contrato", "Criar e editar contratos"],
+  ["estoque", "Estoque", "Ver e editar o estoque de materiais"],
+  ["catalogo", "Catálogo", "Subir kits e fotos no catálogo"],
+  ["financeiro", "Financeiro", "Ver faturamento e despesas"],
+  ["agenda", "Agenda", "Ver a agenda de entregas e retiradas"],
+  ["oportunidades", "Oportunidades", "Ver aniversários e clientes pra reconquistar"],
+];
+
+function MembroEquipeCard({ membro, onSalvarPermissoes, onReenviar, onRevogar, onRemover, statusLabel, statusCor }) {
+  const [aberto, setAberto] = useState(false);
+  const [permissoesLocais, setPermissoesLocais] = useState(membro.permissoes || {});
+  const [salvando, setSalvando] = useState(false);
+
+  async function salvar() {
+    setSalvando(true);
+    await onSalvarPermissoes(membro, permissoesLocais);
+    setSalvando(false);
+  }
+
+  return (
+    <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+      <div className="flex items-center justify-between gap-3 cursor-pointer" onClick={() => setAberto(!aberto)}>
+        <div className="min-w-0 flex-1"><p className="font-bold text-sm truncate" style={{ color: BRAND.tinta }}>{membro.email}</p></div>
+        <Pill color={statusCor[membro.status]}>{statusLabel[membro.status]}</Pill>
+        <span className="text-slate-300 text-xs">{aberto ? "▾" : "▸"}</span>
+      </div>
+      {aberto && (
+        <div className="mt-4 pt-4 border-t border-slate-100">
+          {membro.status === "ativo" && (
+            <>
+              <p className="text-xs font-bold mb-2 text-slate-400">PERMISSÕES</p>
+              <div className="space-y-1 mb-3">
+                {PERMISSOES_LABELS.map(([campo, titulo]) => (
+                  <div key={campo} className="flex items-center justify-between py-1">
+                    <span className="text-sm font-semibold" style={{ color: BRAND.tinta }}>{titulo}</span>
+                    <button type="button" onClick={() => setPermissoesLocais((p) => ({ ...p, [campo]: !p[campo] }))} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors shrink-0 ml-3" style={{ background: permissoesLocais[campo] ? BRAND.rosa : "#e5e7eb" }}>
+                      <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all" style={{ left: permissoesLocais[campo] ? 26 : 4 }} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button disabled={salvando} onClick={salvar} className="w-full py-2.5 rounded-xl font-bold text-sm text-white cursor-pointer disabled:opacity-60 mb-2" style={{ background: BRAND.azul }}>{salvando ? "Salvando..." : "Salvar permissões"}</button>
+            </>
+          )}
+          <div className="flex gap-2">
+            {membro.status !== "ativo" && (
+              <button onClick={() => onReenviar(membro)} className="flex-1 py-2.5 rounded-xl font-bold text-sm cursor-pointer" style={{ color: BRAND.azul, background: BRAND.azul + "12" }}>Reenviar convite</button>
+            )}
+            {membro.status === "ativo" ? (
+              <button onClick={onRevogar} className="flex-1 py-2.5 rounded-xl font-bold text-sm cursor-pointer" style={{ color: BRAND.rosa, background: BRAND.rosa + "12" }}>Revogar acesso</button>
+            ) : (
+              <button onClick={onRemover} className="flex-1 py-2.5 rounded-xl font-bold text-sm cursor-pointer" style={{ color: "#94a3b8", background: "#f1f5f9" }}>Remover</button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EquipeTab({ userId, profile }) {
+  const [membros, setMembros] = useState(null);
+  const [convidando, setConvidando] = useState(false);
+  const [novoEmail, setNovoEmail] = useState("");
+  const [novasPermissoes, setNovasPermissoes] = useState({});
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [sucesso, setSucesso] = useState("");
+  const [confirmarRevogar, setConfirmarRevogar] = useState(null);
+  const [confirmarRemover, setConfirmarRemover] = useState(null);
+
+  const carregar = useCallback(async () => {
+    const { data } = await sb.from("equipe_membros").select("*").eq("decoradora_id", userId).order("convidado_em", { ascending: false });
+    setMembros(data || []);
+  }, [userId]);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  async function chamarConvite(email, permissoes) {
+    const { data: sessionData } = await sb.auth.getSession();
+    const token = sessionData && sessionData.session ? sessionData.session.access_token : null;
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/convidar-funcionario`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ email, permissoes }),
+    });
+    return resp.json();
+  }
+
+  async function convidar() {
+    setErro(""); setSucesso("");
+    const email = novoEmail.trim().toLowerCase();
+    if (!email || !email.includes("@")) { setErro("Digite um e-mail válido."); return; }
+    setEnviando(true);
+    try {
+      const data = await chamarConvite(email, novasPermissoes);
+      if (!data.ok) { setErro(data.erro || "Erro ao convidar."); setEnviando(false); return; }
+      setSucesso("Convite enviado! 🎉");
+      setNovoEmail(""); setNovasPermissoes({}); setConvidando(false);
+      await carregar();
+    } catch (e) {
+      setErro("Erro de conexão: " + e.message);
+    }
+    setEnviando(false);
+  }
+
+  async function reenviar(membro) {
+    setErro(""); setSucesso("");
+    try {
+      const data = await chamarConvite(membro.email, membro.permissoes || {});
+      if (!data.ok) { setErro(data.erro || "Erro ao reenviar."); return; }
+      setSucesso("Convite reenviado!");
+      await carregar();
+    } catch (e) {
+      setErro("Erro de conexão: " + e.message);
+    }
+  }
+
+  async function salvarPermissoes(membro, novasPerm) {
+    await sb.from("equipe_membros").update({ permissoes: novasPerm }).eq("id", membro.id);
+    await carregar();
+  }
+
+  async function revogar(membro) {
+    await sb.from("equipe_membros").update({ status: "revogado" }).eq("id", membro.id);
+    setConfirmarRevogar(null);
+    await carregar();
+  }
+
+  async function remover(membro) {
+    await sb.from("equipe_membros").delete().eq("id", membro.id);
+    setConfirmarRemover(null);
+    await carregar();
+  }
+
+  const STATUS_LABEL = { convidado: "Convidado", ativo: "Ativo", revogado: "Revogado" };
+  const STATUS_COR = { convidado: "#F59E0B", ativo: "#22C55E", revogado: "#94a3b8" };
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
+      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>
+        🧑‍🤝‍🧑 Gerenciar equipe
+        <Ajuda emoji="🧑‍🤝‍🧑" titulo="Gerenciar equipe" texto="Aqui você convida pessoas pra te ajudar no dia a dia — cada uma só vê e mexe nas áreas que você liberar pra ela. O convite chega por e-mail, e você pode tirar o acesso quando quiser." />
+      </h2>
+      <p className="text-sm text-slate-400 mb-5">Dê acesso a quem te ajuda no dia a dia, só nas áreas que fizerem sentido.</p>
+
+      <ErrorBox>{erro}</ErrorBox>
+      <SuccessBox>{sucesso}</SuccessBox>
+
+      {!convidando ? (
+        <button onClick={() => setConvidando(true)} className="w-full py-3 rounded-2xl font-bold text-white mb-5 cursor-pointer active:scale-95 transition" style={{ background: BRAND.rosa }}>+ Convidar alguém</button>
+      ) : (
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-5">
+          <Field label="E-mail da pessoa">
+            <input className={inputClass} value={novoEmail} onChange={(e) => setNovoEmail(e.target.value)} placeholder="nome@email.com" />
+          </Field>
+          <p className="text-sm font-semibold mb-2" style={{ color: BRAND.tinta }}>O que ela pode acessar:</p>
+          <div className="space-y-1 mb-4">
+            {PERMISSOES_LABELS.map(([campo, titulo, desc]) => (
+              <div key={campo} className="flex items-center justify-between py-1">
+                <div><span className="text-sm font-semibold block" style={{ color: BRAND.tinta }}>{titulo}</span><span className="text-xs text-slate-400">{desc}</span></div>
+                <button type="button" onClick={() => setNovasPermissoes((p) => ({ ...p, [campo]: !p[campo] }))} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors shrink-0 ml-3" style={{ background: novasPermissoes[campo] ? BRAND.rosa : "#e5e7eb" }}>
+                  <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all" style={{ left: novasPermissoes[campo] ? 26 : 4 }} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button disabled={enviando} onClick={convidar} className="flex-1 py-3 rounded-xl font-bold text-white cursor-pointer active:scale-95 transition disabled:opacity-60" style={{ background: BRAND.rosa }}>{enviando ? "Enviando..." : "Enviar convite"}</button>
+            <button onClick={() => { setConvidando(false); setNovoEmail(""); setNovasPermissoes({}); }} className="px-5 py-3 rounded-xl font-bold text-sm text-slate-400 hover:bg-slate-50 cursor-pointer">Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {membros === null ? (
+        <p className="text-sm text-slate-400 text-center py-10">Carregando...</p>
+      ) : membros.length === 0 ? (
+        <p className="text-sm text-slate-400 text-center py-10">Ninguém na equipe ainda.</p>
+      ) : (
+        <div className="space-y-2">
+          {membros.map((m) => (
+            <MembroEquipeCard key={m.id} membro={m} onSalvarPermissoes={salvarPermissoes} onReenviar={reenviar} onRevogar={() => setConfirmarRevogar(m)} onRemover={() => setConfirmarRemover(m)} statusLabel={STATUS_LABEL} statusCor={STATUS_COR} />
+          ))}
+        </div>
+      )}
+
+      {confirmarRevogar && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.5)" }} onClick={() => setConfirmarRevogar(null)}>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="text-3xl mb-2">🔒</div>
+            <p className="fredoka text-lg font-bold mb-2" style={{ color: BRAND.tinta }}>Revogar acesso?</p>
+            <p className="text-sm text-slate-500 leading-relaxed">{confirmarRevogar.email} não vai mais conseguir entrar no app. Dá pra convidar de novo depois, se quiser.</p>
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setConfirmarRevogar(null)} className="flex-1 py-3 rounded-xl font-bold text-sm text-slate-400 hover:bg-slate-50 cursor-pointer">Cancelar</button>
+              <button onClick={() => revogar(confirmarRevogar)} className="flex-1 py-3 rounded-xl font-bold text-white cursor-pointer" style={{ background: BRAND.rosa }}>Revogar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmarRemover && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.5)" }} onClick={() => setConfirmarRemover(null)}>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="text-3xl mb-2">🗑️</div>
+            <p className="fredoka text-lg font-bold mb-2" style={{ color: BRAND.tinta }}>Remover da lista?</p>
+            <p className="text-sm text-slate-500 leading-relaxed">Isso apaga {confirmarRemover.email} da sua equipe pra sempre. Se quiser só tirar o acesso sem apagar o histórico, use "Revogar" em vez disso.</p>
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setConfirmarRemover(null)} className="flex-1 py-3 rounded-xl font-bold text-sm text-slate-400 hover:bg-slate-50 cursor-pointer">Cancelar</button>
+              <button onClick={() => remover(confirmarRemover)} className="flex-1 py-3 rounded-xl font-bold text-white cursor-pointer" style={{ background: BRAND.rosa }}>Remover</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [session, setSession] = useState(undefined); // undefined = carregando, null = deslogado
   const [profile, setProfile] = useState(null);
+  const [membership, setMembership] = useState(null); // null = dona da loja; {permissoes} = funcionaria
+  const isOwner = !membership;
+  const [conviteToken] = useState(pareceLinkDeConvite);
   const [page, setPage] = useState("home");
   const [homeContracts, setHomeContracts] = useState([]);
   const [notificacoes, setNotificacoes] = useState([]);
@@ -4177,7 +4503,15 @@ function App() {
 
   const carregarPerfil = useCallback(async (userId, emailUsuario, tentativa = 0) => {
     const { data } = await sb.from("decoradoras").select("*").eq("id", userId).maybeSingle();
-    if (data) { setProfile(data); applyTheme(data); return; }
+    if (data) { setProfile(data); setMembership(null); applyTheme(data); return; }
+
+    // Não é dona de loja nenhuma — talvez seja funcionária com convite já aceito antes.
+    const { data: membro } = await sb.from("equipe_membros").select("*").eq("user_id", userId).eq("status", "ativo").maybeSingle();
+    if (membro) {
+      const { data: loja } = await sb.from("decoradoras").select("*").eq("id", membro.decoradora_id).maybeSingle();
+      if (loja) { setProfile(loja); setMembership(membro); applyTheme(loja); return; }
+    }
+
     if (tentativa < 8) {
       // O perfil pode ainda estar sendo criado (corrida com o cadastro, comum em conexões lentas) — tenta de novo em instantes.
       setTimeout(() => carregarPerfil(userId, emailUsuario, tentativa + 1), 800);
@@ -4185,30 +4519,30 @@ function App() {
     }
     // Rede de segurança: depois de várias tentativas, cria o perfil na hora, pra ninguém ficar travado.
     const { data: novo, error } = await sb.from("decoradoras").insert({ id: userId, nome_loja: "Minha Loja", email: emailUsuario || "" }).select().maybeSingle();
-    if (novo) { setProfile(novo); applyTheme(novo); return; }
+    if (novo) { setProfile(novo); setMembership(null); applyTheme(novo); return; }
     if (error) {
       // Se dois lugares tentaram criar ao mesmo tempo, busca de novo — já deve existir agora.
       const { data: data2 } = await sb.from("decoradoras").select("*").eq("id", userId).maybeSingle();
-      if (data2) { setProfile(data2); applyTheme(data2); }
+      if (data2) { setProfile(data2); setMembership(null); applyTheme(data2); }
     }
   }, []);
 
   useEffect(() => {
-    if (session === null) { setProfile(null); return; }
+    if (session === null) { setProfile(null); setMembership(null); return; }
     if (session && session.user) carregarPerfil(session.user.id, session.user.email);
   }, [session, carregarPerfil]);
 
   useEffect(() => {
-    if (!session || !session.user) return;
-    sb.from("contracts").select("*").eq("decoradora_id", session.user.id).then(({ data }) => setHomeContracts((data || []).map(contractFromDb)));
-  }, [session, page]);
+    if (!profile) return;
+    sb.from("contracts").select("*").eq("decoradora_id", profile.id).then(({ data }) => setHomeContracts((data || []).map(contractFromDb)));
+  }, [profile, page]);
 
   useEffect(() => {
-    if (!session || !session.user) return;
+    if (!profile) return;
     (async () => {
       const [aniversarios, valeLembrar] = await Promise.all([
-        buscarOportunidadesAniversarios(session.user.id),
-        buscarValeAPenaLembrar(session.user.id),
+        buscarOportunidadesAniversarios(profile.id),
+        buscarValeAPenaLembrar(profile.id),
       ]);
       const lista = [];
       aniversarios.filter((a) => a.diasAte <= 3).forEach((a) => {
@@ -4219,10 +4553,16 @@ function App() {
       });
       setNotificacoes(lista);
     })();
-  }, [session, page]);
+  }, [profile, page]);
 
   async function handleLogout() { await sb.auth.signOut(); setPage("home"); }
 
+  if (session === undefined) {
+    return <div className="min-h-screen flex items-center justify-center" style={{ background: BRAND.azul }}><span className="text-white">Carregando...</span></div>;
+  }
+  if (conviteToken) {
+    return <AceitarConviteScreen token={conviteToken} sessaoAtiva={!!session} onLogout={handleLogout} />;
+  }
   if (linkVencido) {
     return <LinkVencidoScreen />;
   }
@@ -4232,44 +4572,56 @@ function App() {
   if (processandoLink) {
     return <CarregandoLinkScreen />;
   }
-  if (session === undefined) {
-    return <div className="min-h-screen flex items-center justify-center" style={{ background: BRAND.azul }}><span className="text-white">Carregando...</span></div>;
-  }
   if (!session) return <AuthScreen onAuthed={() => {}} />;
   if (!profile) {
     return <PreparandoPainel />;
   }
 
+  const PAGE_PERMISSAO = { contrato: "contrato", financeiro: "financeiro", agenda: "agenda", oportunidades: "oportunidades", estoque: "estoque", catalogo: "catalogo" };
+  function podeAcessar(pagina) {
+    if (isOwner) return true;
+    const chave = PAGE_PERMISSAO[pagina];
+    return chave ? !!(membership.permissoes && membership.permissoes[chave]) : false;
+  }
+
   return (
     <TrialGate profile={profile} onLogout={handleLogout}>
       <div className="min-h-screen" style={{ background: BRAND.bg }}>
-        <Header userEmail={session.user.email} page={page} setPage={setPage} onLogout={handleLogout} profile={profile} notificacoes={notificacoes} userId={session.user.id} onOpenMenu={() => setMenuAberto(true)} />
-        <SidebarMenu aberto={menuAberto} onClose={() => setMenuAberto(false)} config={appConfig} userEmail={session.user.email} profile={profile} onLogout={handleLogout} />
-        {profile && !profile.onboarding_visto && (
+        <Header userEmail={session.user.email} page={page} setPage={setPage} onLogout={handleLogout} profile={profile} notificacoes={notificacoes} userId={profile.id} onOpenMenu={() => setMenuAberto(true)} />
+        <SidebarMenu aberto={menuAberto} onClose={() => setMenuAberto(false)} config={appConfig} userEmail={session.user.email} profile={profile} onLogout={handleLogout} isOwner={isOwner} setPage={setPage} />
+        {isOwner && profile && !profile.onboarding_visto && (
           <WelcomeModal
             profile={profile}
             onClose={async () => {
               setProfile((p) => ({ ...p, onboarding_visto: true }));
-              await sb.from("decoradoras").update({ onboarding_visto: true }).eq("id", session.user.id);
+              await sb.from("decoradoras").update({ onboarding_visto: true }).eq("id", profile.id);
             }}
           />
         )}
         {page === "home" ? (
-          <HomeDashboard setPage={setPage} contracts={homeContracts} profile={profile} userId={session.user.id} />
+          <HomeDashboard setPage={setPage} contracts={homeContracts} profile={profile} userId={profile.id} isOwner={isOwner} membership={membership} />
+        ) : !podeAcessar(page) && page !== "perfil" && page !== "equipe" ? (
+          <div className="max-w-md mx-auto px-5 py-20 text-center">
+            <p className="text-4xl mb-3">🔒</p>
+            <p className="font-bold text-lg mb-1" style={{ color: BRAND.tinta }}>Você não tem acesso a esta área.</p>
+            <p className="text-sm text-slate-400">Fale com a dona da loja se precisar desse acesso.</p>
+          </div>
         ) : page === "contrato" ? (
-          <ContratoTab userId={session.user.id} profile={profile} onProfileUpdate={setProfile} />
+          <ContratoTab userId={profile.id} profile={profile} onProfileUpdate={setProfile} />
         ) : page === "financeiro" ? (
-          <FinanceiroTab userId={session.user.id} profile={profile} />
+          <FinanceiroTab userId={profile.id} profile={profile} />
         ) : page === "agenda" ? (
-          <AgendaTab userId={session.user.id} profile={profile} />
+          <AgendaTab userId={profile.id} profile={profile} />
         ) : page === "oportunidades" ? (
-          <OportunidadesTab userId={session.user.id} profile={profile} />
+          <OportunidadesTab userId={profile.id} profile={profile} />
         ) : page === "estoque" ? (
-          <EstoqueTab userId={session.user.id} profile={profile} onProfileUpdate={setProfile} />
+          <EstoqueTab userId={profile.id} profile={profile} onProfileUpdate={setProfile} />
         ) : page === "catalogo" ? (
-          <CatalogoTab userId={session.user.id} profile={profile} onProfileUpdate={setProfile} />
-        ) : page === "perfil" ? (
-          <PerfilTab profile={profile} userId={session.user.id} onSaved={setProfile} setPage={setPage} />
+          <CatalogoTab userId={profile.id} profile={profile} onProfileUpdate={setProfile} />
+        ) : page === "perfil" && isOwner ? (
+          <PerfilTab profile={profile} userId={profile.id} onSaved={setProfile} setPage={setPage} />
+        ) : page === "equipe" && isOwner ? (
+          <EquipeTab userId={profile.id} profile={profile} />
         ) : (
           <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">Em breve nesta versão web.</div>
         )}
