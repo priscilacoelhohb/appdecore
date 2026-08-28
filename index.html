@@ -120,6 +120,21 @@ function parseValorBR(v) {
   return isNaN(n) ? 0 : n;
 }
 function formatBRL(v) { return parseValorBR(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
+function formatarCPF(v) {
+  const d = (v || "").replace(/\D/g, "").slice(0, 11);
+  return d.replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+}
+function validarCPF(v) {
+  const d = (v || "").replace(/\D/g, "");
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  const calcDigito = (len) => {
+    let soma = 0;
+    for (let i = 0; i < len; i++) soma += parseInt(d[i], 10) * (len + 1 - i);
+    const resto = (soma * 10) % 11;
+    return resto === 10 ? 0 : resto;
+  };
+  return calcDigito(9) === parseInt(d[9], 10) && calcDigito(10) === parseInt(d[10], 10);
+}
 function parseDateLocal(str) { if (!str) return null; const [y, m, d] = str.split("-").map(Number); return new Date(y, m - 1, d); }
 function formatDateBR(str) { const d = parseDateLocal(str); return d ? d.toLocaleDateString("pt-BR") : ""; }
 const MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
@@ -346,8 +361,20 @@ function SuccessBox({ children }) {
 /* ============================================================
    TELA DE LOGIN / CADASTRO (autenticação real via Supabase Auth)
 ============================================================ */
+// Lembra, só neste navegador/aparelho, se essa pessoa já entrou no
+// AppDecore alguma vez (cadastro novo ou login). Usamos isso pra decidir
+// se a tela abre em "Criar conta" (quem nunca usou, ex: acabou de pagar
+// e recebeu o link) ou "Entrar" (quem já é cliente) — muita decoradora
+// nova não enxergava a aba "Criar conta" e ficava travada na de login.
+function jaEntrouNesteAparelho() {
+  try { return localStorage.getItem("appdecore_ja_entrou") === "1"; } catch (e) { return false; }
+}
+function marcarJaEntrouNesteAparelho() {
+  try { localStorage.setItem("appdecore_ja_entrou", "1"); } catch (e) {}
+}
+
 function AuthScreen({ onAuthed }) {
-  const [modo, setModo] = useState("login"); // login | cadastro
+  const [modo, setModo] = useState(() => (jaEntrouNesteAparelho() ? "login" : "cadastro"));
   const [nomeLoja, setNomeLoja] = useState("");
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
@@ -380,10 +407,17 @@ function AuthScreen({ onAuthed }) {
             limite_pecas: pendente.limite_pecas,
             stripe_customer_id: pendente.stripe_customer_id,
             stripe_subscription_id: pendente.stripe_subscription_id,
+            cakto_subscription_id: pendente.cakto_subscription_id,
+            fonte_pagamento_ativa: pendente.cakto_subscription_id ? "cakto" : (pendente.stripe_customer_id ? "stripe" : null),
+            // Sem isso, a conta nascia com plano_tipo certo mas plano_status
+            // ainda em "trial" (o padrão da tabela) — ela pagou mas o app
+            // continuava tratando como se estivesse só testando de graça.
+            plano_status: "ativo",
           };
         }
         // Confirmação de e-mail desligada: já entra direto e cria o perfil da loja.
         await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim(), email: email.trim(), ...planoInicial });
+        marcarJaEntrouNesteAparelho();
         onAuthed();
       } else {
         setAviso("Conta criada! Verifique seu e-mail para confirmar o cadastro e depois faça login.");
@@ -428,10 +462,14 @@ function AuthScreen({ onAuthed }) {
             limite_pecas: pendente.limite_pecas,
             stripe_customer_id: pendente.stripe_customer_id,
             stripe_subscription_id: pendente.stripe_subscription_id,
+            cakto_subscription_id: pendente.cakto_subscription_id,
+            fonte_pagamento_ativa: pendente.cakto_subscription_id ? "cakto" : (pendente.stripe_customer_id ? "stripe" : null),
+            plano_status: "ativo",
           };
         }
         await sb.from("decoradoras").insert({ id: data.user.id, nome_loja: nomeLoja.trim() || "Minha Loja", email: email.trim(), ...planoInicial });
       }
+      marcarJaEntrouNesteAparelho();
       onAuthed();
     } catch (err) {
       setErro("Erro inesperado: " + err.message);
@@ -514,6 +552,7 @@ function ResetPasswordScreen({ onDone }) {
   const [senha2, setSenha2] = useState("");
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
+  const [salvo, setSalvo] = useState(false);
 
   async function handleSalvar() {
     setErro("");
@@ -523,7 +562,26 @@ function ResetPasswordScreen({ onDone }) {
     const { error } = await sb.auth.updateUser({ password: senha });
     setCarregando(false);
     if (error) { setErro("Erro ao salvar: " + error.message); return; }
-    onDone();
+    // Não confia que a sessão temporária do link de recuperação vai continuar
+    // válida pra entrar direto no painel (em alguns navegadores/apps de e-mail
+    // ela se perde bem nessa hora) — mostra confirmação clara aqui mesmo, em
+    // vez de deixar a pessoa "sumir" pra tela de login achando que deu erro.
+    setSalvo(true);
+  }
+
+  if (salvo) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6" style={{ background: `linear-gradient(160deg, ${BRAND.azul} 0%, ${BRAND.azulEscuro} 100%)` }}>
+        <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-8 text-center">
+          <div className="text-4xl mb-3">✅</div>
+          <h1 className="fredoka text-xl font-bold mb-2" style={{ color: BRAND.azul }}>Senha salva!</h1>
+          <p className="text-sm text-slate-500 mb-6">Sua nova senha já está ativa. Agora é só entrar com ela.</p>
+          <button onClick={onDone} className="w-full py-3 rounded-xl font-bold text-white cursor-pointer active:scale-95 transition" style={{ background: BRAND.rosa }}>
+            Ir para o login
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -762,7 +820,7 @@ function TrialGate({ profile, onLogout, children }) {
             : "Sua conta está com o acesso pausado no momento. Fale com a gente pra regularizar."}
         </p>
         {status === "trial" && (
-          <a href={`${profile.plano_tipo === "premium" ? "https://buy.stripe.com/4gM5kwgoRh1I7Z57HdfQI08" : "https://buy.stripe.com/dRm4gsdcFfXE7Z51iPfQI07"}?prefilled_email=${encodeURIComponent(profile.email || "")}`} className="block w-full py-3 rounded-xl font-bold text-white cursor-pointer text-center mb-3" style={{ background: BRAND.rosa || BRAND.azul }}>Assinar agora</a>
+          <a href={profile.plano_tipo === "premium" ? `https://buy.stripe.com/4gM5kwgoRh1I7Z57HdfQI08?prefilled_email=${encodeURIComponent(profile.email || "")}` : "https://pay.cakto.com.br/b3o264t_975931"} className="block w-full py-3 rounded-xl font-bold text-white cursor-pointer text-center mb-3" style={{ background: BRAND.rosa || BRAND.azul }}>Assinar agora</a>
         )}
         <button onClick={onLogout} className="w-full py-3 rounded-xl font-bold text-white cursor-pointer" style={{ background: BRAND.azul }}>Sair</button>
       </div>
@@ -1077,6 +1135,11 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
   const [salvando, setSalvando] = useState(false);
   const [novoTipo, setNovoTipo] = useState("");
   const [tipoContratoAberto, setTipoContratoAberto] = useState(null);
+  const [novaSenha, setNovaSenha] = useState("");
+  const [novaSenha2, setNovaSenha2] = useState("");
+  const [senhaErro, setSenhaErro] = useState("");
+  const [senhaSalvando, setSenhaSalvando] = useState(false);
+  const [senhaSalva, setSenhaSalva] = useState(false);
 
   function set(field, value) { setForm((f) => ({ ...f, [field]: value })); setSalvo(false); }
 
@@ -1123,6 +1186,17 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
       setErro("Erro inesperado: " + err.message);
     }
     setSalvando(false);
+  }
+
+  async function handleTrocarSenha() {
+    setSenhaErro(""); setSenhaSalva(false);
+    if (novaSenha.length < 6) { setSenhaErro("A senha precisa ter pelo menos 6 caracteres."); return; }
+    if (novaSenha !== novaSenha2) { setSenhaErro("As duas senhas digitadas são diferentes."); return; }
+    setSenhaSalvando(true);
+    const { error } = await sb.auth.updateUser({ password: novaSenha });
+    setSenhaSalvando(false);
+    if (error) { setSenhaErro("Erro ao salvar: " + error.message); return; }
+    setNovaSenha(""); setNovaSenha2(""); setSenhaSalva(true);
   }
 
   return (
@@ -1275,6 +1349,22 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
           </button>
           <button type="button" onClick={() => setPage("home")} className="px-5 py-3 rounded-xl font-bold text-sm text-slate-400 hover:bg-slate-50 cursor-pointer">Voltar</button>
         </div>
+      </div>
+
+      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 mt-5">
+        <p className="font-bold text-sm mb-0.5" style={{ color: BRAND.rosa }}>Trocar senha</p>
+        <p className="text-xs text-slate-400 mb-4">Digite a senha nova direto aqui — não precisa sair nem receber e-mail.</p>
+        <Field label="Nova senha" hint="Mínimo de 6 caracteres.">
+          <input className={inputClass} type="password" value={novaSenha} onChange={(e) => { setNovaSenha(e.target.value); setSenhaSalva(false); }} placeholder="••••••" />
+        </Field>
+        <Field label="Confirme a nova senha">
+          <input className={inputClass} type="password" value={novaSenha2} onChange={(e) => { setNovaSenha2(e.target.value); setSenhaSalva(false); }} placeholder="••••••" />
+        </Field>
+        <ErrorBox>{senhaErro}</ErrorBox>
+        <SuccessBox>{senhaSalva ? "Senha alterada com sucesso!" : ""}</SuccessBox>
+        <button type="button" disabled={senhaSalvando || !novaSenha} onClick={handleTrocarSenha} className="py-3 px-6 rounded-xl font-bold text-white active:scale-95 transition cursor-pointer disabled:opacity-60" style={{ background: BRAND.azul }}>
+          {senhaSalvando ? "Salvando..." : "Salvar nova senha"}
+        </button>
       </div>
     </div>
   );
@@ -1647,6 +1737,7 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
     if (!String(form.valor).trim()) faltando.push("valor");
     if (!form.dataRetirada && form.tipoServico !== "baloes") faltando.push("data de retirada");
     if (faltando.length > 0) { setErro("Preencha antes: " + faltando.join(", ") + "."); return; }
+    if (form.contratanteCPF.trim() && !validarCPF(form.contratanteCPF)) { setErro("CPF inválido — confira os números digitados."); return; }
     setSalvando(true);
     const id = editingId || uid();
     const row = contractToDb({ ...form, id }, userId);
@@ -1769,7 +1860,7 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
               {clienteRepetido && <p className="text-xs font-semibold mt-1.5" style={{ color: BRAND.turquesa }}>🎉 Esse cliente já fechou {clienteRepetido.count} festa{clienteRepetido.count > 1 ? "s" : ""} com a gente!</p>}
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="CPF"><input className={inputClass} value={form.contratanteCPF} onChange={(e) => set("contratanteCPF", e.target.value)} /></Field>
+              <Field label="CPF"><input className={inputClass} value={form.contratanteCPF} onChange={(e) => set("contratanteCPF", formatarCPF(e.target.value))} maxLength={14} placeholder="000.000.000-00" /></Field>
               <Field label="Valor do produto"><input className={inputClass} value={form.valor} onChange={(e) => set("valor", e.target.value.replace(/[^0-9.,]/g, ""))} placeholder="90,00" /></Field>
             </div>
             <Field label="Multa por atraso na devolução (%)" hint={form.semMulta ? "Multa desativada pra este contrato" : "Cobrada por hora de atraso. Deixe em branco pra usar 10% (padrão)"}>
@@ -3943,6 +4034,54 @@ function AgendaTab({ userId, profile }) {
   );
 }
 
+// Detecta direto pelo endereço da página se esse acesso PODE ter vindo de
+// um link de e-mail (recuperação de senha ou link mágico) — cobre os dois
+// formatos que o Supabase usa: o antigo (#access_token=...&type=recovery)
+// e o mais novo/seguro (?code=...), que não tem a palavra "recovery" em
+// lugar nenhum do endereço. Enquanto não sabemos QUAL dos dois é (ou se
+// ele já venceu), não decidimos nada — só sinalizamos "pode ser link de
+// e-mail, espera confirmar antes de mostrar qualquer tela".
+function pareceLinkDeEmail() {
+  try {
+    const tudo = (window.location.hash || "") + (window.location.search || "");
+    return tudo.includes("type=recovery") || tudo.includes("code=") || tudo.includes("access_token=");
+  } catch (e) {
+    return false;
+  }
+}
+
+function linkDeEmailVenceu() {
+  try {
+    const tudo = (window.location.hash || "") + (window.location.search || "");
+    return tudo.includes("otp_expired") || tudo.includes("error=access_denied") || tudo.includes("error_code=otp_expired") || tudo.includes("error=");
+  } catch (e) {
+    return false;
+  }
+}
+
+function LinkVencidoScreen() {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: `linear-gradient(160deg, ${BRAND.azul} 0%, ${BRAND.azulEscuro} 100%)` }}>
+      <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-8 text-center">
+        <div className="text-4xl mb-3">⏰</div>
+        <h1 className="fredoka text-xl font-bold mb-2" style={{ color: BRAND.azul }}>Esse link venceu</h1>
+        <p className="text-sm text-slate-500 mb-6">Por segurança, links de acesso por e-mail só valem por um tempo limitado. Pede um link novo — é rapidinho.</p>
+        <button onClick={() => { window.location.href = "https://painel.appdecore.com.br"; }} className="w-full py-3 rounded-xl font-bold text-white cursor-pointer active:scale-95 transition" style={{ background: BRAND.rosa }}>
+          Pedir um novo acesso
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CarregandoLinkScreen() {
+  return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: BRAND.azul }}>
+      <span className="text-white">Confirmando seu acesso...</span>
+    </div>
+  );
+}
+
 function App() {
   const [session, setSession] = useState(undefined); // undefined = carregando, null = deslogado
   const [profile, setProfile] = useState(null);
@@ -3950,6 +4089,11 @@ function App() {
   const [homeContracts, setHomeContracts] = useState([]);
   const [notificacoes, setNotificacoes] = useState([]);
   const [modoRecuperacao, setModoRecuperacao] = useState(false);
+  const [linkVencido, setLinkVencido] = useState(linkDeEmailVenceu);
+  // Se o endereço parece ter vindo de um link de e-mail, fica "processando"
+  // até confirmar de verdade o que é — nunca decide login/cadastro/painel
+  // antes disso, pra não cair na tela errada por engano.
+  const [processandoLink, setProcessandoLink] = useState(pareceLinkDeEmail);
   const [menuAberto, setMenuAberto] = useState(false);
   const [appConfig, setAppConfig] = useState(null);
 
@@ -3959,13 +4103,37 @@ function App() {
   }, [session]);
 
   useEffect(() => {
-    sb.auth.getSession().then(({ data }) => setSession(data.session));
+    sb.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      // Sessão já resolvida e não é recuperação de senha? Então o link de
+      // e-mail (se tinha) já foi processado — libera a tela normal.
+      if (processandoLink && data.session && !linkPareceRecuperacaoAgora()) setProcessandoLink(false);
+    });
     const { data: listener } = sb.auth.onAuthStateChange((event, s) => {
       setSession(s);
-      if (event === "PASSWORD_RECOVERY") setModoRecuperacao(true);
+      if (event === "PASSWORD_RECOVERY") { setModoRecuperacao(true); setProcessandoLink(false); }
+      else if (event === "SIGNED_IN") setProcessandoLink(false);
     });
-    return () => listener.subscription.unsubscribe();
+    // Depois de alguns segundos, se ainda não resolveu nada (nem virou
+    // recuperação, nem logou), assume que o link estava vencido/inválido
+    // em vez de deixar a pessoa presa numa tela de "carregando" pra sempre.
+    const limite = setTimeout(() => {
+      setProcessandoLink((ainda) => {
+        if (ainda) setLinkVencido(true);
+        return false;
+      });
+    }, 5000);
+    return () => { listener.subscription.unsubscribe(); clearTimeout(limite); };
   }, []);
+
+  function linkPareceRecuperacaoAgora() {
+    try {
+      const tudo = (window.location.hash || "") + (window.location.search || "");
+      return tudo.includes("type=recovery");
+    } catch (e) {
+      return false;
+    }
+  }
 
   const carregarPerfil = useCallback(async (userId, emailUsuario, tentativa = 0) => {
     const { data } = await sb.from("decoradoras").select("*").eq("id", userId).maybeSingle();
@@ -4015,8 +4183,14 @@ function App() {
 
   async function handleLogout() { await sb.auth.signOut(); setPage("home"); }
 
+  if (linkVencido) {
+    return <LinkVencidoScreen />;
+  }
   if (modoRecuperacao) {
     return <ResetPasswordScreen onDone={() => setModoRecuperacao(false)} />;
+  }
+  if (processandoLink) {
+    return <CarregandoLinkScreen />;
   }
   if (session === undefined) {
     return <div className="min-h-screen flex items-center justify-center" style={{ background: BRAND.azul }}><span className="text-white">Carregando...</span></div>;

@@ -214,7 +214,7 @@ function App() {
             </div>
             <div className="text-center border-y-2 py-3 mb-4" style={{ borderColor: corPrincipal + "22" }}>
               <p className="font-bold">{c.produto_nome}</p>
-              {c.material_entregue && <p className="text-slate-500">Material entregue: {c.material_entregue}</p>}
+              {(c.itens_estoque || c.material_entregue) && <p className="text-slate-500">Itens inclusos: {c.itens_estoque || c.material_entregue}</p>}
               <p className="font-bold mt-1">{formatBRL(valor)}</p>
             </div>
             {(() => {
@@ -227,25 +227,52 @@ function App() {
               <>
             <p className="mb-4">
               {isDecoracao ? (
-                <>Acordam a montagem da decoração no dia <b>{formatDateLong(c.data_retirada)}</b>, das {c.hora_retirada_ini} às {c.hora_retirada_fim}, e a desmontagem no dia <b>{formatDateLong(c.data_devolucao)}</b>, das {c.hora_devolucao_ini} às {c.hora_devolucao_fim}.</>
+                <>CONTRATANTE e CONTRATADA acordam a montagem da decoração no dia <b>{formatDateLong(c.data_retirada)}</b>, das {c.hora_retirada_ini} às {c.hora_retirada_fim}, no endereço informado pela CONTRATANTE, e a desmontagem/retirada dos itens no dia <b>{formatDateLong(c.data_devolucao)}</b>, das {c.hora_devolucao_ini} às {c.hora_devolucao_fim}.</>
               ) : (
-                <>Acordam a retirada do produto no dia <b>{formatDateLong(c.data_retirada)}</b>, das {c.hora_retirada_ini} às {c.hora_retirada_fim}, e a devolução no dia <b>{formatDateLong(c.data_devolucao)}</b>, das {c.hora_devolucao_ini} às {c.hora_devolucao_fim}.{!c.sem_multa && ` Atraso na devolução gera multa de ${c.multa_percentual || 10}% por hora.`}</>
+                <>CONTRATANTE e CONTRATADA acordam a retirada do produto no dia <b>{formatDateLong(c.data_retirada)}</b>, das {c.hora_retirada_ini} às {c.hora_retirada_fim}, no endereço informado pela CONTRATADA, e a devolução no mesmo endereço no dia <b>{formatDateLong(c.data_devolucao)}</b>, das {c.hora_devolucao_ini} às {c.hora_devolucao_fim}.{!c.sem_multa && ` O atraso na devolução gera multa de ${c.multa_percentual || "10"}% do valor por hora de atraso, podendo chegar ao valor integral do produto caso ultrapasse o dia combinado para a entrega.`}</>
               )}
             </p>
-            <p className="font-bold mb-0.5">1. Objeto</p>
-            <p className="mb-3">Prestação de serviço conforme ordem de serviço combinada entre as partes.</p>
-            <p className="font-bold mb-0.5">2. Pagamento</p>
-            <p className="mb-3">Valor total {formatBRL(valor)}, via {c.forma_pagamento || "Pix"}. {pctEfetivo}% no agendamento garante a data.{!isDecoracao && !c.sem_multa && ` Multa de ${c.multa_percentual || 10}% por hora de atraso na devolução; se não devolver no mesmo dia, cobra-se o valor de nova locação.`}</p>
-            <p className="font-bold mb-0.5">3. Cuidados com as peças</p>
-            <p className="mb-3">As peças devem ser devolvidas em perfeito estado. Danos, quebras ou extravio geram cobrança do valor da peça — cobrança cumulativa com eventual multa por atraso.</p>
-            <p className="font-bold mb-0.5">4. Balões e decoração</p>
-            <p className="mb-3">Balões de alta qualidade, durabilidade de 3 a 5 dias em condições ideais; a contratada não responde por má exposição (sol, chuva, vento) ou ambiente informado incorretamente. Pequenas variações no tema podem ocorrer conforme disponibilidade, sempre entregando algo igual ou melhor.</p>
+            <p className="font-bold mb-0.5">1. OBJETO</p>
+            <p className="mb-3">1.1. Este contrato tem por objeto a prestação do serviço conforme solicitado na ordem de serviço, anexa a este documento.</p>
+            <p className="font-bold mb-0.5">2. VIGÊNCIA E RESCISÃO</p>
+            <p className="mb-3">2.1. Este contrato tem início na data de sua assinatura e termina na data de entrega do material ou de retirada da decoração, conforme o serviço contratado.</p>
+            <p className="font-bold mb-0.5">3. VALOR E FORMA DE PAGAMENTO</p>
+            <p>3.1. O valor total do serviço é de {formatBRL(valor)}, a ser pago via {c.forma_pagamento || "Pix"}{c.forma_pagamento === "Pix" || !c.forma_pagamento ? " (chave informada pela CONTRATADA)" : ""}.</p>
+            <p>3.2. É necessário pagar {pctEfetivo}% do valor no ato do agendamento para garantir a data; sem esse sinal, a data não fica reservada.</p>
+            {!isDecoracao && (
+              <>
+                <p>3.3. {c.sem_multa ? "Não haverá cobrança de multa por atraso na devolução dos itens." : `Será cobrada multa de ${c.multa_percentual || "10"}% do valor por hora de atraso na devolução dos itens alugados/emprestados.`}</p>
+                <p className="mb-3">3.4. As peças locadas pelo serviço de Pegue e Monte e as peças avulsas deverão ser devolvidas na data e horário previamente acordados. Caso a devolução não ocorra no mesmo dia previsto, será cobrado o valor integral de uma nova locação das peças, sem prejuízo de outras cobranças decorrentes de danos ou extravio.</p>
+              </>
+            )}
+            <p className="font-bold mb-0.5">4. OBRIGAÇÕES DAS PARTES</p>
+            <div className="grid sm:grid-cols-2 gap-4 mb-3">
+              <div><p className="font-semibold text-[12px] mb-1">CONTRATANTE</p><ul className="list-disc pl-4 space-y-0.5 text-slate-600">
+                <li>Efetuar o pagamento no prazo combinado.</li><li>Fornecer as informações necessárias, incluindo o endereço correto.</li><li>Devolver as peças sem danos.</li>
+              </ul></div>
+              <div><p className="font-semibold text-[12px] mb-1">CONTRATADA</p><ul className="list-disc pl-4 space-y-0.5 text-slate-600">
+                <li>Executar os serviços previstos neste contrato.</li><li>Entregar a decoração conforme combinado, podendo haver pequenas variações (cláusula 8).</li>
+              </ul></div>
+            </div>
+            <p className="font-bold mb-0.5">5. CUIDADOS COM AS PEÇAS</p>
+            <p>5.1. Todas as peças alugadas devem ser devolvidas em perfeito estado. Caso voltem manchadas, molhadas ou quebradas, o valor da peça deverá ser pago integralmente pela CONTRATANTE.</p>
+            <p className="mb-5">5.2. Todas as peças serão conferidas na entrega e na devolução. Caso sejam devolvidas com qualquer dano que impeça seu uso, a CONTRATANTE será responsável pelo ressarcimento. O pagamento da multa por atraso não substitui a indenização por danos, sendo cumulativas quando aplicáveis.</p>
+            <p className="font-bold mb-0.5">6. FORO E RESPONSABILIDADES GERAIS</p>
+            <p>6.1. Em caso de cancelamento, o valor já pago fica como crédito na loja, válido por até 6 meses.</p>
+            <p className="mb-5">6.2. A retirada, montagem e entrega são de responsabilidade da CONTRATANTE, exceto em decoração completa, quando é da CONTRATADA.</p>
+            <p className="font-bold mb-0.5">7. SOBRE OS BALÕES</p>
+            <p>7.1. A CONTRATADA utiliza balões de alta qualidade, com durabilidade média de 3 a 5 dias em condições ideais.</p>
+            <p>7.2. A CONTRATADA não se responsabiliza pela redução da durabilidade quando o ambiente for informado incorretamente, ou por exposição a sol, chuva, vento ou calor excessivo.</p>
+            <p className="mb-5">7.3. Fotos e artes são meramente ilustrativas.</p>
+            <p className="font-bold mb-0.5">8. SOBRE O TEMA E A DECORAÇÃO</p>
+            <p>8.1. A decoração pode variar conforme o tema e a disponibilidade de peças.</p>
+            <p className="mb-5">8.2. Quando isso ocorrer, a CONTRATADA entrega uma composição equivalente ou superior, sem custo adicional.</p>
               </>
               );
             })()}
             {c.loja_clausulas_extras && c.loja_clausulas_extras.trim() && (
               <>
-                <p className="font-bold mb-0.5">5. Cláusulas adicionais</p>
+                <p className="font-bold mb-0.5">9. CLÁUSULAS ADICIONAIS</p>
                 <p className="mb-3" style={{ whiteSpace: "pre-line" }}>{c.loja_clausulas_extras}</p>
               </>
             )}
