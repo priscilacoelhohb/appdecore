@@ -276,6 +276,7 @@ function contractFromDb(r) {
     multaPercentual: r.multa_percentual != null ? String(r.multa_percentual) : "",
     semMulta: !!r.sem_multa,
     assinadoEm: r.assinado_em || null,
+    assinaturaClienteDataUrl: r.assinatura_cliente_data_url || null,
     devolvido: r.devolvido || false,
     observacoes: r.observacoes || "",
     createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
@@ -1500,7 +1501,7 @@ function ContratoPreview({ dados, profile }) {
         <p className="text-center text-[11px] text-slate-400 mb-6">ESTOU CIENTE E CONCORDO COM OS TERMOS ACIMA.</p>
         <div className="grid sm:grid-cols-2 gap-6">
           <div className="text-center">
-            <div className="w-full max-w-[220px] mx-auto h-16" />
+            <div className="w-full max-w-[220px] mx-auto h-16 flex items-end justify-center">{dados.assinaturaClienteDataUrl && <img src={dados.assinaturaClienteDataUrl} className="max-h-16 object-contain" />}</div>
             <div className="w-full max-w-[220px] border-t border-slate-400 mx-auto mb-1" />
             <p className="text-[12px]">{dados.contratanteNome || "Nome do contratante"}</p>
             <p className="text-[11px] text-slate-400">CPF: {dados.contratanteCPF || "—"}</p>
@@ -1545,8 +1546,10 @@ function buildContractHtml(dados, profile) {
   .produto{text-align:center;border-top:2px solid #eee;border-bottom:2px solid #eee;padding:12px 0;margin-bottom:16px}
   h2{font-size:13px;margin:18px 0 2px} .assinaturas{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:30px;text-align:center}
   .assinaturas img{max-height:64px} .linha{border-top:1px solid #999;margin:4px auto;max-width:220px}
-  .pill{display:inline-block;font-size:12px;font-weight:bold;padding:4px 10px;border-radius:999px;margin-right:6px}</style></head>
-  <body><div class="header">${profile.logo_data_url ? `<img src="${profile.logo_data_url}"/>` : ""}<div><h1>Contrato</h1><p>${escapar(profile.nome_loja)}</p></div></div>
+  .pill{display:inline-block;font-size:12px;font-weight:bold;padding:4px 10px;border-radius:999px;margin-right:6px}
+  .btn-imprimir{position:sticky;top:12px;float:right;margin:12px 28px 0 0;background:${BRAND.rosa};color:#fff;border:none;padding:10px 18px;border-radius:999px;font-size:14px;font-weight:bold;cursor:pointer;box-shadow:0 6px 16px -4px rgba(0,0,0,.35)}
+  @media print{.btn-imprimir{display:none}}</style></head>
+  <body><button class="btn-imprimir" onclick="window.print()">🖨️ Imprimir</button><div class="header">${profile.logo_data_url ? `<img src="${profile.logo_data_url}"/>` : ""}<div><h1>Contrato</h1><p>${escapar(profile.nome_loja)}</p></div></div>
   <div class="content">
     <div class="grid2"><div><span class="tag">CONTRATANTE</span><br/><b>${escapar(dados.contratanteNome)}</b><br/>CPF: ${escapar(dados.contratanteCPF)}<br/>Endereço: ${escapar(dados.contratanteEndereco)}<br/>WhatsApp: ${escapar(dados.contratanteWhatsapp)}</div>
     <div><span class="tag">CONTRATADA</span><br/><b>Empresa ${escapar(profile.nome_loja)}</b><br/>CNPJ: ${escapar(profile.cnpj)}<br/>${escapar(profile.endereco)}</div></div>
@@ -1567,7 +1570,7 @@ function buildContractHtml(dados, profile) {
     })()}
     ${profile.clausulas_extras && profile.clausulas_extras.trim() ? `<h2>9. CLÁUSULAS ADICIONAIS</h2><p style="white-space:pre-line">${escapar(profile.clausulas_extras)}</p>` : ""}
     <p style="text-align:center;font-size:11px;color:#999;margin-top:24px">ESTOU CIENTE E CONCORDO COM OS TERMOS ACIMA.</p>
-    <div class="assinaturas"><div><div style="height:64px"></div><div class="linha"></div>${escapar(dados.contratanteNome)}<br/><span style="font-size:11px;color:#999">CPF: ${escapar(dados.contratanteCPF)}</span></div>
+    <div class="assinaturas"><div><div style="height:64px;display:flex;align-items:flex-end;justify-content:center">${dados.assinaturaClienteDataUrl ? `<img src="${dados.assinaturaClienteDataUrl}"/>` : ""}</div><div class="linha"></div>${escapar(dados.contratanteNome)}<br/><span style="font-size:11px;color:#999">CPF: ${escapar(dados.contratanteCPF)}</span></div>
     <div><div style="height:64px;display:flex;align-items:flex-end;justify-content:center">${profile.assinatura_data_url ? `<img src="${profile.assinatura_data_url}"/>` : ""}</div><div class="linha"></div>${escapar(profile.nome_responsavel || profile.nome_loja)}<br/><span style="font-size:11px;color:#999">${escapar(profile.nome_loja)}</span></div></div>
     <div style="margin-top:20px;padding-top:14px;border-top:1px dashed #ddd">
       <span class="pill" style="background:${BRAND.azul}22;color:${BRAND.azul}">Total ${formatBRL(fin.valor)}</span>
@@ -1815,9 +1818,17 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
     await carregarContratos();
   }
 
-  function handlePrint() {
+  async function handlePrint() {
     try {
-      const html = buildContractHtml(form, profile);
+      let dadosParaImprimir = form;
+      // Busca de novo no banco antes de gerar o PDF/impressão — se a cliente
+      // assinou há pouco pelo link, a assinatura dela só existe no banco,
+      // não no formulário que já estava aberto aqui.
+      if (form.id) {
+        const { data } = await sb.from("contracts").select("assinado_em, assinatura_cliente_data_url, status_pagamento").eq("id", form.id).maybeSingle();
+        if (data) dadosParaImprimir = { ...form, assinadoEm: data.assinado_em, assinaturaClienteDataUrl: data.assinatura_cliente_data_url, statusPagamento: data.status_pagamento };
+      }
+      const html = buildContractHtml(dadosParaImprimir, profile);
       const blob = new Blob([html], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
@@ -2010,7 +2021,7 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <p className="font-bold text-sm" style={{ color: BRAND.azul }}>Pré-visualização</p>
               <div className="flex gap-2">
-                <button onClick={handlePrint} className="flex items-center gap-1.5 text-sm font-bold px-3 py-1.5 rounded-lg cursor-pointer" style={{ color: BRAND.azul, background: BRAND.azul + "12" }}>👁 Ver / Baixar</button>
+                <button onClick={handlePrint} className="flex items-center gap-1.5 text-sm font-bold px-3 py-1.5 rounded-lg cursor-pointer" style={{ color: BRAND.azul, background: BRAND.azul + "12" }}>🖨️ Imprimir / Baixar</button>
                 <button onClick={() => handleSendWhatsapp(form)} className="flex items-center gap-1.5 text-sm font-bold px-3 py-1.5 rounded-lg cursor-pointer" style={{ color: "#22C35E", background: "#22C35E18" }}>📲 WhatsApp</button>
               </div>
             </div>
