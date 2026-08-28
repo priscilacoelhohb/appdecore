@@ -185,7 +185,12 @@ function App() {
   const pctEfetivo = (c.sinal_percentual_contrato !== null && c.sinal_percentual_contrato !== undefined) ? Number(c.sinal_percentual_contrato) : (Number(c.loja_sinal_percentual) || 50);
   let pago = 0;
   if (c.status_pagamento === "pago") pago = valor;
-  else if (c.status_pagamento === "sinal") pago = valor * (pctEfetivo / 100);
+  else if (c.status_pagamento === "sinal") {
+    // Prioriza o valor exato do sinal (em reais) que a decoradora digitou —
+    // só cai pro cálculo por percentual quando não tem um valor exato salvo.
+    // Sem isso, um sinal de R$100 num contrato de R$700 virava R$98 (14% arredondado).
+    pago = (c.sinal_valor && Number(c.sinal_valor) > 0) ? Number(c.sinal_valor) : valor * (pctEfetivo / 100);
+  }
   const falta = Math.max(valor - pago, 0);
   const isDecoracao = c.tipo_servico === "decoracao";
 
