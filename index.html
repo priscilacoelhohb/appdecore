@@ -294,10 +294,39 @@ const PROFILE_DEFAULT = {
 /* ============================================================
    UI GENÉRICA
 ============================================================ */
-function Field({ label, children, hint, className = "" }) {
+// Botãozinho de "?" que qualquer tela pode usar pra explicar uma funcionalidade
+// em linguagem bem simples. Fica sozinho (não depende de estado do pai) e usa
+// o mesmo estilo de modal já usado em outras confirmações do app.
+function Ajuda({ texto, titulo, emoji }) {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAberto(true); }}
+        aria-label="O que é isso?"
+        className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold ml-1 align-middle cursor-pointer shrink-0"
+        style={{ background: BRAND.azul + "22", color: BRAND.azul }}
+      >?</button>
+      {aberto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.5)" }} onClick={() => setAberto(false)}>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="text-3xl mb-2">{emoji || "🤔"}</div>
+            <p className="fredoka text-lg font-bold mb-2" style={{ color: BRAND.tinta }}>{titulo || "O que é isso?"}</p>
+            <p className="text-sm text-slate-500 leading-relaxed">{texto}</p>
+            <button type="button" onClick={() => setAberto(false)} className="w-full mt-5 py-3 rounded-xl font-bold text-white cursor-pointer active:scale-95 transition" style={{ background: BRAND.azul }}>Entendi!</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+function Field({ label, children, hint, className = "", ajuda, ajudaTitulo, ajudaEmoji }) {
   return (
     <label className={"block mb-4 " + className}>
-      <span className="block text-sm font-semibold mb-1.5" style={{ color: BRAND.tinta }}>{label}</span>
+      <span className="block text-sm font-semibold mb-1.5" style={{ color: BRAND.tinta }}>
+        {label}{ajuda && <Ajuda texto={ajuda} titulo={ajudaTitulo} emoji={ajudaEmoji} />}
+      </span>
       {children}
       {hint && <span className="block text-xs mt-1 text-slate-400">{hint}</span>}
     </label>
@@ -1201,7 +1230,7 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
 
   return (
     <div className="max-w-2xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
-      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Perfil da loja</h2>
+      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Perfil da loja<Ajuda emoji="🏠" titulo="Perfil da loja" texto="Aqui você conta pro app quem é a sua loja: nome, logo, endereço e as regras que valem pra todo contrato (como o sinal e as cláusulas extras). É tipo preencher a 'carteirinha de identidade' da sua empresa dentro do app." /></h2>
       <p className="text-sm text-slate-400 mb-5">Esses dados aparecem no cabeçalho e no contrato.</p>
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
         <Field label="Logo da loja" hint="PNG ou JPG, até 1,5MB">
@@ -1222,7 +1251,7 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
         <Field label="Seu nome (responsável)"><input className={inputClass} value={form.nome_responsavel || ""} onChange={(e) => set("nome_responsavel", e.target.value)} /></Field>
         <Field label="CNPJ"><input className={inputClass} value={form.cnpj || ""} onChange={(e) => set("cnpj", e.target.value)} placeholder="00.000.000/0000-00" /></Field>
         <Field label="Endereço"><input className={inputClass} value={form.endereco || ""} onChange={(e) => set("endereco", e.target.value)} /></Field>
-        <Field label="Percentual do sinal" hint="Quanto você cobra de sinal no agendamento. Aparece no contrato e no financeiro.">
+        <Field label="Percentual do sinal" ajuda="O sinal é a parte do pagamento que a cliente adianta pra garantir a data dela. Esse número aqui é o padrão pra todos os contratos novos — você ainda pode mudar em um contrato específico, se quiser." ajudaEmoji="🔒" hint="Quanto você cobra de sinal no agendamento. Aparece no contrato e no financeiro.">
           <div className="flex items-center gap-2">
             <input type="number" min="0" max="100" className={inputClass} value={form.sinal_percentual} onChange={(e) => set("sinal_percentual", e.target.value.replace(/[^0-9]/g,""))} />
             <span className="font-bold text-slate-400">%</span>
@@ -1252,12 +1281,12 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
           <p className="font-bold text-sm mb-0.5" style={{ color: BRAND.rosa }}>Cláusulas adicionais do contrato</p>
           <p className="text-xs text-slate-400 mb-3">Escreva regras específicas do seu espaço/negócio. Elas entram automaticamente no final de todo contrato, incluindo o link que a cliente assina.</p>
         </div>
-        <Field label="Cláusulas adicionais" hint="Opcional. Ex: regras de uso do salão, horário de silêncio, política de cancelamento própria, etc.">
+        <Field label="Cláusulas adicionais" ajuda="Cláusula é cada 'regrinha' escrita no contrato. O contrato já vem com 8 regras padrão (prazo, pagamento, cuidado com as peças, etc). Aqui você pode escrever regras extras suas, que aparecem depois de todas as outras, direto no contrato que a cliente assina." ajudaEmoji="📋" hint="Opcional. Ex: regras de uso do salão, horário de silêncio, política de cancelamento própria, etc.">
           <textarea className={inputClass} rows={4} value={form.clausulas_extras} onChange={(e) => set("clausulas_extras", e.target.value)} placeholder="Ex: 9.1. O uso do espaço é limitado a X convidados. 9.2. É proibido som após as 22h..." />
         </Field>
 
         <div className="mt-2 mb-1 pt-4 border-t border-slate-100">
-          <p className="font-bold text-sm mb-0.5" style={{ color: BRAND.rosa }}>Editar tipo de contrato</p>
+          <p className="font-bold text-sm mb-0.5" style={{ color: BRAND.rosa }}>Editar tipo de contrato<Ajuda emoji="✍️" titulo="Editar tipo de contrato" texto="Isso é opcional e avançado — só mexa se quiser. Por padrão, todo contrato usa o mesmo texto (aquelas 8 regras + suas cláusulas extras). Aqui você pode escrever um texto TOTALMENTE diferente pra um tipo específico de serviço, por exemplo pra 'Balões' não ter a regra de peças de estoque. Se deixar em branco, continua usando o texto padrão normal." /></p>
           <p className="text-xs text-slate-400 mb-3">
             Cada tipo de contrato pode ter seu próprio texto — assim, "Espaço de festa" não precisa ter a cláusula de balões, por exemplo. Edite cada um separadamente. Se deixar em branco, aquele tipo usa o texto padrão de sempre.
           </p>
@@ -1820,7 +1849,7 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
-        <div><h2 className="fredoka text-xl font-bold" style={{ color: BRAND.tinta }}>Preencher contrato</h2>
+        <div><h2 className="fredoka text-xl font-bold" style={{ color: BRAND.tinta }}>Preencher contrato<Ajuda emoji="📝" titulo="Preencher contrato" texto="Isso aqui é como uma promessa por escrito entre você e a sua cliente: o que foi combinado, quanto custa, quando pega e quando devolve. Depois de preencher, o app manda um link pra ela ler e assinar pelo celular — sem precisar imprimir nada." /></h2>
         <p className="text-sm text-slate-400">O texto já vem pronto — você só troca os campos que mudam.</p></div>
         <div className="flex gap-2 shrink-0">
           <button onClick={() => setMostrarConfigLink(true)} className="flex items-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-xl font-bold text-sm active:scale-95 transition cursor-pointer" style={{ color: BRAND.azul, background: BRAND.azul + "12", minHeight: 44 }}>🔗 Link de assinatura</button>
@@ -1860,17 +1889,17 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
               {clienteRepetido && <p className="text-xs font-semibold mt-1.5" style={{ color: BRAND.turquesa }}>🎉 Esse cliente já fechou {clienteRepetido.count} festa{clienteRepetido.count > 1 ? "s" : ""} com a gente!</p>}
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="CPF"><input className={inputClass} value={form.contratanteCPF} onChange={(e) => set("contratanteCPF", formatarCPF(e.target.value))} maxLength={14} placeholder="000.000.000-00" /></Field>
+              <Field label="CPF" ajuda="É o documento da pessoa que está contratando (só números, o app coloca os pontos e o traço sozinho). Serve pra identificar direitinho quem assinou o contrato, caso precise provar isso um dia." ajudaEmoji="🪪"><input className={inputClass} value={form.contratanteCPF} onChange={(e) => set("contratanteCPF", formatarCPF(e.target.value))} maxLength={14} placeholder="000.000.000-00" /></Field>
               <Field label="Valor do produto"><input className={inputClass} value={form.valor} onChange={(e) => set("valor", e.target.value.replace(/[^0-9.,]/g, ""))} placeholder="90,00" /></Field>
             </div>
-            <Field label="Multa por atraso na devolução (%)" hint={form.semMulta ? "Multa desativada pra este contrato" : "Cobrada por hora de atraso. Deixe em branco pra usar 10% (padrão)"}>
+            <Field label="Multa por atraso na devolução (%)" ajuda="Multa é tipo uma 'penalidade' — um valor extra que a cliente paga se devolver as peças mais tarde do que combinado. Isso incentiva todo mundo a devolver na hora certa, pra não atrapalhar a próxima festa que já usa essas mesmas peças." ajudaEmoji="⏰" hint={form.semMulta ? "Multa desativada pra este contrato" : "Cobrada por hora de atraso. Deixe em branco pra usar 10% (padrão)"}>
               <div className="flex items-center gap-2 mb-2">
                 <input type="checkbox" id="semMulta" checked={!!form.semMulta} onChange={(e) => set("semMulta", e.target.checked)} className="w-4 h-4 rounded cursor-pointer" style={{ accentColor: BRAND.azul }} />
                 <label htmlFor="semMulta" className="text-xs font-semibold cursor-pointer" style={{ color: BRAND.tinta }}>Não cobrar multa por atraso neste contrato</label>
               </div>
               <input className={inputClass} value={form.multaPercentual} onChange={(e) => set("multaPercentual", e.target.value.replace(/[^0-9]/g, ""))} placeholder="10" disabled={!!form.semMulta} style={form.semMulta ? { opacity: 0.4, cursor: "not-allowed" } : {}} />
             </Field>
-            <Field label="Valor do sinal (R$)" hint={form.valorSinal && parseValorBR(form.valor) > 0 ? `= ${Math.round((parseValorBR(form.valorSinal) / parseValorBR(form.valor)) * 100)}% do valor do produto` : "Opcional — deixe em branco pra usar o percentual padrão da loja"}>
+            <Field label="Valor do sinal (R$)" ajuda="O sinal é um pedacinho do pagamento que a cliente adianta pra 'garantir' a data dela na sua agenda — tipo reservar um lugar. O resto do valor ela paga depois, na entrega ou como vocês combinarem." ajudaEmoji="🔒" hint={form.valorSinal && parseValorBR(form.valor) > 0 ? `= ${Math.round((parseValorBR(form.valorSinal) / parseValorBR(form.valor)) * 100)}% do valor do produto` : "Opcional — deixe em branco pra usar o percentual padrão da loja"}>
               <input
                 className={inputClass}
                 value={form.valorSinal}
@@ -2157,7 +2186,7 @@ function OportunidadesTab({ userId, profile }) {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
-      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>🎯 Oportunidades</h2>
+      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>🎯 Oportunidades<Ajuda emoji="🎯" titulo="Oportunidades" texto="O app fica de olho nas datas e avisa você sozinho: quando um aniversário de alguém da família de uma cliente está chegando, ou quando faz tempo que uma cliente antiga não festeja com você. Você só clica no botão verde e a mensagem pronta abre no WhatsApp." /></h2>
       <p className="text-sm text-slate-400 mb-5">Lembretes automáticos pra manter contato com clientes antigos.</p>
 
       <div className="flex gap-2 mb-5">
@@ -2356,7 +2385,7 @@ function EstoqueTab({ userId, profile, onProfileUpdate }) {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
-      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>📦 Estoque</h2>
+      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>📦 Estoque<Ajuda emoji="📦" titulo="Estoque" texto="Aqui fica a lista de todas as peças que você tem: painéis, arcos, mesas... Quando você usa uma peça num contrato, o app desconta a quantidade sozinho, e quando ela volta, devolve pro estoque. Assim você nunca promete duas festas com a mesma peça no mesmo dia." /></h2>
       <p className="text-sm text-slate-400 mb-3">Cadastre e edite os materiais que você tem disponível.</p>
 
       <div className="flex flex-wrap gap-3 mb-5">
@@ -2726,7 +2755,7 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
       <div className="mb-6">
-        <h2 className="fredoka text-2xl font-bold flex items-center gap-2" style={{ color: BRAND.tinta }}><IconVarinhaMagica className="w-6 h-6" style={{ color: "#8B5CF6" }} /> Catálogo</h2>
+        <h2 className="fredoka text-2xl font-bold flex items-center gap-2" style={{ color: BRAND.tinta }}><IconVarinhaMagica className="w-6 h-6" style={{ color: "#8B5CF6" }} /> Catálogo<Ajuda emoji="✨" titulo="Catálogo" texto="É uma vitrine com fotos de verdade dos seus kits, que você manda por um link — a cliente escolhe o que gostou sem precisar ficar mandando foto por foto no WhatsApp. Só aparece pra quem tem o plano Premium." /></h2>
         <p className="text-slate-400 text-sm mt-1">Monte seu catálogo com fotos reais dos seus kits. O cliente navega e manda WhatsApp pronto pra fechar.</p>
       </div>
 
@@ -3219,7 +3248,7 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
         {form.catalogo_usar_marca_dagua && (
           <div className="mb-4 pl-1">
             <label className="text-xs font-bold text-slate-500 mb-1 flex justify-between">
-              <span>Transparência da marca d'água</span>
+              <span>Transparência da marca d'água<Ajuda emoji="💧" titulo="Marca d'água" texto="É a sua logo aparecendo bem fraquinha em cima das fotos do catálogo — assim ninguém rouba suas fotos e usa como se fossem de outra loja. Quanto mais alta a porcentagem, mais visível ela fica na foto." /></span>
               <span>{form.catalogo_marca_dagua_opacidade}%</span>
             </label>
             <input
@@ -3288,7 +3317,7 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
 
       {form.catalogo_ativo && (
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
-          <p className="font-bold text-sm mb-2" style={{ color: BRAND.tinta }}>Nome do seu link</p>
+          <p className="font-bold text-sm mb-2" style={{ color: BRAND.tinta }}>Nome do seu link<Ajuda emoji="🔗" titulo="Nome do seu link" texto="Sem isso, o link do seu catálogo é cheio de números difíceis de lembrar. Colocando o nome da sua loja aqui, o link fica bonito e fácil de mandar pra cliente, tipo 'catalogo-cliente.html?d=studio-encanto'." /></p>
           <p className="text-xs text-slate-400 mb-2">Em vez de um monte de número, coloque o nome da sua loja — fica mais bonito e fácil de lembrar.</p>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs text-slate-400 shrink-0 hidden sm:inline">catalogo-cliente.html?d=</span>
@@ -3474,7 +3503,7 @@ function FinanceiroTab({ userId, profile }) {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
-      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Financeiro</h2>
+      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Financeiro<Ajuda emoji="💰" titulo="Financeiro" texto="Mostra quanto entrou (o que suas clientes pagaram) e quanto saiu (suas despesas, tipo compra de balão). É como um cofrinho que soma tudo sozinho, pra você saber se está sobrando dinheiro no fim do mês." /></h2>
       <p className="text-sm text-slate-400 mb-3">Puxado automaticamente dos contratos preenchidos.</p>
 
       <div className="relative mb-5">
@@ -3833,7 +3862,7 @@ function AgendaTab({ userId, profile }) {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
-      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Agenda</h2>
+      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Agenda<Ajuda emoji="📅" titulo="Agenda" texto="Um calendário que mostra todas as suas entregas e retiradas de uma vez, pra você nunca esquecer nem marcar duas festas na mesma hora sem perceber." /></h2>
       <p className="text-sm text-slate-400 mb-3">O calendário marca as datas de entrega e devolução dos kits.</p>
 
       {(entregasHoje > 0 || devolucoesHoje > 0) && (
