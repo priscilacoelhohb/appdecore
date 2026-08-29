@@ -1061,7 +1061,6 @@ function HomeDashboard({ setPage, contracts, profile, userId, isOwner, membershi
         ) : (
           <LockedHomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Vitrine dos seus kits com fotos reais, filtros por categoria e botão de WhatsApp pronto. Ainda edita as fotos com IA — troque cores e detalhes sem precisar tirar foto nova. Exclusivo do plano Premium." linkUpgrade={`https://buy.stripe.com/4gM5kwgoRh1I7Z57HdfQI08?prefilled_email=${encodeURIComponent(profile.email || "")}`} />
         ))}
-        {isOwner && <HomeCard emoji="🧑‍🤝‍🧑" title="Gerenciar equipe" desc="Dê acesso a funcionários, com permissões separadas pra cada área do app." color={BRAND.azul} onClick={() => setPage("equipe")} />}
       </div>
     </div>
   );
