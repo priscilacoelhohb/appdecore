@@ -2664,7 +2664,7 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
 
   useEffect(() => { carregarKits(); }, [carregarKits]);
 
-  const limiteCatalogo = profile.limite_catalogo || 10;
+  const limiteCatalogo = profile.limite_catalogo ?? 0;
   const totalKits = (kits || []).length;
 
   async function novoKit() {
@@ -2675,7 +2675,7 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
       const { data: perfilAtual } = await sb.from("decoradoras").select("*").eq("id", userId).maybeSingle();
       if (perfilAtual) {
         onProfileUpdate(perfilAtual);
-        limiteAtual = perfilAtual.limite_catalogo || 10;
+        limiteAtual = perfilAtual.limite_catalogo ?? 0;
       }
       if (totalKits >= limiteAtual) {
         setErro(`Seu plano permite até ${limiteAtual} kits no catálogo. Apague algum antes de criar outro, ou faça upgrade.`);
