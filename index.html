@@ -640,7 +640,7 @@ function ResetPasswordScreen({ onDone }) {
 /* ============================================================
    MENU LATERAL (Suporte, Problemas e Soluções, Aprenda mais, Comunidade)
 ============================================================ */
-function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout, isOwner, setPage }) {
+function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout, isOwner, setPage, podeVerClientes }) {
   const [secaoAberta, setSecaoAberta] = useState(null); // 'faq' | 'videos' | null
   const [montado, setMontado] = useState(false);
 
@@ -719,6 +719,13 @@ function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout, is
             <span style={{ color: BRAND.azul }}><IconMap /></span>
             <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>Comunidade</span>
           </button>
+
+          {podeVerClientes && (
+            <button onClick={() => { setPage("clientes"); onClose(); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer" style={{ minHeight: 44 }}>
+              <span style={{ color: BRAND.azul }}><IconUsers /></span>
+              <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>Clientes</span>
+            </button>
+          )}
 
           {isOwner && (
             <button onClick={() => { setPage("equipe"); onClose(); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer" style={{ minHeight: 44 }}>
@@ -1055,7 +1062,6 @@ function HomeDashboard({ setPage, contracts, profile, userId, isOwner, membershi
         {pode("financeiro") && <HomeCard emoji="💰" title="Financeiro" desc="Faturamento do mês, produto mais vendido e valores a receber." color={BRAND.amarelo} onClick={() => setPage("financeiro")} stat={formatBRL(aReceber) + " a receber"} />}
         {pode("agenda") && <HomeCard emoji="📅" title="Agenda" desc="Veja o que precisa entregar e retirar em cada dia." color={BRAND.turquesa} onClick={() => setPage("agenda")} stat={entregasHoje > 0 ? `${entregasHoje} hoje` : "Nada hoje"} />}
         {pode("oportunidades") && <HomeCard emoji="🎯" title="Oportunidades" desc="Aniversários e clientes antigos pra reconquistar." color="#8B5CF6" onClick={() => setPage("oportunidades")} />}
-        {pode("clientes") && <HomeCard emoji="👤" title="Clientes" desc="Quem já alugou com você, quantas vezes e o que já pegou." color={BRAND.turquesa} onClick={() => setPage("clientes")} />}
         {pode("estoque") && <HomeCard emoji="📦" title="Estoque" desc="Seus materiais, com quantidade sempre atualizada." color="#F97316" onClick={() => setPage("estoque")} />}
         {pode("catalogo") && (profile.plano_tipo === "premium" ? (
           <HomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Vitrine dos seus kits com fotos reais, filtros por categoria e botão de WhatsApp pronto. Ainda edita as fotos com IA — troque cores e detalhes sem precisar tirar foto nova." color="#8B5CF6" onClick={() => setPage("catalogo")} />
@@ -1663,7 +1669,7 @@ function ConfigurarLinkModal({ profile, onClose, onSaved }) {
   );
 }
 
-function ContratoTab({ userId, profile, onProfileUpdate }) {
+function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onContratoAberto }) {
   const [mostrarConfigLink, setMostrarConfigLink] = useState(false);
   const [contracts, setContracts] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -1699,6 +1705,16 @@ function ContratoTab({ userId, profile, onProfileUpdate }) {
   }, [userId]);
 
   useEffect(() => { carregarContratos(); }, [carregarContratos]);
+
+  // Chegou aqui vindo da aba Clientes com um contrato específico pra abrir
+  useEffect(() => {
+    if (!abrirContratoId || carregando) return;
+    const alvo = contracts.find((c) => c.id === abrirContratoId);
+    if (alvo) {
+      editContract(alvo);
+      if (onContratoAberto) onContratoAberto();
+    }
+  }, [abrirContratoId, contracts, carregando]);
 
   function set(field, value) { setForm((f) => ({ ...f, [field]: value })); }
 
@@ -2266,7 +2282,7 @@ function OportunidadesTab({ userId, profile }) {
 /* ============================================================
    CLIENTES (agregado a partir dos contratos — histórico por pessoa)
 ============================================================ */
-function ClientesTab({ userId }) {
+function ClientesTab({ userId, onAbrirContrato }) {
   const [contracts, setContracts] = useState(null);
   const [busca, setBusca] = useState("");
   const [abertoIdx, setAbertoIdx] = useState(null);
@@ -2342,13 +2358,13 @@ function ClientesTab({ userId }) {
                       )}
                       <span className="text-xs text-slate-400">Último aluguel: {formatDateBR(cl.ultimo)}</span>
                     </div>
-                    <p className="text-xs font-bold uppercase text-slate-400 mb-2">Histórico de aluguéis</p>
+                    <p className="text-xs font-bold uppercase text-slate-400 mb-2">Histórico de aluguéis — toque pra abrir o contrato</p>
                     <div className="space-y-1.5">
                       {[...cl.contratos].sort((a, b) => (b.data_retirada || "").localeCompare(a.data_retirada || "")).map((c) => (
-                        <div key={c.id} className="flex items-center justify-between text-sm py-1.5 border-b border-slate-100 last:border-0 gap-2">
-                          <span className="text-slate-600 truncate">{c.produto_nome || "sem produto"} · {formatDateBR(c.data_retirada)}</span>
+                        <button key={c.id} onClick={() => onAbrirContrato && onAbrirContrato(c.id)} className="w-full flex items-center justify-between text-sm py-1.5 border-b border-slate-100 last:border-0 gap-2 cursor-pointer hover:bg-white rounded-lg px-1.5 -mx-1.5">
+                          <span className="text-slate-600 truncate text-left">{c.produto_nome || "sem produto"} · {formatDateBR(c.data_retirada)}</span>
                           <span className="font-semibold shrink-0" style={{ color: BRAND.tinta }}>{formatBRL(c.valor)}</span>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -4549,6 +4565,7 @@ function App() {
   const [session, setSession] = useState(undefined); // undefined = carregando, null = deslogado
   const [profile, setProfile] = useState(null);
   const [membership, setMembership] = useState(null); // null = dona da loja; {permissoes} = funcionaria
+  const [contratoAlvo, setContratoAlvo] = useState(null); // id de contrato pra abrir direto, vindo da aba Clientes
   const isOwner = !membership;
   const [conviteToken] = useState(pareceLinkDeConvite);
   const [page, setPage] = useState("home");
@@ -4688,7 +4705,7 @@ function App() {
     <TrialGate profile={profile} onLogout={handleLogout}>
       <div className="min-h-screen" style={{ background: BRAND.bg }}>
         <Header userEmail={session.user.email} page={page} setPage={setPage} onLogout={handleLogout} profile={profile} notificacoes={notificacoes} userId={profile.id} onOpenMenu={() => setMenuAberto(true)} />
-        <SidebarMenu aberto={menuAberto} onClose={() => setMenuAberto(false)} config={appConfig} userEmail={session.user.email} profile={profile} onLogout={handleLogout} isOwner={isOwner} setPage={setPage} />
+        <SidebarMenu aberto={menuAberto} onClose={() => setMenuAberto(false)} config={appConfig} userEmail={session.user.email} profile={profile} onLogout={handleLogout} isOwner={isOwner} setPage={setPage} podeVerClientes={isOwner || !!(membership && membership.permissoes && membership.permissoes.clientes)} />
         {isOwner && profile && !profile.onboarding_visto && (
           <WelcomeModal
             profile={profile}
@@ -4707,7 +4724,7 @@ function App() {
             <p className="text-sm text-slate-400">Fale com a dona da loja se precisar desse acesso.</p>
           </div>
         ) : page === "contrato" ? (
-          <ContratoTab userId={profile.id} profile={profile} onProfileUpdate={setProfile} />
+          <ContratoTab userId={profile.id} profile={profile} onProfileUpdate={setProfile} abrirContratoId={contratoAlvo} onContratoAberto={() => setContratoAlvo(null)} />
         ) : page === "financeiro" ? (
           <FinanceiroTab userId={profile.id} profile={profile} />
         ) : page === "agenda" ? (
@@ -4715,7 +4732,7 @@ function App() {
         ) : page === "oportunidades" ? (
           <OportunidadesTab userId={profile.id} profile={profile} />
         ) : page === "clientes" ? (
-          <ClientesTab userId={profile.id} />
+          <ClientesTab userId={profile.id} onAbrirContrato={(id) => { setContratoAlvo(id); setPage("contrato"); }} />
         ) : page === "estoque" ? (
           <EstoqueTab userId={profile.id} profile={profile} onProfileUpdate={setProfile} />
         ) : page === "catalogo" ? (
