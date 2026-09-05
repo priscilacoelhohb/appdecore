@@ -1055,6 +1055,7 @@ function HomeDashboard({ setPage, contracts, profile, userId, isOwner, membershi
         {pode("financeiro") && <HomeCard emoji="💰" title="Financeiro" desc="Faturamento do mês, produto mais vendido e valores a receber." color={BRAND.amarelo} onClick={() => setPage("financeiro")} stat={formatBRL(aReceber) + " a receber"} />}
         {pode("agenda") && <HomeCard emoji="📅" title="Agenda" desc="Veja o que precisa entregar e retirar em cada dia." color={BRAND.turquesa} onClick={() => setPage("agenda")} stat={entregasHoje > 0 ? `${entregasHoje} hoje` : "Nada hoje"} />}
         {pode("oportunidades") && <HomeCard emoji="🎯" title="Oportunidades" desc="Aniversários e clientes antigos pra reconquistar." color="#8B5CF6" onClick={() => setPage("oportunidades")} />}
+        {pode("clientes") && <HomeCard emoji="👤" title="Clientes" desc="Quem já alugou com você, quantas vezes e o que já pegou." color={BRAND.turquesa} onClick={() => setPage("clientes")} />}
         {pode("estoque") && <HomeCard emoji="📦" title="Estoque" desc="Seus materiais, com quantidade sempre atualizada." color="#F97316" onClick={() => setPage("estoque")} />}
         {pode("catalogo") && (profile.plano_tipo === "premium" ? (
           <HomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Vitrine dos seus kits com fotos reais, filtros por categoria e botão de WhatsApp pronto. Ainda edita as fotos com IA — troque cores e detalhes sem precisar tirar foto nova." color="#8B5CF6" onClick={() => setPage("catalogo")} />
@@ -2257,6 +2258,105 @@ function OportunidadesTab({ userId, profile }) {
             ))}
           </div>
         )
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   CLIENTES (agregado a partir dos contratos — histórico por pessoa)
+============================================================ */
+function ClientesTab({ userId }) {
+  const [contracts, setContracts] = useState(null);
+  const [busca, setBusca] = useState("");
+  const [abertoIdx, setAbertoIdx] = useState(null);
+
+  useEffect(() => {
+    sb.from("contracts").select("*").eq("decoradora_id", userId).order("data_retirada", { ascending: false })
+      .then(({ data }) => setContracts(data || []));
+  }, [userId]);
+
+  const clientes = useMemo(() => {
+    if (!contracts) return [];
+    const mapa = {};
+    for (const c of contracts) {
+      const digitos = onlyDigits(c.contratante_whatsapp || "");
+      const chave = digitos || `nome:${(c.contratante_nome || "sem nome").trim().toLowerCase()}`;
+      if (!mapa[chave]) mapa[chave] = { nome: c.contratante_nome || "Sem nome", whatsapp: c.contratante_whatsapp || "", cpf: c.contratante_cpf || "", contratos: [] };
+      mapa[chave].contratos.push(c);
+      if (c.contratante_nome) mapa[chave].nome = c.contratante_nome;
+    }
+    return Object.values(mapa)
+      .map((cl) => ({
+        ...cl,
+        qtd: cl.contratos.length,
+        totalGasto: cl.contratos.reduce((s, c) => s + (Number(c.valor) || 0), 0),
+        ultimo: cl.contratos.reduce((max, c) => (!max || (c.data_retirada || "") > max ? c.data_retirada : max), null),
+      }))
+      .sort((a, b) => b.qtd - a.qtd);
+  }, [contracts]);
+
+  const clientesFiltrados = clientes.filter((c) => {
+    if (!busca.trim()) return true;
+    const termo = busca.toLowerCase();
+    return c.nome.toLowerCase().includes(termo) || onlyDigits(c.whatsapp).includes(onlyDigits(busca));
+  });
+
+  if (contracts === null) return <div className="max-w-5xl mx-auto px-4 sm:px-5 py-10 text-center text-slate-400">Carregando clientes...</div>;
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
+      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>👤 Clientes<Ajuda emoji="👤" titulo="Clientes" texto="Junta automaticamente todos os contratos da mesma pessoa (pelo WhatsApp) e mostra quantas vezes ela já alugou, quanto já gastou, e o histórico completo — sem precisar cadastrar nada a mais." /></h2>
+      <p className="text-sm text-slate-400 mb-4">Puxado automaticamente dos contratos preenchidos.</p>
+
+      <input className="w-full rounded-xl border-2 border-slate-200 px-4 py-2.5 text-sm mb-4" placeholder="🔎 Buscar por nome ou WhatsApp..." value={busca} onChange={(e) => setBusca(e.target.value)} />
+
+      {clientesFiltrados.length === 0 ? (
+        <div className="bg-white rounded-2xl p-8 text-center border border-slate-100">
+          <p className="text-3xl mb-2">👤</p>
+          <p className="text-sm text-slate-400">{contracts.length === 0 ? "Nenhum contrato preenchido ainda — os clientes aparecem aqui sozinhos assim que você criar o primeiro." : "Nenhum cliente encontrado com essa busca."}</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {clientesFiltrados.map((cl, i) => {
+            const aberto = abertoIdx === i;
+            return (
+              <div key={i} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <button onClick={() => setAbertoIdx(aberto ? null : i)} className="w-full text-left p-4 flex items-center gap-3 cursor-pointer">
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shrink-0" style={{ background: BRAND.roxo }}>{cl.nome.charAt(0).toUpperCase()}</div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-sm truncate" style={{ color: BRAND.tinta }}>{cl.nome}</p>
+                    <p className="text-xs text-slate-400 truncate">{cl.whatsapp || "sem WhatsApp cadastrado"}{cl.cpf ? ` · CPF ${cl.cpf}` : ""}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-bold text-sm" style={{ color: BRAND.azul }}>{cl.qtd}x alugou</p>
+                    <p className="text-xs text-slate-400">{formatBRL(cl.totalGasto)}</p>
+                  </div>
+                  <span className="text-slate-400 shrink-0">{aberto ? "▴" : "▾"}</span>
+                </button>
+                {aberto && (
+                  <div className="border-t border-slate-100 p-4" style={{ background: BRAND.bg }}>
+                    <div className="flex items-center gap-2 mb-3 flex-wrap">
+                      {cl.whatsapp && (
+                        <a href={whatsappLink(cl.whatsapp, `Olá, ${cl.nome}! 😊`)} target="_blank" rel="noreferrer" className="text-xs font-bold px-3 py-1.5 rounded-full text-white cursor-pointer" style={{ background: "#22C35E" }}>📲 Chamar no WhatsApp</a>
+                      )}
+                      <span className="text-xs text-slate-400">Último aluguel: {formatDateBR(cl.ultimo)}</span>
+                    </div>
+                    <p className="text-xs font-bold uppercase text-slate-400 mb-2">Histórico de aluguéis</p>
+                    <div className="space-y-1.5">
+                      {[...cl.contratos].sort((a, b) => (b.data_retirada || "").localeCompare(a.data_retirada || "")).map((c) => (
+                        <div key={c.id} className="flex items-center justify-between text-sm py-1.5 border-b border-slate-100 last:border-0 gap-2">
+                          <span className="text-slate-600 truncate">{c.produto_nome || "sem produto"} · {formatDateBR(c.data_retirada)}</span>
+                          <span className="font-semibold shrink-0" style={{ color: BRAND.tinta }}>{formatBRL(c.valor)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
@@ -4233,6 +4333,7 @@ const PERMISSOES_LABELS = [
   ["financeiro", "Financeiro", "Ver faturamento e despesas"],
   ["agenda", "Agenda", "Ver a agenda de entregas e retiradas"],
   ["oportunidades", "Oportunidades", "Ver aniversários e clientes pra reconquistar"],
+  ["clientes", "Clientes", "Ver a lista e o histórico de clientes"],
 ];
 
 function MembroEquipeCard({ membro, onSalvarPermissoes, onReenviar, onRevogar, onRemover, statusLabel, statusCor }) {
@@ -4576,7 +4677,7 @@ function App() {
     return <PreparandoPainel />;
   }
 
-  const PAGE_PERMISSAO = { contrato: "contrato", financeiro: "financeiro", agenda: "agenda", oportunidades: "oportunidades", estoque: "estoque", catalogo: "catalogo" };
+  const PAGE_PERMISSAO = { contrato: "contrato", financeiro: "financeiro", agenda: "agenda", oportunidades: "oportunidades", estoque: "estoque", catalogo: "catalogo", clientes: "clientes" };
   function podeAcessar(pagina) {
     if (isOwner) return true;
     const chave = PAGE_PERMISSAO[pagina];
@@ -4613,6 +4714,8 @@ function App() {
           <AgendaTab userId={profile.id} profile={profile} />
         ) : page === "oportunidades" ? (
           <OportunidadesTab userId={profile.id} profile={profile} />
+        ) : page === "clientes" ? (
+          <ClientesTab userId={profile.id} />
         ) : page === "estoque" ? (
           <EstoqueTab userId={profile.id} profile={profile} onProfileUpdate={setProfile} />
         ) : page === "catalogo" ? (
