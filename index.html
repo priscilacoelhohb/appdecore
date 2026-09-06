@@ -2840,11 +2840,12 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
     await sb.from("catalogo_kits").delete().eq("id", kit.id);
   }
 
-  async function adicionarFotoKit(kitId, file) {
+  async function adicionarFotoKit(kitId, file, ordemForcada) {
     setErro("");
     if (!file || !file.type.startsWith("image/")) { setErro("Escolha um arquivo de imagem."); return; }
     const fotosAtuais = fotosPorKit[kitId] || [];
-    if (fotosAtuais.length >= 5) { setErro("Máximo de 5 fotos por kit."); return; }
+    const ordem = ordemForcada ?? fotosAtuais.length;
+    if (ordem >= 5) { setErro("Máximo de 5 fotos por kit."); return; }
     try {
       let dataUrl = await redimensionarImagem(file, 1000);
       if (profile.catalogo_usar_marca_dagua !== false) {
@@ -2855,7 +2856,7 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
       const { error: erroUpload } = await sb.storage.from("catalogo").upload(nomeArquivo, blob, { contentType: "image/jpeg", upsert: false });
       if (erroUpload) { setErro("Erro ao subir a foto: " + erroUpload.message); return; }
       const { data: urlPublica } = sb.storage.from("catalogo").getPublicUrl(nomeArquivo);
-      await sb.from("catalogo_kit_fotos").insert({ kit_id: kitId, imagem_url: urlPublica.publicUrl, ordem: fotosAtuais.length });
+      await sb.from("catalogo_kit_fotos").insert({ kit_id: kitId, imagem_url: urlPublica.publicUrl, ordem });
       await carregarKits();
     } catch (err) {
       setErro("Erro inesperado: " + err.message);
@@ -2925,8 +2926,11 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
           onSalvar={async (dados, arquivosPendentes) => {
             const kitId = await salvarKit(dados);
             if (!kitId) return;
+            const fotosJaSalvas = (editando && editando.id) ? (fotosPorKit[editando.id] || []).length : 0;
+            let i = 0;
             for (const arquivo of (arquivosPendentes || [])) {
-              await adicionarFotoKit(kitId, arquivo);
+              await adicionarFotoKit(kitId, arquivo, fotosJaSalvas + i);
+              i++;
             }
             setEditando(null);
           }}
@@ -3036,11 +3040,12 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
 
   const totalFotos = fotos.length + fotosPendentes.length;
 
-  function selecionarFoto(file) {
-    if (!file || !file.type.startsWith("image/")) return;
-    if (totalFotos >= 5) return;
-    const previewUrl = URL.createObjectURL(file);
-    setFotosPendentes((p) => [...p, { tempId: uid(), file, previewUrl }]);
+  function selecionarFotos(fileList) {
+    const arquivos = Array.from(fileList || []).filter((f) => f && f.type.startsWith("image/"));
+    if (arquivos.length === 0) return;
+    const espacoRestante = Math.max(0, 5 - totalFotos);
+    const novos = arquivos.slice(0, espacoRestante).map((file) => ({ tempId: uid(), file, previewUrl: URL.createObjectURL(file) }));
+    if (novos.length > 0) setFotosPendentes((p) => [...p, ...novos]);
   }
 
   function removerFotoPendente(tempId) {
@@ -3150,8 +3155,8 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
             </div>
             {totalFotos < 5 && (
               <label className="inline-block px-4 py-2 rounded-xl font-bold text-sm cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
-                + Subir foto
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files[0]; if (f) selecionarFoto(f); e.target.value = ""; }} />
+                + Subir fotos (pode escolher várias)
+                <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { selecionarFotos(e.target.files); e.target.value = ""; }} />
               </label>
             )}
             {!kit.id && fotosPendentes.length > 0 && (
