@@ -219,7 +219,17 @@ function App() {
             </div>
             <div className="text-center border-y-2 py-3 mb-4" style={{ borderColor: corPrincipal + "22" }}>
               <p className="font-bold">{c.produto_nome}</p>
-              {(c.itens_estoque || c.material_entregue) && <p className="text-slate-500">Itens inclusos: {c.itens_estoque || c.material_entregue}</p>}
+              {Array.isArray(c.itens_estoque_detalhado) && c.itens_estoque_detalhado.length > 0 ? (
+                <div className="text-left inline-block mt-2 text-slate-600">
+                  <p className="text-slate-500 mb-1 text-center">Peças inclusas:</p>
+                  {c.itens_estoque_detalhado.map((it, i) => (
+                    <p key={i}>
+                      {it.quantidade}x {it.material}{it.modelo ? ` (${it.modelo})` : ""}
+                      {it.preco_unitario != null && ` — ${formatBRL(it.preco_unitario)} cada = ${formatBRL(it.preco_unitario * it.quantidade)}`}
+                    </p>
+                  ))}
+                </div>
+              ) : (c.itens_estoque || c.material_entregue) && <p className="text-slate-500">Itens inclusos: {c.itens_estoque || c.material_entregue}</p>}
               <p className="font-bold mt-1">{formatBRL(valor)}</p>
             </div>
             {(() => {
