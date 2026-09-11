@@ -4598,7 +4598,6 @@ function EquipeTab({ userId, profile }) {
 }
 
 function BotaoAfiliado({ plano, link }) {
-  const [copiado, setCopiado] = useState(false);
   if (!link) {
     return (
       <div className="rounded-2xl p-4 flex items-center justify-between gap-3" style={{ background: "#F1F5F9" }}>
@@ -4609,18 +4608,13 @@ function BotaoAfiliado({ plano, link }) {
       </div>
     );
   }
-  function copiar() {
-    navigator.clipboard.writeText(link);
-    setCopiado(true);
-    setTimeout(() => setCopiado(false), 2000);
-  }
   return (
     <div className="rounded-2xl p-4 flex items-center justify-between gap-3 flex-wrap" style={{ background: "#F1F5F9" }}>
-      <p className="font-bold text-sm" style={{ color: BRAND.tinta }}>{plano}</p>
-      <div className="flex gap-2">
-        <button onClick={copiar} className="px-3 py-2 rounded-xl font-bold text-xs cursor-pointer" style={{ background: "#fff", border: "2px solid #e2e8f0", color: BRAND.tinta }}>{copiado ? "Copiado! ✓" : "Copiar link"}</button>
-        <a href={link} target="_blank" rel="noreferrer" className="px-3 py-2 rounded-xl font-bold text-xs text-white cursor-pointer" style={{ background: BRAND.rosa }}>Virar afiliada →</a>
+      <div>
+        <p className="font-bold text-sm" style={{ color: BRAND.tinta }}>{plano}</p>
+        <p className="text-xs text-slate-400">Esse botão é só pra você virar afiliada — o link de venda pra compartilhar, a Cakto te dá depois, na tela seguinte.</p>
       </div>
+      <a href={link} target="_blank" rel="noreferrer" className="px-3 py-2 rounded-xl font-bold text-xs text-white cursor-pointer shrink-0" style={{ background: BRAND.rosa }}>Virar afiliada →</a>
     </div>
   );
 }
