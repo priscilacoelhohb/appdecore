@@ -4650,7 +4650,33 @@ function IndiqueEGanheTab({ config }) {
 
       <div className="rounded-2xl p-5 mb-5" style={{ background: BRAND.rosa + "12", border: `2px solid ${BRAND.rosa}33` }}>
         <p className="font-bold text-lg fredoka mb-1" style={{ color: BRAND.rosa }}>25% de comissão, todo mês</p>
-        <p className="text-sm" style={{ color: BRAND.tinta }}>Enquanto a pessoa que você indicou continuar assinante, você recebe 25% do valor da mensalidade dela — sem precisar fazer nada depois de indicar.</p>
+        <p className="text-sm mb-4" style={{ color: BRAND.tinta }}>Enquanto a pessoa que você indicou continuar assinante, você recebe 25% do valor da mensalidade dela — sem precisar fazer nada depois de indicar.</p>
+
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="bg-white rounded-xl p-3 text-center">
+            <p className="text-xs text-slate-400 mb-1">Plano Básico</p>
+            <p className="font-bold text-lg fredoka" style={{ color: BRAND.tinta }}>{formatBRL(7.25)}</p>
+            <p className="text-[11px] text-slate-400">por assinante, todo mês</p>
+          </div>
+          <div className="bg-white rounded-xl p-3 text-center">
+            <p className="text-xs text-slate-400 mb-1">Plano Premium</p>
+            <p className="font-bold text-lg fredoka" style={{ color: BRAND.tinta }}>{formatBRL(14.75)}</p>
+            <p className="text-[11px] text-slate-400">por assinante, todo mês</p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl p-3.5">
+          <p className="text-xs font-bold mb-2" style={{ color: BRAND.tinta }}>💡 Se você indicar 10 pessoas que virarem assinantes:</p>
+          <div className="flex justify-between text-sm mb-1">
+            <span className="text-slate-500">10 no Básico</span>
+            <span className="font-bold" style={{ color: BRAND.rosa }}>{formatBRL(72.50)}/mês</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-slate-500">10 no Premium</span>
+            <span className="font-bold" style={{ color: BRAND.rosa }}>{formatBRL(147.50)}/mês</span>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-2">E continua caindo todo mês, enquanto elas continuarem assinantes.</p>
+        </div>
       </div>
 
       <p className="font-bold text-sm mb-3" style={{ color: BRAND.tinta }}>1. Vire afiliada</p>
