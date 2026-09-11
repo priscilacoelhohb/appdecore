@@ -363,6 +363,7 @@ const IconPuzzle = (p) => <Icon {...p}><path d="M4 7h4a1 1 0 0 0 1-1V5a2 2 0 1 1
 const IconPlay = (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><polygon points="10 8 16 12 10 16 10 8"/></Icon>;
 const IconMap = (p) => <Icon {...p}><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></Icon>;
 const IconUsers = (p) => <Icon {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></Icon>;
+const IconRocket = (p) => <Icon {...p}><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></Icon>;
 const IconChevronDown = (p) => <Icon {...p}><polyline points="6 9 12 15 18 9"/></Icon>;
 const IconChevronRight = (p) => <Icon {...p}><polyline points="9 18 15 12 9 6"/></Icon>;
 const IconLogout = (p) => <Icon {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></Icon>;
@@ -733,6 +734,11 @@ function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout, is
               <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>Gerenciar equipe</span>
             </button>
           )}
+
+          <button onClick={() => { setPage("indique"); onClose(); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer" style={{ minHeight: 44 }}>
+            <span style={{ color: BRAND.rosa }}><IconRocket /></span>
+            <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>Indique e Ganhe</span>
+          </button>
         </div>
 
         <div className="border-t border-slate-100 px-4 py-3 flex items-center gap-2.5">
@@ -4591,6 +4597,69 @@ function EquipeTab({ userId, profile }) {
   );
 }
 
+function BotaoAfiliado({ plano, link }) {
+  const [copiado, setCopiado] = useState(false);
+  if (!link) {
+    return (
+      <div className="rounded-2xl p-4 flex items-center justify-between gap-3" style={{ background: "#F1F5F9" }}>
+        <div>
+          <p className="font-bold text-sm" style={{ color: BRAND.tinta }}>{plano}</p>
+          <p className="text-xs text-slate-400">Em breve — ainda estamos preparando esse link.</p>
+        </div>
+      </div>
+    );
+  }
+  function copiar() {
+    navigator.clipboard.writeText(link);
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 2000);
+  }
+  return (
+    <div className="rounded-2xl p-4 flex items-center justify-between gap-3 flex-wrap" style={{ background: "#F1F5F9" }}>
+      <p className="font-bold text-sm" style={{ color: BRAND.tinta }}>{plano}</p>
+      <div className="flex gap-2">
+        <button onClick={copiar} className="px-3 py-2 rounded-xl font-bold text-xs cursor-pointer" style={{ background: "#fff", border: "2px solid #e2e8f0", color: BRAND.tinta }}>{copiado ? "Copiado! ✓" : "Copiar link"}</button>
+        <a href={link} target="_blank" rel="noreferrer" className="px-3 py-2 rounded-xl font-bold text-xs text-white cursor-pointer" style={{ background: BRAND.rosa }}>Virar afiliada →</a>
+      </div>
+    </div>
+  );
+}
+
+function IndiqueEGanheTab({ config }) {
+  const linkBasico = config && config.afiliado_link_basico;
+  const linkPremium = config && config.afiliado_link_premium;
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
+      <h2 className="fredoka text-xl font-bold mb-1 flex items-center gap-2" style={{ color: BRAND.tinta }}>
+        🚀 Indique e Ganhe
+        <Ajuda emoji="🚀" titulo="Indique e Ganhe" texto="Vire afiliada do AppDecore e ganhe uma comissão todo mês por cada decoradora que você indicar e que virar assinante — enquanto ela continuar pagando, você continua recebendo." />
+      </h2>
+      <p className="text-sm text-slate-400 mb-5">Indique o AppDecore pra outras decoradoras e ganhe comissão todo mês, sem limite.</p>
+
+      <div className="rounded-2xl p-5 mb-5" style={{ background: BRAND.rosa + "12", border: `2px solid ${BRAND.rosa}33` }}>
+        <p className="font-bold text-lg fredoka mb-1" style={{ color: BRAND.rosa }}>25% de comissão, todo mês</p>
+        <p className="text-sm" style={{ color: BRAND.tinta }}>Enquanto a pessoa que você indicou continuar assinante, você recebe 25% do valor da mensalidade dela — sem precisar fazer nada depois de indicar.</p>
+      </div>
+
+      <p className="font-bold text-sm mb-3" style={{ color: BRAND.tinta }}>1. Vire afiliada</p>
+      <div className="space-y-3 mb-6">
+        <BotaoAfiliado plano="Plano Básico" link={linkBasico} />
+        <BotaoAfiliado plano="Plano Premium" link={linkPremium} />
+      </div>
+
+      <div className="bg-slate-50 rounded-2xl p-4">
+        <p className="font-bold text-sm mb-3" style={{ color: BRAND.tinta }}>Como funciona</p>
+        <div className="space-y-2 text-sm text-slate-500">
+          <p><strong style={{ color: BRAND.tinta }}>1.</strong> Clique em "Virar afiliada" no plano que quiser indicar (pode fazer nos dois). Você vai precisar de uma conta na Cakto — se não tiver, cria na hora, é rápido.</p>
+          <p><strong style={{ color: BRAND.tinta }}>2.</strong> Depois de virar afiliada, a Cakto te dá um link só seu. É esse link que você manda pra quem quiser indicar.</p>
+          <p><strong style={{ color: BRAND.tinta }}>3.</strong> Quando a pessoa assinar pelo seu link, a comissão cai automaticamente na sua conta Cakto todo mês, enquanto ela continuar pagando.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [session, setSession] = useState(undefined); // undefined = carregando, null = deslogado
   const [profile, setProfile] = useState(null);
@@ -4771,6 +4840,8 @@ function App() {
           <PerfilTab profile={profile} userId={profile.id} onSaved={setProfile} setPage={setPage} />
         ) : page === "equipe" && isOwner ? (
           <EquipeTab userId={profile.id} profile={profile} />
+        ) : page === "indique" ? (
+          <IndiqueEGanheTab config={appConfig} />
         ) : (
           <div className="max-w-5xl mx-auto px-5 py-16 text-center text-slate-400">Em breve nesta versão web.</div>
         )}
