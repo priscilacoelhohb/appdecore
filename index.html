@@ -4638,8 +4638,13 @@ function IndiqueEGanheTab({ config }) {
       <p className="text-sm text-slate-400 mb-5">Indique o AppDecore pra outras decoradoras e ganhe comissão todo mês, sem limite.</p>
 
       {videoEmbed && (
-        <div className="rounded-2xl overflow-hidden mb-5 shadow-sm" style={{ aspectRatio: "16 / 9", background: "#000" }}>
-          <iframe src={videoEmbed} title="Como pegar seu link de afiliada" className="w-full h-full" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+        <div className="rounded-2xl overflow-hidden mb-5 shadow-md" style={{ border: `3px solid ${BRAND.rosa}` }}>
+          <div className="px-4 py-3" style={{ background: `linear-gradient(120deg, ${BRAND.rosa}, ${BRAND.roxo})` }}>
+            <p className="fredoka font-bold text-white text-base sm:text-lg">📹 Aprenda a pegar seu link de afiliada</p>
+          </div>
+          <div style={{ aspectRatio: "16 / 9", background: "#000" }}>
+            <iframe src={videoEmbed} title="Como pegar seu link de afiliada" className="w-full h-full" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+          </div>
         </div>
       )}
 
