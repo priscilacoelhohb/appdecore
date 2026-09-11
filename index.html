@@ -120,6 +120,11 @@ function parseValorBR(v) {
   return isNaN(n) ? 0 : n;
 }
 function formatBRL(v) { return parseValorBR(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
+function youtubeEmbedUrl(url) {
+  if (!url) return null;
+  const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([\w-]{11})/);
+  return m ? `https://www.youtube.com/embed/${m[1]}` : null;
+}
 function formatarCPF(v) {
   const d = (v || "").replace(/\D/g, "").slice(0, 11);
   return d.replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2");
@@ -4622,6 +4627,7 @@ function BotaoAfiliado({ plano, link }) {
 function IndiqueEGanheTab({ config }) {
   const linkBasico = config && config.afiliado_link_basico;
   const linkPremium = config && config.afiliado_link_premium;
+  const videoEmbed = youtubeEmbedUrl(config && config.afiliado_video_url);
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
@@ -4630,6 +4636,12 @@ function IndiqueEGanheTab({ config }) {
         <Ajuda emoji="🚀" titulo="Indique e Ganhe" texto="Vire afiliada do AppDecore e ganhe uma comissão todo mês por cada decoradora que você indicar e que virar assinante — enquanto ela continuar pagando, você continua recebendo." />
       </h2>
       <p className="text-sm text-slate-400 mb-5">Indique o AppDecore pra outras decoradoras e ganhe comissão todo mês, sem limite.</p>
+
+      {videoEmbed && (
+        <div className="rounded-2xl overflow-hidden mb-5 shadow-sm" style={{ aspectRatio: "16 / 9", background: "#000" }}>
+          <iframe src={videoEmbed} title="Como pegar seu link de afiliada" className="w-full h-full" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+        </div>
+      )}
 
       <div className="rounded-2xl p-5 mb-5" style={{ background: BRAND.rosa + "12", border: `2px solid ${BRAND.rosa}33` }}>
         <p className="font-bold text-lg fredoka mb-1" style={{ color: BRAND.rosa }}>25% de comissão, todo mês</p>
