@@ -748,7 +748,7 @@ function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout, is
 
           {isOwner && (
             <button onClick={() => { setPage("whatsapp"); onClose(); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer" style={{ minHeight: 44 }}>
-              <span className="text-lg leading-none w-4 text-center">💬</span>
+              <img src="whatsapp-logo.png" alt="" className="w-5 h-5 object-contain shrink-0" />
               <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>WhatsApp</span>
             </button>
           )}
@@ -775,50 +775,123 @@ function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout, is
 }
 
 /* ============================================================
-   BOAS-VINDAS (aparece só no primeiro login)
+   BOAS-VINDAS (aparece só no primeiro login) — wizard de 3 etapas:
+   1) boas-vindas, 2) 3 perguntinhas de perfil, 3) conectar WhatsApp
 ============================================================ */
-function WelcomeModal({ profile, onClose }) {
+const PERGUNTAS_ONBOARDING = [
+  { chave: "tipo_servico", campoDb: "onboarding_tipo_servico", pergunta: "Qual é o principal tipo de serviço que você oferece hoje?", opcoes: [
+    { v: "pegue_monte", l: "Pegue e Monte" }, { v: "decoracao", l: "Decoração completa" },
+    { v: "baloes", l: "Balões" }, { v: "pecas_avulsas", l: "Peças avulsas" },
+  ]},
+  { chave: "qtd_kits", campoDb: "onboarding_qtd_kits", pergunta: "Quantos kits ou produtos você já tem prontos pra alugar hoje?", opcoes: [
+    { v: "nenhum", l: "Ainda não tenho" }, { v: "1-10", l: "1 a 10" },
+    { v: "11-30", l: "11 a 30" }, { v: "30+", l: "Mais de 30" },
+  ]},
+  { chave: "canal_pedidos", campoDb: "onboarding_canal_pedidos", pergunta: "Como você recebe a maioria dos pedidos hoje?", opcoes: [
+    { v: "whatsapp_pessoal", l: "WhatsApp pessoal" }, { v: "instagram", l: "Instagram" },
+    { v: "indicacao", l: "Indicação / boca a boca" }, { v: "outro", l: "Outro" },
+  ]},
+];
+
+function EtapaBoasVindas({ profile, onContinuar }) {
   const primeiroNome = (profile.nome_responsavel || "").trim().split(" ")[0];
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(10,14,39,.72)" }}>
-      <div className="bg-white rounded-3xl max-w-md w-full p-7 relative overflow-hidden">
-        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-20" style={{ background: `linear-gradient(135deg, ${BRAND.rosa}, ${BRAND.roxo})` }} />
-        <div className="relative">
-          <div className="text-4xl mb-3">🎉</div>
-          <p className="fredoka text-2xl font-bold mb-2" style={{ color: BRAND.tinta }}>
-            Parabéns{primeiroNome ? `, ${primeiroNome}` : ""}!
-          </p>
-          <p className="text-sm mb-5" style={{ color: "#64748b" }}>
-            Você acabou de dar um passo importante pra profissionalizar a <b>{profile.nome_loja || "sua empresa de festas"}</b>. Bem-vinda ao AppDecore! 🎈
-          </p>
+    <div className="relative">
+      <div className="text-4xl mb-3">🎉</div>
+      <p className="fredoka text-2xl font-bold mb-2" style={{ color: BRAND.tinta }}>Parabéns{primeiroNome ? `, ${primeiroNome}` : ""}!</p>
+      <p className="text-sm mb-5" style={{ color: "#64748b" }}>
+        Você acabou de dar um passo importante pra profissionalizar a <b>{profile.nome_loja || "sua empresa de festas"}</b>. Bem-vinda ao AppDecore! 🎈
+      </p>
+      <div className="space-y-2.5 mb-6">
+        <div className="flex items-center gap-3">
+          <span className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: BRAND.rosa + "18" }}>📄</span>
+          <p className="text-sm" style={{ color: BRAND.tinta }}><b>Contrato</b> com assinatura digital, em minutos</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: "#F97316" + "18" }}>📦</span>
+          <p className="text-sm" style={{ color: BRAND.tinta }}><b>Estoque</b> que se atualiza sozinho</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: BRAND.turquesa + "18" }}>📅</span>
+          <p className="text-sm" style={{ color: BRAND.tinta }}><b>Agenda</b> com lembretes automáticos</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: BRAND.amarelo + "30" }}>💰</span>
+          <p className="text-sm" style={{ color: BRAND.tinta }}><b>Financeiro</b> sem planilha, sem dor de cabeça</p>
+        </div>
+      </div>
+      <button onClick={onContinuar} className="w-full py-3.5 rounded-2xl font-bold text-white cursor-pointer active:scale-[0.98] transition" style={{ background: `linear-gradient(120deg, ${BRAND.rosa}, ${BRAND.roxo})` }}>
+        Vamos começar! 🚀
+      </button>
+    </div>
+  );
+}
 
-          <div className="space-y-2.5 mb-6">
-            <div className="flex items-center gap-3">
-              <span className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: BRAND.rosa + "18" }}>📄</span>
-              <p className="text-sm" style={{ color: BRAND.tinta }}><b>Contrato</b> com assinatura digital, em minutos</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: "#F97316" + "18" }}>📦</span>
-              <p className="text-sm" style={{ color: BRAND.tinta }}><b>Estoque</b> que se atualiza sozinho</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: BRAND.turquesa + "18" }}>📅</span>
-              <p className="text-sm" style={{ color: BRAND.tinta }}><b>Agenda</b> com lembretes automáticos</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: BRAND.amarelo + "30" }}>💰</span>
-              <p className="text-sm" style={{ color: BRAND.tinta }}><b>Financeiro</b> sem planilha, sem dor de cabeça</p>
+function EtapaPerguntas({ respostas, setRespostas, onContinuar }) {
+  const completo = PERGUNTAS_ONBOARDING.every((p) => respostas[p.chave]);
+  return (
+    <div className="relative">
+      <div className="text-4xl mb-3">🎯</div>
+      <p className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Só mais um pouquinho...</p>
+      <p className="text-sm mb-5" style={{ color: "#64748b" }}>3 perguntinhas rápidas pra já deixar o app com a sua cara.</p>
+      <div className="space-y-4 mb-6">
+        {PERGUNTAS_ONBOARDING.map((p) => (
+          <div key={p.chave}>
+            <p className="text-xs font-bold text-slate-500 mb-1.5">{p.pergunta}</p>
+            <div className="grid grid-cols-2 gap-2">
+              {p.opcoes.map((op) => (
+                <button
+                  key={op.v} type="button"
+                  onClick={() => setRespostas((r) => ({ ...r, [p.chave]: op.v }))}
+                  className="py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer"
+                  style={respostas[p.chave] === op.v ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}
+                >{op.l}</button>
+              ))}
             </div>
           </div>
+        ))}
+      </div>
+      <button onClick={onContinuar} disabled={!completo} className="w-full py-3.5 rounded-2xl font-bold text-white cursor-pointer active:scale-[0.98] transition disabled:opacity-40" style={{ background: `linear-gradient(120deg, ${BRAND.rosa}, ${BRAND.roxo})` }}>
+        Continuar
+      </button>
+    </div>
+  );
+}
 
-          <p className="text-xs mb-4" style={{ color: "#94a3b8" }}>
-            Dica: dá uma passada no menu ☰ → "Aprenda mais" se quiser ver vídeos rápidos de cada parte do app.
-          </p>
+function EtapaConectarWhatsApp({ userId, profile, onProfileUpdate, onConcluir }) {
+  const conexao = useConexaoWhatsApp(userId, profile, onProfileUpdate);
+  return (
+    <div className="relative">
+      <div className="text-4xl mb-3">🤖</div>
+      <p className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>Última etapa: conecte seu WhatsApp</p>
+      <p className="text-sm mb-5" style={{ color: "#64748b" }}>Com isso, o AppDecore já manda contrato e boas-vindas pro cliente sozinho, pelo seu próprio número.</p>
+      <ConexaoWhatsApp status={conexao.status} numero={conexao.numero} qr={conexao.qr} carregando={conexao.carregando} erro={conexao.erro} onIniciar={conexao.iniciarConexao} onDesconectar={() => {}} />
+      <button onClick={onConcluir} className="w-full py-3.5 rounded-2xl font-bold text-white cursor-pointer active:scale-[0.98] transition mt-4" style={{ background: `linear-gradient(120deg, ${BRAND.rosa}, ${BRAND.roxo})` }}>
+        {conexao.status === "WORKING" ? "Concluir 🚀" : "Pular por agora"}
+      </button>
+    </div>
+  );
+}
 
-          <button onClick={onClose} className="w-full py-3.5 rounded-2xl font-bold text-white cursor-pointer active:scale-[0.98] transition" style={{ background: `linear-gradient(120deg, ${BRAND.rosa}, ${BRAND.roxo})` }}>
-            Vamos começar! 🚀
-          </button>
-        </div>
+function WelcomeModal({ profile, userId, onProfileUpdate, onClose }) {
+  const [etapa, setEtapa] = useState(1);
+  const [respostas, setRespostas] = useState({});
+
+  async function salvarRespostasEContinuar() {
+    const linha = {};
+    PERGUNTAS_ONBOARDING.forEach((p) => { linha[p.campoDb] = respostas[p.chave] || null; });
+    await sb.from("decoradoras").update(linha).eq("id", userId);
+    onProfileUpdate((prev) => ({ ...prev, ...linha }));
+    setEtapa(3);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(10,14,39,.72)" }}>
+      <div className="bg-white rounded-3xl max-w-md w-full p-7 relative overflow-hidden max-h-[90vh] overflow-y-auto">
+        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-20" style={{ background: `linear-gradient(135deg, ${BRAND.rosa}, ${BRAND.roxo})` }} />
+        {etapa === 1 && <EtapaBoasVindas profile={profile} onContinuar={() => setEtapa(2)} />}
+        {etapa === 2 && <EtapaPerguntas respostas={respostas} setRespostas={setRespostas} onContinuar={salvarRespostasEContinuar} />}
+        {etapa === 3 && <EtapaConectarWhatsApp userId={userId} profile={profile} onProfileUpdate={onProfileUpdate} onConcluir={onClose} />}
       </div>
     </div>
   );
@@ -1746,12 +1819,73 @@ const NOMES_STATUS_WHATSAPP = {
   ERRO: "Erro ao consultar status",
 };
 
+// Hook reaproveitado tanto na tela "WhatsApp" quanto no passo de conexão
+// do onboarding — toda a lógica de iniciar/consultar/desconectar a sessão
+// mora aqui uma vez só.
+function useConexaoWhatsApp(userId, profile, onProfileUpdate) {
+  const [status, setStatus] = useState(profile.whatsapp_proprio_conectado ? "WORKING" : "NAO_CRIADA");
+  const [numero, setNumero] = useState(profile.whatsapp_proprio_numero || null);
+  const [qr, setQr] = useState(null);
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState("");
+  const pollRef = React.useRef(null);
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  async function chamarConectar(action) {
+    const { data: sessionData } = await sb.auth.getSession();
+    const token = sessionData && sessionData.session ? sessionData.session.access_token : null;
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/whatsapp-conectar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action }),
+    });
+    return resp.json();
+  }
+
+  function aplicarConectado(numeroConectado) {
+    setStatus("WORKING"); setNumero(numeroConectado); setQr(null);
+    onProfileUpdate((p) => ({ ...p, whatsapp_proprio_conectado: true, whatsapp_proprio_numero: numeroConectado }));
+  }
+
+  function iniciarPolling() {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const r = await chamarConectar("status");
+      if (r.conectado) { clearInterval(pollRef.current); aplicarConectado(r.numero); }
+    }, 4000);
+  }
+
+  async function iniciarConexao() {
+    setErro(""); setCarregando(true);
+    const r = await chamarConectar("iniciar");
+    setCarregando(false);
+    if (r.error) { setErro(r.error); return; }
+    if (r.conectado) { aplicarConectado(r.numero); return; }
+    setStatus(r.status || "STARTING"); setQr(r.qr || null);
+    iniciarPolling();
+  }
+
+  async function desconectar() {
+    setCarregando(true);
+    await chamarConectar("desconectar");
+    setCarregando(false);
+    if (pollRef.current) clearInterval(pollRef.current);
+    setStatus("NAO_CRIADA"); setNumero(null); setQr(null);
+    onProfileUpdate((p) => ({ ...p, whatsapp_proprio_conectado: false, whatsapp_proprio_numero: null }));
+  }
+
+  return { status, numero, qr, carregando, erro, iniciarConexao, desconectar };
+}
+
 function ConexaoWhatsApp({ status, numero, qr, carregando, erro, onIniciar, onDesconectar }) {
   const conectado = status === "WORKING";
   return (
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
       <div className="flex items-center gap-3 mb-1">
-        <div className="w-11 h-11 rounded-xl flex items-center justify-center text-2xl shrink-0" style={{ background: "#22C55E18" }}>📱</div>
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 overflow-hidden" style={{ background: "#22C55E18" }}>
+          <img src="whatsapp-logo.png" alt="WhatsApp" className="w-7 h-7 object-contain" />
+        </div>
         <div className="flex-1 min-w-0">
           <p className="font-bold text-sm" style={{ color: BRAND.tinta }}>Seu WhatsApp</p>
           <p className="text-xs" style={{ color: conectado ? "#22C55E" : "#94a3b8" }}>
@@ -1868,15 +2002,10 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
 }
 
 function WhatsAppTab({ userId, profile, onProfileUpdate }) {
-  const [status, setStatus] = useState(profile.whatsapp_proprio_conectado ? "WORKING" : "NAO_CRIADA");
-  const [numero, setNumero] = useState(profile.whatsapp_proprio_numero || null);
-  const [qr, setQr] = useState(null);
-  const [carregandoConexao, setCarregandoConexao] = useState(false);
-  const [erroConexao, setErroConexao] = useState("");
+  const conexao = useConexaoWhatsApp(userId, profile, onProfileUpdate);
   const [automacoes, setAutomacoes] = useState([]);
   const [carregandoAuto, setCarregandoAuto] = useState(true);
   const [editando, setEditando] = useState(null);
-  const pollRef = React.useRef(null);
 
   const carregarAutomacoes = useCallback(async () => {
     const { data } = await sb.from("whatsapp_automacoes").select("*").eq("decoradora_id", userId);
@@ -1884,50 +2013,10 @@ function WhatsAppTab({ userId, profile, onProfileUpdate }) {
     setCarregandoAuto(false);
   }, [userId]);
   useEffect(() => { carregarAutomacoes(); }, [carregarAutomacoes]);
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
-  async function chamarConectar(action) {
-    const { data: sessionData } = await sb.auth.getSession();
-    const token = sessionData && sessionData.session ? sessionData.session.access_token : null;
-    const resp = await fetch(`${SUPABASE_URL}/functions/v1/whatsapp-conectar`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ action }),
-    });
-    return resp.json();
-  }
-
-  function aplicarConectado(numeroConectado) {
-    setStatus("WORKING"); setNumero(numeroConectado); setQr(null);
-    onProfileUpdate((p) => ({ ...p, whatsapp_proprio_conectado: true, whatsapp_proprio_numero: numeroConectado }));
-  }
-
-  function iniciarPolling() {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
-      const r = await chamarConectar("status");
-      if (r.conectado) { clearInterval(pollRef.current); aplicarConectado(r.numero); }
-    }, 4000);
-  }
-
-  async function iniciarConexao() {
-    setErroConexao(""); setCarregandoConexao(true);
-    const r = await chamarConectar("iniciar");
-    setCarregandoConexao(false);
-    if (r.error) { setErroConexao(r.error); return; }
-    if (r.conectado) { aplicarConectado(r.numero); return; }
-    setStatus(r.status || "STARTING"); setQr(r.qr || null);
-    iniciarPolling();
-  }
-
-  async function desconectar() {
+  function desconectarComConfirmacao() {
     if (!window.confirm("Desconectar seu WhatsApp? As automações param de mandar mensagem até você conectar de novo.")) return;
-    setCarregandoConexao(true);
-    await chamarConectar("desconectar");
-    setCarregandoConexao(false);
-    if (pollRef.current) clearInterval(pollRef.current);
-    setStatus("NAO_CRIADA"); setNumero(null); setQr(null);
-    onProfileUpdate((p) => ({ ...p, whatsapp_proprio_conectado: false, whatsapp_proprio_numero: null }));
+    conexao.desconectar();
   }
 
   async function toggleAutomacao(a) {
@@ -1948,13 +2037,13 @@ function WhatsAppTab({ userId, profile, onProfileUpdate }) {
     <div className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
       <div className="mb-5">
         <h2 className="fredoka text-xl font-bold flex items-center gap-2" style={{ color: BRAND.tinta }}>
-          💬 WhatsApp
+          <img src="whatsapp-logo.png" alt="" className="w-6 h-6 object-contain" /> WhatsApp
           <Ajuda emoji="💬" titulo="WhatsApp automático" texto="Conecte o WhatsApp da sua loja aqui pra deixar algumas mensagens automáticas — tipo mandar o contrato pra cliente assinar assim que você salva, ou dar boas-vindas com o link do catálogo pra quem te chama pela primeira vez. Sem precisar clicar em nada." />
         </h2>
         <p className="text-slate-400 text-sm mt-1">Conecte seu número e deixe algumas mensagens no automático.</p>
       </div>
 
-      <ConexaoWhatsApp status={status} numero={numero} qr={qr} carregando={carregandoConexao} erro={erroConexao} onIniciar={iniciarConexao} onDesconectar={desconectar} />
+      <ConexaoWhatsApp status={conexao.status} numero={conexao.numero} qr={conexao.qr} carregando={conexao.carregando} erro={conexao.erro} onIniciar={conexao.iniciarConexao} onDesconectar={desconectarComConfirmacao} />
 
       <div className="mt-6">
         <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Ações automáticas</p>
@@ -5778,6 +5867,8 @@ function App() {
         {isOwner && profile && !profile.onboarding_visto && (
           <WelcomeModal
             profile={profile}
+            userId={profile.id}
+            onProfileUpdate={setProfile}
             onClose={async () => {
               setProfile((p) => ({ ...p, onboarding_visto: true }));
               await sb.from("decoradoras").update({ onboarding_visto: true }).eq("id", profile.id);
