@@ -1922,10 +1922,15 @@ function ConexaoWhatsApp({ status, numero, qr, carregando, erro, onIniciar, onDe
       )}
 
       {!conectado && qr && (
-        <div className="flex flex-col items-center py-3">
-          <img src={qr} alt="QR Code do WhatsApp" className="w-56 h-56 rounded-xl border-2 border-slate-100" />
-          <p className="text-xs text-slate-400 mt-3 text-center max-w-xs">
-            No seu celular: WhatsApp → ⋮ Mais opções → Aparelhos conectados → Conectar um aparelho, e aponta a câmera pra esse QR Code.
+        <div className="flex flex-col items-center py-4">
+          <p className="fredoka text-lg font-bold mb-3 text-center" style={{ color: BRAND.tinta }}>Escaneie com o WhatsApp</p>
+          <div className="p-2.5 rounded-[28px]" style={{ background: `linear-gradient(135deg, ${BRAND.rosa}, ${BRAND.roxo})` }}>
+            <div className="bg-white rounded-3xl p-3">
+              <img src={qr} alt="QR Code do WhatsApp" className="w-60 h-60 rounded-xl" />
+            </div>
+          </div>
+          <p className="text-sm font-bold mt-4 text-center max-w-xs" style={{ color: BRAND.tinta }}>
+            WhatsApp → Aparelhos conectados → Conectar um aparelho
           </p>
         </div>
       )}
