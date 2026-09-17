@@ -2704,6 +2704,20 @@ const FAIXAS_PEGUE_MONTE = [
   { valor: "ouro", label: "Ouro" },
 ];
 
+// Mesma lista (chave + rótulo) das categorias fixas do catalogo-cliente.html —
+// precisa ficar igual nos dois arquivos pra capa bater com o card certo.
+const CATEGORIAS_CAPA_FIXAS = [
+  { chave: "infantil-menino", label: "Kit Masculino" },
+  { chave: "infantil-menina", label: "Kit Feminino" },
+  { chave: "adulto", label: "Kit Adulto" },
+  { chave: "15anos", label: "Kit 15 Anos" },
+  { chave: "cha-fralda", label: "Chá de Fralda" },
+  { chave: "cha-revelacao", label: "Chá Revelação" },
+  { chave: "pm-basico", label: "Kit Básico (Pegue e Monte)" },
+  { chave: "pm-prata", label: "Kit Prata (Pegue e Monte)" },
+  { chave: "pm-ouro", label: "Kit Ouro (Pegue e Monte)" },
+];
+
 // Select com opção de digitar um valor customizado, pra não travar
 // a decoradora numa lista fixa quando ela quiser algo diferente.
 function SelectComOutro({ label, valor, opcoes, onChange, placeholderOutro }) {
@@ -3364,6 +3378,7 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
     catalogo_ativo: profile.catalogo_ativo !== false,
     catalogo_slug: profile.catalogo_slug || "",
     catalogo_categorias_extras: profile.catalogo_categorias_extras || [],
+    catalogo_capas_categorias: profile.catalogo_capas_categorias || {},
   });
   const [erroSlug, setErroSlug] = useState("");
   const [checandoSlug, setChecandoSlug] = useState(false);
@@ -3500,6 +3515,36 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
         </p>
         <p className="text-xs text-slate-400 mb-3">Além das 6 categorias padrão. O nome aqui precisa ser igual ao que você usa no campo "Tipo de evento" dos seus kits.</p>
         <TagInput valores={form.catalogo_categorias_extras} onChange={(v) => set("catalogo_categorias_extras", v)} placeholder="Ex: Casamento (Enter pra adicionar)" />
+      </div>
+
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>
+          Capas das categorias
+          <Ajuda emoji="🖼️" titulo="Capas das categorias" texto="A foto que aparece no card de cada categoria, lá no catálogo do cliente. O nome da categoria já aparece automaticamente escrito por cima, dentro de uma faixa colorida — você só escolhe a foto de fundo. Se não subir nenhuma, o app usa a foto de um kit daquela categoria como reserva." />
+        </p>
+        <p className="text-xs text-slate-400 mb-3">Opcional — se não subir, o catálogo usa a foto de um kit daquela categoria.</p>
+        <div className="space-y-2">
+          {[...CATEGORIAS_CAPA_FIXAS, ...form.catalogo_categorias_extras.map((nome) => ({ chave: "extra-" + nome.trim().toLowerCase(), label: nome }))].map((cat) => (
+            <div key={cat.chave} className="flex items-center gap-3 p-2 rounded-xl bg-slate-50">
+              <div className="w-12 h-12 rounded-lg overflow-hidden bg-white border border-slate-200 shrink-0">
+                {form.catalogo_capas_categorias[cat.chave] && <img src={form.catalogo_capas_categorias[cat.chave]} className="w-full h-full object-cover" />}
+              </div>
+              <span className="text-xs font-semibold flex-1" style={{ color: BRAND.tinta }}>{cat.label}</span>
+              <label className="px-2.5 py-1.5 rounded-lg font-bold text-[11px] cursor-pointer" style={{ background: BRAND.azul + "14", color: BRAND.azul }}>
+                Trocar
+                <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                  const file = e.target.files[0];
+                  if (!file) return;
+                  const dataUrl = await redimensionarImagem(file, 600, "image/jpeg");
+                  set("catalogo_capas_categorias", { ...form.catalogo_capas_categorias, [cat.chave]: dataUrl });
+                }} />
+              </label>
+              {form.catalogo_capas_categorias[cat.chave] && (
+                <button onClick={() => { const c = { ...form.catalogo_capas_categorias }; delete c[cat.chave]; set("catalogo_capas_categorias", c); }} className="px-2 py-1.5 rounded-lg text-rose-400 text-[11px] font-bold cursor-pointer">✕</button>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 space-y-3">
