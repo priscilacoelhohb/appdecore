@@ -2707,16 +2707,18 @@ const FAIXAS_PEGUE_MONTE = [
 // Mesma lista (chave + rótulo) das categorias fixas do catalogo-cliente.html —
 // precisa ficar igual nos dois arquivos pra capa bater com o card certo.
 const CATEGORIAS_CAPA_FIXAS = [
-  { chave: "infantil-menino", label: "Kit Masculino" },
-  { chave: "infantil-menina", label: "Kit Feminino" },
-  { chave: "adulto", label: "Kit Adulto" },
-  { chave: "15anos", label: "Kit 15 Anos" },
-  { chave: "cha-fralda", label: "Chá de Fralda" },
-  { chave: "cha-revelacao", label: "Chá Revelação" },
+  { chave: "infantil-menino", label: "Kit Masculino", tipoEvento: "Aniversário Infantil", publico: "Menino" },
+  { chave: "infantil-menina", label: "Kit Feminino", tipoEvento: "Aniversário Infantil", publico: "Menina" },
+  { chave: "adulto", label: "Kit Adulto", tipoEvento: "Adulto", publico: null },
+  { chave: "15anos", label: "Kit 15 Anos", tipoEvento: "15 Anos", publico: null },
+  { chave: "cha-fralda", label: "Chá de Fralda", tipoEvento: "Chá de Bebê/Fralda", publico: null },
+  { chave: "cha-revelacao", label: "Chá Revelação", tipoEvento: "Chá Revelação", publico: null },
   { chave: "pm-basico", label: "Kit Básico (Pegue e Monte)" },
   { chave: "pm-prata", label: "Kit Prata (Pegue e Monte)" },
   { chave: "pm-ouro", label: "Kit Ouro (Pegue e Monte)" },
 ];
+// Só os temas (exclui as 3 faixas de Pegue e Monte, que já têm campo próprio).
+const CATEGORIAS_TEMA_FIXAS = CATEGORIAS_CAPA_FIXAS.filter((c) => c.tipoEvento);
 
 // Select com opção de digitar um valor customizado, pra não travar
 // a decoradora numa lista fixa quando ela quiser algo diferente.
@@ -3097,6 +3099,25 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
   const [fotosPendentes, setFotosPendentes] = useState([]); // {tempId, file, previewUrl} — ainda não subiram
   const set = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
 
+  // "Categoria" unifica Tipo de evento + Público numa escolha só, pra deixar
+  // o formulário mais limpo — por baixo dos panos continua gravando nos
+  // mesmos dois campos de sempre, então kit antigo não perde nada.
+  const opcoesCategoria = useMemo(() => {
+    const extras = (profile?.catalogo_categorias_extras || []).map((e) => typeof e === "string" ? { id: "extra-" + e, nome: e } : e);
+    return [
+      ...CATEGORIAS_TEMA_FIXAS,
+      ...extras.filter((e) => e.nome && e.nome.trim()).map((e) => ({ chave: e.id, label: e.nome, tipoEvento: e.nome, publico: null })),
+    ];
+  }, [profile]);
+  function acharCategoria(tipoEvento, publico) {
+    return opcoesCategoria.find((c) => c.tipoEvento === tipoEvento && (c.publico == null || c.publico === publico));
+  }
+  const [modoCategoriaOutro, setModoCategoriaOutro] = useState(() => {
+    const temAlgo = !!(kit.tipo_evento || kit.publico);
+    return temAlgo && !acharCategoria(kit.tipo_evento, kit.publico);
+  });
+  const [mostrarMaisOpcoes, setMostrarMaisOpcoes] = useState(false);
+
   const totalFotos = fotos.length + fotosPendentes.length;
 
   function selecionarFotos(fileList) {
@@ -3223,15 +3244,38 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <SelectComOutro label="Tipo de evento" valor={form.tipo_evento} opcoes={TIPOS_EVENTO_KIT} onChange={(v) => set("tipo_evento", v)} placeholderOutro="Digite o tipo de evento" />
-            <SelectComOutro label="Público" valor={form.publico} opcoes={PUBLICOS_KIT} onChange={(v) => set("publico", v)} placeholderOutro="Digite o público" />
-            <SelectComOutro label="Nível" valor={form.nivel} opcoes={NIVEIS_KIT} onChange={(v) => set("nivel", v)} placeholderOutro="Digite o nível" />
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">Categoria</label>
+            {!modoCategoriaOutro ? (
+              <select
+                value={acharCategoria(form.tipo_evento, form.publico)?.chave || ""}
+                onChange={(e) => {
+                  if (e.target.value === "__outro__") { setModoCategoriaOutro(true); return; }
+                  const c = opcoesCategoria.find((o) => o.chave === e.target.value);
+                  if (c) { set("tipo_evento", c.tipoEvento); set("publico", c.publico); }
+                }}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+              >
+                <option value="">—</option>
+                {opcoesCategoria.map((c) => <option key={c.chave} value={c.chave}>{c.label}</option>)}
+                <option value="__outro__">Outra (digitar)</option>
+              </select>
+            ) : (
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <SelectComOutro label="" valor={form.tipo_evento} opcoes={TIPOS_EVENTO_KIT} onChange={(v) => set("tipo_evento", v)} placeholderOutro="Digite o tipo de evento" />
+                  <SelectComOutro label="" valor={form.publico} opcoes={PUBLICOS_KIT} onChange={(v) => set("publico", v)} placeholderOutro="Digite o público" />
+                </div>
+                <button type="button" onClick={() => setModoCategoriaOutro(false)} className="text-xs font-bold cursor-pointer" style={{ color: BRAND.azul }}>← Voltar pra lista de categorias</button>
+              </div>
+            )}
+          </div>
 
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-bold text-slate-500 mb-1 block">Faixa Pegue e Monte<Ajuda emoji="🎁" titulo="Faixa Pegue e Monte" texto="Separado do Nível acima — é uma classificação fixa (Básico/Prata/Ouro), igual em todos os catálogos, pra ajudar a cliente a navegar por faixa de preço sem se confundir com os nomes que cada decoradora dá pros próprios níveis." /></label>
+              <label className="text-xs font-bold text-slate-500 mb-1 block">Faixa Pegue e Monte<Ajuda emoji="🎁" titulo="Faixa Pegue e Monte" texto="Classificação fixa (Básico/Prata/Ouro), igual em todos os catálogos, pra ajudar a cliente a navegar por faixa de preço. Deixe em branco se esse kit não for um pacote padrão de Pegue e Monte." /></label>
               <select value={form.faixa_pegue_monte || ""} onChange={(e) => set("faixa_pegue_monte", e.target.value || null)} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
-                <option value="">— (não é um kit padrão de Pegue e Monte)</option>
+                <option value="">—</option>
                 {FAIXAS_PEGUE_MONTE.map((f) => <option key={f.valor} value={f.valor}>{f.label}</option>)}
               </select>
             </div>
@@ -3239,6 +3283,17 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
               <label className="text-xs font-bold text-slate-500 mb-1 block">Tema</label>
               <input value={form.tema || ""} onChange={(e) => set("tema", e.target.value)} placeholder="Ex: Futebol" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
             </div>
+          </div>
+
+          <div>
+            <button type="button" onClick={() => setMostrarMaisOpcoes((v) => !v)} className="text-xs font-bold cursor-pointer" style={{ color: "#94a3b8" }}>
+              {mostrarMaisOpcoes ? "▾" : "▸"} Mais opções
+            </button>
+            {mostrarMaisOpcoes && (
+              <div className="mt-2">
+                <SelectComOutro label="Nível (nome livre, seu, tipo Ouro/Prata/Luxo)" valor={form.nivel} opcoes={NIVEIS_KIT} onChange={(v) => set("nivel", v)} placeholderOutro="Digite o nível" />
+              </div>
+            )}
           </div>
 
           <div>
