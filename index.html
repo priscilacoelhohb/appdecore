@@ -266,6 +266,7 @@ function contractToDb(c, decoradoraId) {
     multa_percentual: c.multaPercentual ? Number(c.multaPercentual) : null,
     sem_multa: !!c.semMulta,
     observacoes: c.observacoes || null, status_contrato: c.statusContrato || "ativo",
+    sinal_devolvido: c.sinalDevolvido === undefined ? null : c.sinalDevolvido,
   };
 }
 function contractFromDb(r) {
@@ -286,6 +287,7 @@ function contractFromDb(r) {
     devolvido: r.devolvido || false,
     observacoes: r.observacoes || "",
     statusContrato: r.status_contrato || "ativo",
+    sinalDevolvido: r.sinal_devolvido == null ? null : !!r.sinal_devolvido,
     createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
   };
 }
@@ -1703,6 +1705,7 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
   const [itensSelecionadosOriginais, setItensSelecionadosOriginais] = useState({}); // como estava quando abriu (pra saber o que mudou)
   const [confirmarExclusao, setConfirmarExclusao] = useState(null); // contrato aguardando confirmação de exclusão
   const [filtroStatusContrato, setFiltroStatusContrato] = useState("ativos"); // 'ativos' | 'concluidos' | 'cancelados' | 'todos'
+  const [confirmarCancelamento, setConfirmarCancelamento] = useState(null); // contrato aguardando resposta sobre o sinal antes de cancelar
 
   useEffect(() => {
     sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true }).then(({ data }) => {
@@ -1861,10 +1864,13 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
     await carregarContratos();
   }
 
-  async function mudarStatusContrato(c, novoStatus) {
-    const { error } = await sb.from("contracts").update({ status_contrato: novoStatus }).eq("id", c.id);
+  async function mudarStatusContrato(c, novoStatus, sinalDevolvido) {
+    const payload = { status_contrato: novoStatus };
+    if (novoStatus === "cancelado") payload.sinal_devolvido = !!sinalDevolvido;
+    const { error } = await sb.from("contracts").update(payload).eq("id", c.id);
     if (error) { setErro("Erro ao atualizar status: " + error.message); return; }
-    setContracts((cs) => cs.map((x) => x.id === c.id ? { ...x, statusContrato: novoStatus } : x));
+    setContracts((cs) => cs.map((x) => x.id === c.id ? { ...x, statusContrato: novoStatus, ...(novoStatus === "cancelado" ? { sinalDevolvido: !!sinalDevolvido } : {}) } : x));
+    setConfirmarCancelamento(null);
   }
 
   async function handlePrint() {
@@ -2134,7 +2140,7 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
                   {statusContrato === "ativo" && (
                     <>
                       <button onClick={() => mudarStatusContrato(c, "concluido")} className="px-3 py-2 rounded-lg text-xs font-bold cursor-pointer" style={{ color: BRAND.turquesa, background: BRAND.turquesa + "18" }}>✅ Dar baixa</button>
-                      <button onClick={() => mudarStatusContrato(c, "cancelado")} className="px-3 py-2 rounded-lg text-xs font-bold cursor-pointer" style={{ color: "#94a3b8", background: "#94a3b818" }}>✕ Cancelar</button>
+                      <button onClick={() => setConfirmarCancelamento(c)} className="px-3 py-2 rounded-lg text-xs font-bold cursor-pointer" style={{ color: "#94a3b8", background: "#94a3b818" }}>✕ Cancelar</button>
                     </>
                   )}
                   {statusContrato !== "ativo" && (
@@ -2165,6 +2171,38 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
           </div>
         </div>
       )}
+      {confirmarCancelamento && (() => {
+        const fin = computeFinance(confirmarCancelamento, pctSinalEfetivo(confirmarCancelamento, profile));
+        return (
+          <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.5)" }} onClick={() => setConfirmarCancelamento(null)}>
+            <div className="bg-white rounded-2xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+              <div className="text-3xl mb-2">✕</div>
+              <p className="fredoka text-lg font-bold mb-2" style={{ color: BRAND.tinta }}>Cancelar contrato de {confirmarCancelamento.contratanteNome || "cliente sem nome"}?</p>
+              <p className="text-sm text-slate-500 leading-relaxed mb-4">
+                {fin.pago > 0
+                  ? <>Esse contrato tem {formatBRL(fin.pago)} já pago. O sinal foi devolvido pra cliente?</>
+                  : "Esse contrato ainda não tem nenhum valor pago — cancelar não muda nada no financeiro."}
+              </p>
+              {fin.pago > 0 ? (
+                <div className="space-y-2">
+                  <button onClick={() => mudarStatusContrato(confirmarCancelamento, "cancelado", true)} className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer" style={{ background: BRAND.bg, color: BRAND.tinta }}>
+                    Sim, devolvi o sinal <span className="block text-[11px] font-normal text-slate-400">Esse contrato sai todo do financeiro</span>
+                  </button>
+                  <button onClick={() => mudarStatusContrato(confirmarCancelamento, "cancelado", false)} className="w-full py-2.5 rounded-xl font-bold text-sm text-white cursor-pointer" style={{ background: BRAND.rosa }}>
+                    Não, fiquei com o sinal <span className="block text-[11px] font-normal opacity-80">Continua contando {formatBRL(fin.pago)} como recebido; o resto sai de "a receber"</span>
+                  </button>
+                  <button onClick={() => setConfirmarCancelamento(null)} className="w-full py-2 text-xs font-semibold text-slate-400 cursor-pointer">Voltar</button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <button onClick={() => setConfirmarCancelamento(null)} className="flex-1 py-2.5 rounded-xl font-bold text-sm cursor-pointer" style={{ background: BRAND.bg, color: BRAND.tinta }}>Voltar</button>
+                  <button onClick={() => mudarStatusContrato(confirmarCancelamento, "cancelado", true)} className="flex-1 py-2.5 rounded-xl font-bold text-sm text-white cursor-pointer" style={{ background: BRAND.rosa }}>Sim, cancelar</button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -4018,9 +4056,18 @@ function FinanceiroTab({ userId, profile }) {
     if (filtroFim && dataStr > filtroFim) return false;
     return true;
   }
-  // Contrato cancelado não conta pra faturamento/a receber — senão o
-  // financeiro mostraria como pendente um dinheiro que não vai mais entrar.
-  const contractsFiltrados = useMemo(() => contracts.filter((c) => (c.statusContrato || "ativo") !== "cancelado" && dentroDoPeriodo(c.dataRetirada)), [contracts, filtroInicio, filtroFim]);
+  // Contrato cancelado: se o sinal foi devolvido, some de vez do financeiro
+  // (nunca contou como dinheiro de verdade). Se a decoradora ficou com o
+  // sinal, conta só esse valor como recebido — o resto não vira mais "a
+  // receber", já que a festa não vai acontecer. "Dar baixa" (concluído) não
+  // entra aqui: continua contando normal, é só uma marcação organizacional.
+  const contractsParaFinanceiro = useMemo(() => contracts.map((c) => {
+    if ((c.statusContrato || "ativo") !== "cancelado") return c;
+    if (c.sinalDevolvido) return null;
+    const pago = computeFinance(c, pctSinalEfetivo(c, profile)).pago;
+    return { ...c, valor: pago, statusPagamento: "pago" };
+  }).filter(Boolean), [contracts, profile.sinal_percentual]);
+  const contractsFiltrados = useMemo(() => contractsParaFinanceiro.filter((c) => dentroDoPeriodo(c.dataRetirada)), [contractsParaFinanceiro, filtroInicio, filtroFim]);
   const despesasFiltradas = useMemo(() => despesas.filter((d) => dentroDoPeriodo(d.data)), [despesas, filtroInicio, filtroFim]);
   const receitasManuaisFiltradas = useMemo(() => receitasManuais.filter((r) => dentroDoPeriodo(r.data)), [receitasManuais, filtroInicio, filtroFim]);
 
