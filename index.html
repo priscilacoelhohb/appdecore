@@ -1746,6 +1746,7 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
   const [itensSelecionadosOriginais, setItensSelecionadosOriginais] = useState({}); // como estava quando abriu (pra saber o que mudou)
   const [confirmarExclusao, setConfirmarExclusao] = useState(null); // contrato aguardando confirmação de exclusão
   const [filtroStatusContrato, setFiltroStatusContrato] = useState("ativos"); // 'ativos' | 'concluidos' | 'cancelados' | 'todos'
+  const [filtroPendentes, setFiltroPendentes] = useState(false); // true = mostra só os contratos com pagamento pendente
   const [confirmarCancelamento, setConfirmarCancelamento] = useState(null); // contrato aguardando resposta sobre o sinal antes de cancelar
 
   useEffect(() => {
@@ -1949,10 +1950,13 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
     window.open(whatsappLink(c.contratanteWhatsapp, msg), "_blank");
   }
 
+  const pendentesCount = contracts.filter((c) => c.statusPagamento === "pendente" && (c.statusContrato || "ativo") !== "cancelado").length;
+
   const ordered = [...contracts]
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
     .filter((c) => !busca.trim() || normalizeStr(c.contratanteNome).includes(normalizeStr(busca)))
-    .filter((c) => filtroStatusContrato === "todos" || (c.statusContrato || "ativo") === filtroStatusContrato.replace(/s$/, ""));
+    .filter((c) => filtroStatusContrato === "todos" || (c.statusContrato || "ativo") === filtroStatusContrato.replace(/s$/, ""))
+    .filter((c) => !filtroPendentes || c.statusPagamento === "pendente");
 
   if (carregando) return <Carregando texto="Carregando contratos..." />;
 
@@ -2143,6 +2147,16 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
         </div>
       ) : (
         <div className="space-y-3">
+          {pendentesCount > 0 && (
+            <button
+              onClick={() => setFiltroPendentes((v) => !v)}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-bold cursor-pointer transition"
+              style={filtroPendentes ? { background: BRAND.rosa, color: "#fff" } : { background: BRAND.rosa + "15", color: BRAND.rosa }}
+            >
+              <span>🔴 Pendentes de pagamento</span>
+              <span className="px-2.5 py-1 rounded-full text-xs" style={filtroPendentes ? { background: "rgba(255,255,255,.25)", color: "#fff" } : { background: "#fff", color: BRAND.rosa }}>{pendentesCount}</span>
+            </button>
+          )}
           <div className="relative">
             <input className={inputClass + " pl-10"} value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="🔎 Pesquisar pelo nome do cliente..." />
           </div>
