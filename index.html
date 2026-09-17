@@ -746,7 +746,7 @@ function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout, is
             </button>
           )}
 
-          {isOwner && (
+          {isOwner && profile.plano_tipo === "premium" && (
             <button onClick={() => { setPage("whatsapp"); onClose(); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer" style={{ minHeight: 44 }}>
               <img src="whatsapp-logo.png" alt="" className="w-5 h-5 object-contain shrink-0" />
               <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>WhatsApp</span>
@@ -876,13 +876,17 @@ function EtapaConectarWhatsApp({ userId, profile, onProfileUpdate, onConcluir })
 function WelcomeModal({ profile, userId, onProfileUpdate, onClose }) {
   const [etapa, setEtapa] = useState(1);
   const [respostas, setRespostas] = useState({});
+  // Conectar WhatsApp é exclusivo do Premium — no Básico, o onboarding
+  // termina nas perguntas, sem mostrar essa etapa (pra não confundir com
+  // uma função que ela não tem acesso).
+  const ehPremium = profile.plano_tipo === "premium";
 
   async function salvarRespostasEContinuar() {
     const linha = {};
     PERGUNTAS_ONBOARDING.forEach((p) => { linha[p.campoDb] = respostas[p.chave] || null; });
     await sb.from("decoradoras").update(linha).eq("id", userId);
     onProfileUpdate((prev) => ({ ...prev, ...linha }));
-    setEtapa(3);
+    if (ehPremium) setEtapa(3); else onClose();
   }
 
   return (
@@ -891,7 +895,7 @@ function WelcomeModal({ profile, userId, onProfileUpdate, onClose }) {
         <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-20" style={{ background: `linear-gradient(135deg, ${BRAND.rosa}, ${BRAND.roxo})` }} />
         {etapa === 1 && <EtapaBoasVindas profile={profile} onContinuar={() => setEtapa(2)} />}
         {etapa === 2 && <EtapaPerguntas respostas={respostas} setRespostas={setRespostas} onContinuar={salvarRespostasEContinuar} />}
-        {etapa === 3 && <EtapaConectarWhatsApp userId={userId} profile={profile} onProfileUpdate={onProfileUpdate} onConcluir={onClose} />}
+        {etapa === 3 && ehPremium && <EtapaConectarWhatsApp userId={userId} profile={profile} onProfileUpdate={onProfileUpdate} onConcluir={onClose} />}
       </div>
     </div>
   );
@@ -5919,7 +5923,7 @@ function App() {
           <EstoqueTab userId={profile.id} profile={profile} onProfileUpdate={setProfile} />
         ) : page === "catalogo" ? (
           <CatalogoTab userId={profile.id} profile={profile} onProfileUpdate={setProfile} />
-        ) : page === "whatsapp" && isOwner ? (
+        ) : page === "whatsapp" && isOwner && profile.plano_tipo === "premium" ? (
           <WhatsAppTab userId={profile.id} profile={profile} onProfileUpdate={setProfile} />
         ) : page === "perfil" && isOwner ? (
           <PerfilTab profile={profile} userId={profile.id} onSaved={setProfile} setPage={setPage} />
