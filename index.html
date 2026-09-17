@@ -1863,8 +1863,12 @@ function useConexaoWhatsApp(userId, profile, onProfileUpdate) {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       const r = await chamarConectar("status");
-      if (r.conectado) { clearInterval(pollRef.current); aplicarConectado(r.numero); }
-    }, 4000);
+      if (r.conectado) { clearInterval(pollRef.current); aplicarConectado(r.numero); return; }
+      // O QR do WhatsApp expira sozinho — a função já renova ele a cada
+      // consulta, então troca a imagem na tela pra decoradora nunca ficar
+      // escaneando um QR morto.
+      if (r.qr) { setQr(r.qr); setErro(""); }
+    }, 5000);
   }
 
   async function iniciarConexao() {
