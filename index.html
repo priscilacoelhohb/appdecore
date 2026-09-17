@@ -2695,6 +2695,14 @@ function EstoqueTab({ userId, profile, onProfileUpdate }) {
 const TIPOS_EVENTO_KIT = ["Aniversário Infantil", "Mesversário", "Chá de Bebê/Fralda", "Festa Junina", "15 Anos", "Adulto", "Dia dos Pais/Mães", "Formatura", "Casamento/Noivado"];
 const PUBLICOS_KIT = ["Menina", "Menino", "Mulher", "Homem", "Unissex"];
 const NIVEIS_KIT = ["Minimalista", "Prata", "Ouro", "Diamante", "Luxo"];
+// Faixa padronizada do Pegue e Monte — fixa (não é "livre" como o Nível
+// acima), pra dar pro cliente uma navegação por preço igual em qualquer
+// catálogo, independente de como cada decoradora chama seus próprios níveis.
+const FAIXAS_PEGUE_MONTE = [
+  { valor: "basico", label: "Básico" },
+  { valor: "prata", label: "Prata" },
+  { valor: "ouro", label: "Ouro" },
+];
 
 // Select com opção de digitar um valor customizado, pra não travar
 // a decoradora numa lista fixa quando ela quiser algo diferente.
@@ -2835,7 +2843,7 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
       }
     }
     setEditando({
-      id: null, nome: "", itens_inclusos: [], tipo_evento: "", publico: "", nivel: "", tema: "", cor: "",
+      id: null, nome: "", itens_inclusos: [], tipo_evento: "", publico: "", nivel: "", faixa_pegue_monte: null, tema: "", cor: "",
       preco: "", status: "publicado", aceita_variacao_cor: true, em_destaque: false,
     });
   }
@@ -2849,6 +2857,7 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
       tipo_evento: dadosKit.tipo_evento || null,
       publico: dadosKit.publico || null,
       nivel: dadosKit.nivel || null,
+      faixa_pegue_monte: dadosKit.faixa_pegue_monte || null,
       tema: dadosKit.tema || null,
       cor: dadosKit.cor || null,
       preco: dadosKit.preco ? parseFloat(String(dadosKit.preco).replace(",", ".")) : null,
@@ -3204,6 +3213,14 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
             <SelectComOutro label="Tipo de evento" valor={form.tipo_evento} opcoes={TIPOS_EVENTO_KIT} onChange={(v) => set("tipo_evento", v)} placeholderOutro="Digite o tipo de evento" />
             <SelectComOutro label="Público" valor={form.publico} opcoes={PUBLICOS_KIT} onChange={(v) => set("publico", v)} placeholderOutro="Digite o público" />
             <SelectComOutro label="Nível" valor={form.nivel} opcoes={NIVEIS_KIT} onChange={(v) => set("nivel", v)} placeholderOutro="Digite o nível" />
+
+            <div>
+              <label className="text-xs font-bold text-slate-500 mb-1 block">Faixa Pegue e Monte<Ajuda emoji="🎁" titulo="Faixa Pegue e Monte" texto="Separado do Nível acima — é uma classificação fixa (Básico/Prata/Ouro), igual em todos os catálogos, pra ajudar a cliente a navegar por faixa de preço sem se confundir com os nomes que cada decoradora dá pros próprios níveis." /></label>
+              <select value={form.faixa_pegue_monte || ""} onChange={(e) => set("faixa_pegue_monte", e.target.value || null)} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                <option value="">— (não é um kit padrão de Pegue e Monte)</option>
+                {FAIXAS_PEGUE_MONTE.map((f) => <option key={f.valor} value={f.valor}>{f.label}</option>)}
+              </select>
+            </div>
             <div>
               <label className="text-xs font-bold text-slate-500 mb-1 block">Tema</label>
               <input value={form.tema || ""} onChange={(e) => set("tema", e.target.value)} placeholder="Ex: Futebol" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
@@ -3346,6 +3363,7 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
     whatsapp_contato: profile.whatsapp_contato || "",
     catalogo_ativo: profile.catalogo_ativo !== false,
     catalogo_slug: profile.catalogo_slug || "",
+    catalogo_categorias_extras: profile.catalogo_categorias_extras || [],
   });
   const [erroSlug, setErroSlug] = useState("");
   const [checandoSlug, setChecandoSlug] = useState(false);
@@ -3473,6 +3491,15 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
 
         <label className="text-xs font-bold text-slate-500 mb-1 block">Instagram (opcional)</label>
         <input value={form.catalogo_instagram} onChange={(e) => set("catalogo_instagram", e.target.value)} placeholder="@sualoja" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+      </div>
+
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>
+          Categorias extras do catálogo
+          <Ajuda emoji="🗂️" titulo="Categorias extras" texto="O catálogo já mostra sozinho as categorias padrão (Masculino, Feminino, Adulto, 15 Anos, Chá de Fralda, Chá Revelação) quando você tem kit nelas. Se você trabalha com outra coisa (ex: Casamento, Batizado), cadastre aqui — vira mais um card na tela inicial do catálogo, desde que tenha algum kit marcado com esse mesmo texto no campo 'Tipo de evento'." />
+        </p>
+        <p className="text-xs text-slate-400 mb-3">Além das 6 categorias padrão. O nome aqui precisa ser igual ao que você usa no campo "Tipo de evento" dos seus kits.</p>
+        <TagInput valores={form.catalogo_categorias_extras} onChange={(v) => set("catalogo_categorias_extras", v)} placeholder="Ex: Casamento (Enter pra adicionar)" />
       </div>
 
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 space-y-3">
