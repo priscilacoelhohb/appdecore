@@ -1955,9 +1955,9 @@ function ConexaoWhatsApp({ status, numero, qr, carregando, erro, onIniciar, onDe
 
 // Chaves com gatilho de verdade já construído. As outras aparecem na lista
 // (pra decoradora ver o que vem por aí) mas ficam travadas, sem toggle.
-const AUTOMACOES_PRONTAS = new Set(["boas_vindas", "contrato_assinatura", "lembrete_sinal"]);
-const ORDEM_AUTOMACOES = ["boas_vindas", "contrato_assinatura", "lembrete_sinal", "confirmacao_agendamento", "lembrete_retirada", "aniversario", "pos_venda"];
-const EMOJI_AUTOMACAO = { boas_vindas: "👋", contrato_assinatura: "📄", lembrete_sinal: "🔒", confirmacao_agendamento: "📅", lembrete_retirada: "⏰", aniversario: "🎂", pos_venda: "💕" };
+const AUTOMACOES_PRONTAS = new Set(["boas_vindas", "contrato_assinatura", "lembrete_sinal", "confirmacao_agendamento", "lembrete_retirada", "lembrete_devolucao", "aniversario", "pos_venda"]);
+const ORDEM_AUTOMACOES = ["boas_vindas", "contrato_assinatura", "lembrete_sinal", "confirmacao_agendamento", "lembrete_retirada", "lembrete_devolucao", "aniversario", "pos_venda"];
+const EMOJI_AUTOMACAO = { boas_vindas: "👋", contrato_assinatura: "📄", lembrete_sinal: "🔒", confirmacao_agendamento: "📅", lembrete_retirada: "📦", lembrete_devolucao: "⏰", aniversario: "🎂", pos_venda: "💕" };
 
 function AutomacaoRow({ automacao, onToggle, onEditar }) {
   const pronta = AUTOMACOES_PRONTAS.has(automacao.chave);
@@ -1996,6 +1996,11 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
     boas_vindas: ["{{link_catalogo}}"],
     contrato_assinatura: ["{{nome_cliente}}", "{{link_contrato}}"],
     lembrete_sinal: ["{{nome_cliente}}"],
+    confirmacao_agendamento: ["{{nome_cliente}}", "{{data_retirada}}"],
+    lembrete_retirada: ["{{nome_cliente}}", "{{produto}}", "{{data}}", "{{hora}}", "{{quando}}", "{{endereco}}"],
+    lembrete_devolucao: ["{{nome_cliente}}", "{{produto}}", "{{data}}", "{{hora}}", "{{quando}}", "{{endereco}}"],
+    aniversario: ["{{nome_cliente}}", "{{nome_aniversariante}}", "{{dias}}"],
+    pos_venda: ["{{nome_cliente}}"],
   }[automacao.chave] || [];
 
   async function salvar() {
@@ -2027,6 +2032,10 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
               </div>
             )}
           </div>
+        )}
+
+        {(automacao.chave === "lembrete_retirada" || automacao.chave === "lembrete_devolucao") && (
+          <p className="text-xs text-slate-400 mb-3 px-3 py-2 rounded-xl bg-slate-50">Essa mensagem é mandada 2x: 1 dia antes e 2h antes — {"{{quando}}"} vira "amanhã" ou "daqui a 2 horas" sozinho. {"{{endereco}}"} só aparece se não for Decoração (aí quem vai até o cliente é você).</p>
         )}
 
         <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem</p>
