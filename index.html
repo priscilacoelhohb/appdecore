@@ -746,6 +746,13 @@ function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout, is
             </button>
           )}
 
+          {isOwner && (
+            <button onClick={() => { setPage("whatsapp"); onClose(); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer" style={{ minHeight: 44 }}>
+              <span className="text-lg leading-none w-4 text-center">💬</span>
+              <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>WhatsApp</span>
+            </button>
+          )}
+
           <button onClick={() => { setPage("indique"); onClose(); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer" style={{ minHeight: 44 }}>
             <span style={{ color: BRAND.rosa }}><IconRocket /></span>
             <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>Indique e Ganhe</span>
@@ -1723,6 +1730,247 @@ function ConfigurarLinkModal({ profile, onClose, onSaved }) {
           {salvando ? "Salvando..." : "Salvar configuração"}
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   WHATSAPP PRÓPRIO DA DECORADORA — conexão (QR code) + automações
+============================================================ */
+const NOMES_STATUS_WHATSAPP = {
+  NAO_CRIADA: "Não conectado",
+  STARTING: "Preparando conexão...",
+  SCAN_QR_CODE: "Aguardando você escanear o QR Code",
+  WORKING: "Conectado",
+  FAILED: "Falhou — tenta de novo",
+  ERRO: "Erro ao consultar status",
+};
+
+function ConexaoWhatsApp({ status, numero, qr, carregando, erro, onIniciar, onDesconectar }) {
+  const conectado = status === "WORKING";
+  return (
+    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+      <div className="flex items-center gap-3 mb-1">
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center text-2xl shrink-0" style={{ background: "#22C55E18" }}>📱</div>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-sm" style={{ color: BRAND.tinta }}>Seu WhatsApp</p>
+          <p className="text-xs" style={{ color: conectado ? "#22C55E" : "#94a3b8" }}>
+            {conectado ? `✓ Conectado · ${numero || ""}` : NOMES_STATUS_WHATSAPP[status] || "Não conectado"}
+          </p>
+        </div>
+        {conectado && (
+          <button onClick={onDesconectar} disabled={carregando} className="px-3 py-2 rounded-lg text-xs font-bold cursor-pointer shrink-0 disabled:opacity-50" style={{ color: "#fb7185", background: "#fb718518" }}>
+            {carregando ? "..." : "⏻ Desconectar"}
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-slate-400 mb-3">Conectando, as automações abaixo passam a mandar mensagem pelo SEU número, não por um número genérico.</p>
+
+      {erro && <div className="bg-red-50 text-red-600 text-xs rounded-xl px-3 py-2.5 mb-3">{erro}</div>}
+
+      {!conectado && !qr && (
+        <button onClick={onIniciar} disabled={carregando} className="w-full py-3 rounded-xl font-bold text-sm text-white cursor-pointer active:scale-95 transition disabled:opacity-60" style={{ background: "#22C55E" }}>
+          {carregando ? "Gerando QR Code..." : "Conectar WhatsApp"}
+        </button>
+      )}
+
+      {!conectado && qr && (
+        <div className="flex flex-col items-center py-3">
+          <img src={qr} alt="QR Code do WhatsApp" className="w-56 h-56 rounded-xl border-2 border-slate-100" />
+          <p className="text-xs text-slate-400 mt-3 text-center max-w-xs">
+            No seu celular: WhatsApp → ⋮ Mais opções → Aparelhos conectados → Conectar um aparelho, e aponta a câmera pra esse QR Code.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Chaves com gatilho de verdade já construído. As outras aparecem na lista
+// (pra decoradora ver o que vem por aí) mas ficam travadas, sem toggle.
+const AUTOMACOES_PRONTAS = new Set(["boas_vindas", "contrato_assinatura", "lembrete_sinal"]);
+const ORDEM_AUTOMACOES = ["boas_vindas", "contrato_assinatura", "lembrete_sinal", "confirmacao_agendamento", "lembrete_retirada", "aniversario", "pos_venda"];
+const EMOJI_AUTOMACAO = { boas_vindas: "👋", contrato_assinatura: "📄", lembrete_sinal: "🔒", confirmacao_agendamento: "📅", lembrete_retirada: "⏰", aniversario: "🎂", pos_venda: "💕" };
+
+function AutomacaoRow({ automacao, onToggle, onEditar }) {
+  const pronta = AUTOMACOES_PRONTAS.has(automacao.chave);
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50">
+      <div className="w-9 h-9 rounded-lg flex items-center justify-center text-lg shrink-0 bg-white">{EMOJI_AUTOMACAO[automacao.chave] || "💬"}</div>
+      <div className="flex-1 min-w-0 flex items-center">
+        <p className="font-semibold text-sm truncate" style={{ color: BRAND.tinta }}>{automacao.nome}</p>
+        <Ajuda emoji={EMOJI_AUTOMACAO[automacao.chave] || "💬"} titulo={automacao.nome} texto={automacao.descricao} />
+      </div>
+      {pronta ? (
+        <>
+          <button onClick={onEditar} title="Editar mensagem" className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white cursor-pointer shrink-0">✏️</button>
+          <button
+            onClick={onToggle}
+            className="w-11 h-6 rounded-full relative cursor-pointer transition-colors shrink-0"
+            style={{ background: automacao.ativa ? "#22C55E" : "#e5e7eb" }}
+          >
+            <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all" style={{ left: automacao.ativa ? 22 : 2 }} />
+          </button>
+        </>
+      ) : (
+        <span className="text-[11px] font-bold px-2.5 py-1.5 rounded-full shrink-0" style={{ background: "#F1F5F9", color: "#94a3b8" }}>🔜 Em breve</span>
+      )}
+    </div>
+  );
+}
+
+function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
+  const [mensagem, setMensagem] = useState(automacao.mensagem || "");
+  const [enviarPara, setEnviarPara] = useState(automacao.config?.enviar_para || "primeiro_contato");
+  const [salvando, setSalvando] = useState(false);
+
+  const variaveis = {
+    boas_vindas: ["{{link_catalogo}}"],
+    contrato_assinatura: ["{{nome_cliente}}", "{{link_contrato}}"],
+    lembrete_sinal: ["{{nome_cliente}}"],
+  }[automacao.chave] || [];
+
+  async function salvar() {
+    setSalvando(true);
+    await onSalvar(mensagem, automacao.chave === "boas_vindas" ? { enviar_para: enviarPara } : automacao.config);
+    setSalvando(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={onFechar}>
+      <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full sm:max-w-md p-6 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <p className="fredoka text-lg font-bold mb-1" style={{ color: BRAND.tinta }}>{EMOJI_AUTOMACAO[automacao.chave] || "💬"} {automacao.nome}</p>
+        <p className="text-xs text-slate-400 mb-4">{automacao.descricao}</p>
+
+        {automacao.chave === "boas_vindas" && (
+          <div className="mb-4">
+            <p className="text-xs font-bold text-slate-500 mb-1.5">Mandar para</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setEnviarPara("primeiro_contato")} className="py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer" style={enviarPara === "primeiro_contato" ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>Só primeiro contato</button>
+              <button type="button" onClick={() => setEnviarPara("todos")} className="py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer" style={enviarPara === "todos" ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>Todo mundo</button>
+            </div>
+          </div>
+        )}
+
+        <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem</p>
+        <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-2" rows={5} value={mensagem} onChange={(e) => setMensagem(e.target.value)} />
+        {variaveis.length > 0 && (
+          <p className="text-[11px] text-slate-400 mb-4">Variáveis que você pode usar: {variaveis.map((v) => <code key={v} className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{v}</code>)}</p>
+        )}
+
+        <div className="flex gap-2 mt-2">
+          <button onClick={onFechar} className="flex-1 py-2.5 rounded-xl font-bold text-sm cursor-pointer" style={{ background: BRAND.bg, color: BRAND.tinta }}>Cancelar</button>
+          <button onClick={salvar} disabled={salvando} className="flex-1 py-2.5 rounded-xl font-bold text-sm text-white cursor-pointer disabled:opacity-60" style={{ background: BRAND.rosa }}>{salvando ? "Salvando..." : "Salvar"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WhatsAppTab({ userId, profile, onProfileUpdate }) {
+  const [status, setStatus] = useState(profile.whatsapp_proprio_conectado ? "WORKING" : "NAO_CRIADA");
+  const [numero, setNumero] = useState(profile.whatsapp_proprio_numero || null);
+  const [qr, setQr] = useState(null);
+  const [carregandoConexao, setCarregandoConexao] = useState(false);
+  const [erroConexao, setErroConexao] = useState("");
+  const [automacoes, setAutomacoes] = useState([]);
+  const [carregandoAuto, setCarregandoAuto] = useState(true);
+  const [editando, setEditando] = useState(null);
+  const pollRef = React.useRef(null);
+
+  const carregarAutomacoes = useCallback(async () => {
+    const { data } = await sb.from("whatsapp_automacoes").select("*").eq("decoradora_id", userId);
+    setAutomacoes(data || []);
+    setCarregandoAuto(false);
+  }, [userId]);
+  useEffect(() => { carregarAutomacoes(); }, [carregarAutomacoes]);
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  async function chamarConectar(action) {
+    const { data: sessionData } = await sb.auth.getSession();
+    const token = sessionData && sessionData.session ? sessionData.session.access_token : null;
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/whatsapp-conectar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action }),
+    });
+    return resp.json();
+  }
+
+  function aplicarConectado(numeroConectado) {
+    setStatus("WORKING"); setNumero(numeroConectado); setQr(null);
+    onProfileUpdate((p) => ({ ...p, whatsapp_proprio_conectado: true, whatsapp_proprio_numero: numeroConectado }));
+  }
+
+  function iniciarPolling() {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const r = await chamarConectar("status");
+      if (r.conectado) { clearInterval(pollRef.current); aplicarConectado(r.numero); }
+    }, 4000);
+  }
+
+  async function iniciarConexao() {
+    setErroConexao(""); setCarregandoConexao(true);
+    const r = await chamarConectar("iniciar");
+    setCarregandoConexao(false);
+    if (r.error) { setErroConexao(r.error); return; }
+    if (r.conectado) { aplicarConectado(r.numero); return; }
+    setStatus(r.status || "STARTING"); setQr(r.qr || null);
+    iniciarPolling();
+  }
+
+  async function desconectar() {
+    if (!window.confirm("Desconectar seu WhatsApp? As automações param de mandar mensagem até você conectar de novo.")) return;
+    setCarregandoConexao(true);
+    await chamarConectar("desconectar");
+    setCarregandoConexao(false);
+    if (pollRef.current) clearInterval(pollRef.current);
+    setStatus("NAO_CRIADA"); setNumero(null); setQr(null);
+    onProfileUpdate((p) => ({ ...p, whatsapp_proprio_conectado: false, whatsapp_proprio_numero: null }));
+  }
+
+  async function toggleAutomacao(a) {
+    const novo = !a.ativa;
+    setAutomacoes((as) => as.map((x) => (x.id === a.id ? { ...x, ativa: novo } : x)));
+    await sb.from("whatsapp_automacoes").update({ ativa: novo }).eq("id", a.id);
+  }
+
+  async function salvarAutomacao(mensagem, config) {
+    await sb.from("whatsapp_automacoes").update({ mensagem, config: config || {} }).eq("id", editando.id);
+    setAutomacoes((as) => as.map((x) => (x.id === editando.id ? { ...x, mensagem, config: config || {} } : x)));
+    setEditando(null);
+  }
+
+  const ordenadas = [...automacoes].sort((a, b) => ORDEM_AUTOMACOES.indexOf(a.chave) - ORDEM_AUTOMACOES.indexOf(b.chave));
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-8">
+      <div className="mb-5">
+        <h2 className="fredoka text-xl font-bold flex items-center gap-2" style={{ color: BRAND.tinta }}>
+          💬 WhatsApp
+          <Ajuda emoji="💬" titulo="WhatsApp automático" texto="Conecte o WhatsApp da sua loja aqui pra deixar algumas mensagens automáticas — tipo mandar o contrato pra cliente assinar assim que você salva, ou dar boas-vindas com o link do catálogo pra quem te chama pela primeira vez. Sem precisar clicar em nada." />
+        </h2>
+        <p className="text-slate-400 text-sm mt-1">Conecte seu número e deixe algumas mensagens no automático.</p>
+      </div>
+
+      <ConexaoWhatsApp status={status} numero={numero} qr={qr} carregando={carregandoConexao} erro={erroConexao} onIniciar={iniciarConexao} onDesconectar={desconectar} />
+
+      <div className="mt-6">
+        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Ações automáticas</p>
+        <p className="text-xs text-slate-400 mb-3">Ligue ou desligue cada automação. Toque no "?" pra entender o que ela faz.</p>
+        {carregandoAuto ? (
+          <p className="text-sm text-slate-400">Carregando...</p>
+        ) : (
+          <div className="space-y-2">
+            {ordenadas.map((a) => (
+              <AutomacaoRow key={a.id} automacao={a} onToggle={() => toggleAutomacao(a)} onEditar={() => setEditando(a)} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {editando && <EditarAutomacaoModal automacao={editando} onFechar={() => setEditando(null)} onSalvar={salvarAutomacao} />}
     </div>
   );
 }
@@ -5558,6 +5806,8 @@ function App() {
           <EstoqueTab userId={profile.id} profile={profile} onProfileUpdate={setProfile} />
         ) : page === "catalogo" ? (
           <CatalogoTab userId={profile.id} profile={profile} onProfileUpdate={setProfile} />
+        ) : page === "whatsapp" && isOwner ? (
+          <WhatsAppTab userId={profile.id} profile={profile} onProfileUpdate={setProfile} />
         ) : page === "perfil" && isOwner ? (
           <PerfilTab profile={profile} userId={profile.id} onSaved={setProfile} setPage={setPage} />
         ) : page === "equipe" && isOwner ? (
