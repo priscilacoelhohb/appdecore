@@ -1064,7 +1064,9 @@ function PrimeirosPassos({ setPage, profile, contracts, userId }) {
 function HomeDashboard({ setPage, contracts, profile, userId, isOwner, membership }) {
   const hoje = todayISO();
   const contratosAtivos = contracts.filter((c) => (c.statusContrato || "ativo") !== "cancelado");
-  const entregasHoje = contratosAtivos.filter((c) => c.dataRetirada === hoje || c.dataDevolucao === hoje).length;
+  // Mesma regra da Agenda: contrato "Pendente" (nada pago ainda) não conta
+  // como entrega confirmada pra hoje.
+  const entregasHoje = contratosAtivos.filter((c) => c.statusPagamento !== "pendente" && (c.dataRetirada === hoje || c.dataDevolucao === hoje)).length;
   const aReceber = contratosAtivos.reduce((s, c) => s + computeFinanceFaturamento(c, pctSinalEfetivo(c, profile)).pendente, 0);
   const primeiroNome = (profile.nome_responsavel || "").trim().split(" ")[0];
   const pode = (chave) => isOwner || !!(membership && membership.permissoes && membership.permissoes[chave]);
@@ -4431,7 +4433,10 @@ const DIAS_SEMANA = ["D","S","T","Q","Q","S","S"];
 
 function buildEvents(contracts) {
   const events = [];
-  contracts.filter((c) => (c.statusContrato || "ativo") !== "cancelado").forEach((c) => {
+  // Contrato "Pendente" (nada pago ainda) não sobe pra agenda — só entra
+  // depois que a decoradora confirma pelo menos o sinal ou o pagamento
+  // total, pra não lotar a agenda com festa que talvez nem aconteça.
+  contracts.filter((c) => (c.statusContrato || "ativo") !== "cancelado" && c.statusPagamento !== "pendente").forEach((c) => {
     if (c.dataRetirada) events.push({ id: c.id+"-r", contractId: c.id, date: c.dataRetirada, tipo: "ida", label: labelData(c.tipoServico,"ida"), nome: c.contratanteNome, kit: c.produtoNome, hora: c.horaRetiradaIni, horaFim: c.horaRetiradaFim, whatsapp: c.contratanteWhatsapp, tipoServico: c.tipoServico });
     if (c.dataDevolucao) events.push({ id: c.id+"-d", contractId: c.id, date: c.dataDevolucao, tipo: "volta", label: labelData(c.tipoServico,"volta"), nome: c.contratanteNome, kit: c.produtoNome, hora: c.horaDevolucaoIni, horaFim: c.horaDevolucaoFim, whatsapp: c.contratanteWhatsapp, tipoServico: c.tipoServico });
   });
