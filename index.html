@@ -267,6 +267,7 @@ function contractToDb(c, decoradoraId) {
     sem_multa: !!c.semMulta,
     observacoes: c.observacoes || null, status_contrato: c.statusContrato || "ativo",
     sinal_devolvido: c.sinalDevolvido === undefined ? null : c.sinalDevolvido,
+    checklist_entrega: c.checklistEntrega || {}, checklist_recebimento: c.checklistRecebimento || {},
   };
 }
 function contractFromDb(r) {
@@ -288,6 +289,7 @@ function contractFromDb(r) {
     observacoes: r.observacoes || "",
     statusContrato: r.status_contrato || "ativo",
     sinalDevolvido: r.sinal_devolvido == null ? null : !!r.sinal_devolvido,
+    checklistEntrega: r.checklist_entrega || {}, checklistRecebimento: r.checklist_recebimento || {},
     createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
   };
 }
@@ -1442,6 +1444,7 @@ const CAMPOS_VAZIOS = {
   dataDevolucao: "", horaDevolucaoIni: "09:00", horaDevolucaoFim: "19:00",
   statusPagamento: "sinal", sinalPercentualContrato: "", valorSinal: "", formaPagamento: "Pix", multaPercentual: "", semMulta: false,
   observacoes: "", statusContrato: "ativo",
+  checklistEntrega: {}, checklistRecebimento: {},
 };
 
 function ContratoPreview({ dados, profile }) {
@@ -4509,6 +4512,7 @@ function AgendaTab({ userId, profile }) {
   const [erroLembrete, setErroLembrete] = useState("");
   const [obsAberta, setObsAberta] = useState(null); // id do evento com a observação aberta
   const [obsTexto, setObsTexto] = useState("");
+  const [checklistAberto, setChecklistAberto] = useState(null); // id do evento com o checklist aberto
   const [salvandoObs, setSalvandoObs] = useState(false);
   const [fotosPorContrato, setFotosPorContrato] = useState({});
   const [imprimindo, setImprimindo] = useState(null); // evento sendo preparado pra impressão
@@ -4529,19 +4533,47 @@ function AgendaTab({ userId, profile }) {
     })();
   }, [userId]);
 
+  const [itensPorContrato, setItensPorContrato] = useState({}); // { contractId: [{ key, label }] } — base dos checklists de entrega/recebimento
   useEffect(() => {
     (async () => {
       const { data } = await sb.from("contract_estoque_itens")
-        .select("contract_id, estoque_itens(material, modelo, foto_url, foto_data_url)")
+        .select("contract_id, estoque_item_id, quantidade, estoque_itens(material, modelo, foto_url, foto_data_url)")
         .eq("decoradora_id", userId);
-      const mapa = {};
+      const mapaFotos = {};
+      const mapaItens = {};
       (data || []).forEach((r) => {
-        if (!r.estoque_itens || !fotoDoItem(r.estoque_itens)) return;
-        (mapa[r.contract_id] = mapa[r.contract_id] || []).push(r.estoque_itens);
+        if (r.estoque_itens && fotoDoItem(r.estoque_itens)) (mapaFotos[r.contract_id] = mapaFotos[r.contract_id] || []).push(r.estoque_itens);
+        if (r.estoque_itens) {
+          (mapaItens[r.contract_id] = mapaItens[r.contract_id] || []).push({
+            key: r.estoque_item_id,
+            label: `${r.quantidade}x ${r.estoque_itens.material}${r.estoque_itens.modelo ? " — " + r.estoque_itens.modelo : ""}`,
+          });
+        }
       });
-      setFotosPorContrato(mapa);
+      setFotosPorContrato(mapaFotos);
+      setItensPorContrato(mapaItens);
     })();
   }, [userId]);
+
+  // Lista de itens do checklist desse contrato: usa os itens do estoque
+  // vinculados (com quantidade), ou — se ela digitou o material manualmente,
+  // sem usar estoque — quebra o texto em itens separados por vírgula.
+  function itensChecklistDoContrato(contrato) {
+    const doEstoque = itensPorContrato[contrato.id];
+    if (doEstoque && doEstoque.length > 0) return doEstoque;
+    if (contrato.materialEntregue && contrato.materialEntregue.trim()) {
+      return contrato.materialEntregue.split(",").map((s) => s.trim()).filter(Boolean).map((label, i) => ({ key: "manual-" + i, label }));
+    }
+    return [];
+  }
+
+  async function toggleItemChecklist(contrato, campo, itemKey) {
+    const atual = contrato[campo] || {};
+    const novo = { ...atual, [itemKey]: !atual[itemKey] };
+    setContracts((cs) => cs.map((c) => c.id === contrato.id ? { ...c, [campo]: novo } : c));
+    const colunaDb = campo === "checklistEntrega" ? "checklist_entrega" : "checklist_recebimento";
+    await sb.from("contracts").update({ [colunaDb]: novo }).eq("id", contrato.id);
+  }
 
   function abrirObservacao(evento) {
     if (obsAberta === evento.id) { setObsAberta(null); return; }
@@ -4654,6 +4686,9 @@ function AgendaTab({ userId, profile }) {
                 {doDia.map((e) => {
                   const contratoDoEvento = contracts.find((c) => c.id === e.contractId);
                   const temObs = contratoDoEvento && contratoDoEvento.observacoes;
+                  const campoChecklist = e.tipo === "ida" ? "checklistEntrega" : "checklistRecebimento";
+                  const itensChecklist = contratoDoEvento ? itensChecklistDoContrato(contratoDoEvento) : [];
+                  const marcadosChecklist = contratoDoEvento ? itensChecklist.filter((it) => (contratoDoEvento[campoChecklist] || {})[it.key]).length : 0;
                   return (
                     <div key={e.id}>
                       <p className="font-bold text-sm mb-1 break-words" style={{ color: BRAND.tinta }}>{e.nome}</p>
@@ -4667,6 +4702,12 @@ function AgendaTab({ userId, profile }) {
                         <button onClick={() => abrirObservacao(e)} className="p-2 rounded-lg shrink-0 cursor-pointer relative" style={{ color: BRAND.azul, background: BRAND.azul+"14" }} title="Observação">
                           📝{temObs && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style={{ background: "#F97316" }} />}
                         </button>
+                        {itensChecklist.length > 0 && (
+                          <button onClick={() => setChecklistAberto(checklistAberto === e.id ? null : e.id)} className="p-2 rounded-lg shrink-0 cursor-pointer relative" style={{ color: BRAND.turquesa, background: BRAND.turquesa+"14" }} title={e.tipo === "ida" ? "Checklist de entrega" : "Checklist de recebimento"}>
+                            📋
+                            <span className="absolute -bottom-1 -right-1 text-[9px] font-bold px-1 rounded-full text-white" style={{ background: marcadosChecklist === itensChecklist.length ? "#22C55E" : "#94a3b8" }}>{marcadosChecklist}/{itensChecklist.length}</span>
+                          </button>
+                        )}
                         {e.tipo === "volta" && (
                           contratoDoEvento && contratoDoEvento.devolvido ? (
                             <span className="text-xs font-bold px-2.5 py-2 rounded-lg shrink-0" style={{ color: "#22C55E", background: "#22C55E18" }}>✅ Devolvido</span>
@@ -4707,6 +4748,22 @@ function AgendaTab({ userId, profile }) {
                               {salvandoObs ? "Salvando..." : "Salvar observação"}
                             </button>
                             <button onClick={() => setObsAberta(null)} className="px-3 py-2 rounded-lg text-xs font-bold text-slate-400 cursor-pointer">Cancelar</button>
+                          </div>
+                        </div>
+                      )}
+                      {checklistAberto === e.id && (
+                        <div className="px-3 pb-3">
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1.5">{e.tipo === "ida" ? "Checklist de entrega" : "Checklist de recebimento"}</p>
+                          <div className="space-y-1.5 bg-white rounded-xl p-2.5 border border-slate-100">
+                            {itensChecklist.map((it) => {
+                              const marcado = !!(contratoDoEvento[campoChecklist] || {})[it.key];
+                              return (
+                                <label key={it.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                                  <input type="checkbox" checked={marcado} onChange={() => toggleItemChecklist(contratoDoEvento, campoChecklist, it.key)} className="w-4 h-4 rounded cursor-pointer shrink-0" style={{ accentColor: BRAND.turquesa }} />
+                                  <span style={{ color: marcado ? "#94a3b8" : BRAND.tinta, textDecoration: marcado ? "line-through" : "none" }}>{it.label}</span>
+                                </label>
+                              );
+                            })}
                           </div>
                         </div>
                       )}
