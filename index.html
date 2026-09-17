@@ -984,13 +984,13 @@ function TrialGate({ profile, onLogout, children }) {
 /* ============================================================
    CABEÇALHO
 ============================================================ */
-function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, userId, onOpenMenu }) {
+function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, userId, onOpenMenu, isOwner }) {
   const isHome = page === "home";
   const [sinoAberto, setSinoAberto] = useState(false);
   return (
     <div className="sticky top-0 z-20 text-white" style={{ background: `linear-gradient(120deg, ${BRAND.azul}, ${BRAND.azulEscuro})` }}>
       <div className="max-w-5xl mx-auto px-5 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           <button onClick={onOpenMenu} className="p-2.5 -ml-2 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Abrir menu" style={{ minWidth: 44, minHeight: 44 }}><IconMenu /></button>
           {!isHome && (
             <button onClick={() => setPage("home")} className="p-2.5 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Voltar ao início" style={{ minWidth: 44, minHeight: 44 }}><IconBack /></button>
@@ -1000,12 +1000,19 @@ function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, use
           ) : (
             <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg" style={{ background: `linear-gradient(135deg, ${BRAND.rosa}, ${BRAND.roxo})` }}>🎉</div>
           )}
-          <div className="min-w-0">
+          <div className="min-w-[64px]">
             <p className="fredoka font-bold leading-none text-[15px] truncate">{profile.nome_loja}</p>
             <p className="text-[11px] text-white/60 leading-none mt-1 truncate">{userEmail}</p>
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {isOwner && profile.plano_tipo === "premium" && !profile.whatsapp_proprio_conectado ? (
+            <button onClick={() => setPage("whatsapp")} className="flex items-center gap-1.5 pl-2 pr-3 py-2 rounded-full font-bold text-xs cursor-pointer active:scale-95 transition shrink-0" style={{ background: "#22C55E", color: "#fff" }} aria-label="Conectar WhatsApp">
+              <img src="whatsapp-logo.png" alt="" className="w-5 h-5 rounded-full bg-white p-0.5 shrink-0" />
+              <span className="sm:hidden whitespace-nowrap">Conectar</span>
+              <span className="hidden sm:inline whitespace-nowrap">Conectar WhatsApp</span>
+            </button>
+          ) : (
           <div className="relative">
             <button onClick={() => setSinoAberto((v) => !v)} className="p-2.5 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer relative" aria-label="Notificações" style={{ minWidth: 44, minHeight: 44 }}>
               <IconBell />
@@ -1029,6 +1036,7 @@ function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, use
               </div>
             )}
           </div>
+          )}
           <button onClick={() => setPage("perfil")} className="p-2.5 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Editar perfil" style={{ minWidth: 44, minHeight: 44 }}><IconSettings /></button>
           <button onClick={onLogout} className="p-2.5 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Sair" style={{ minWidth: 44, minHeight: 44 }}><IconLogout /></button>
         </div>
@@ -5914,7 +5922,7 @@ function App() {
   return (
     <TrialGate profile={profile} onLogout={handleLogout}>
       <div className="min-h-screen" style={{ background: BRAND.bg }}>
-        <Header userEmail={session.user.email} page={page} setPage={setPage} onLogout={handleLogout} profile={profile} notificacoes={notificacoes} userId={profile.id} onOpenMenu={() => setMenuAberto(true)} />
+        <Header userEmail={session.user.email} page={page} setPage={setPage} onLogout={handleLogout} profile={profile} notificacoes={notificacoes} userId={profile.id} onOpenMenu={() => setMenuAberto(true)} isOwner={isOwner} />
         <SidebarMenu aberto={menuAberto} onClose={() => setMenuAberto(false)} config={appConfig} userEmail={session.user.email} profile={profile} onLogout={handleLogout} isOwner={isOwner} setPage={setPage} podeVerClientes={isOwner || !!(membership && membership.permissoes && membership.permissoes.clientes)} />
         {isOwner && profile && !profile.onboarding_visto && (
           <WelcomeModal
