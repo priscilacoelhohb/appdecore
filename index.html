@@ -3437,6 +3437,7 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
     catalogo_categorias_extras: (profile.catalogo_categorias_extras || []).map((e) => typeof e === "string" ? { id: "extra-" + uid(), nome: e } : e),
     catalogo_nomes_categorias: profile.catalogo_nomes_categorias || {},
     catalogo_capas_categorias: profile.catalogo_capas_categorias || {},
+    catalogo_categorias_ocultas: profile.catalogo_categorias_ocultas || [],
   });
   const [erroSlug, setErroSlug] = useState("");
   const [checandoSlug, setChecandoSlug] = useState(false);
@@ -3571,30 +3572,41 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
           Categorias do catálogo
           <Ajuda emoji="🗂️" titulo="Categorias do catálogo" texto="Essas viram os cards que a cliente vê na tela inicial do catálogo. As 9 primeiras já vêm prontas (você só pode trocar o nome e a foto, não apagar). Pra adicionar uma nova, clica em '+ Adicionar categoria' — o nome dela precisa ser igual ao que você usa no campo 'Tipo de evento' dos seus kits, senão não acha kit nenhum pra mostrar." />
         </p>
-        <p className="text-xs text-slate-400 mb-3">Nome e foto de cada categoria, tudo num lugar só.</p>
+        <p className="text-xs text-slate-400 mb-3">Nome e foto de cada categoria, tudo num lugar só. A lixeira esconde a categoria do catálogo (nas 9 padrão) ou apaga de vez (nas que você criou).</p>
         <div className="space-y-2">
-          {CATEGORIAS_CAPA_FIXAS.map((cat) => (
-            <div key={cat.chave} className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50">
-              <div className="w-12 h-12 rounded-lg overflow-hidden bg-white border border-slate-200 shrink-0">
-                {form.catalogo_capas_categorias[cat.chave] && <img src={form.catalogo_capas_categorias[cat.chave]} className="w-full h-full object-cover" />}
+          {CATEGORIAS_CAPA_FIXAS.map((cat) => {
+            const oculta = form.catalogo_categorias_ocultas.includes(cat.chave);
+            return (
+              <div key={cat.chave} className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50" style={{ opacity: oculta ? 0.5 : 1 }}>
+                <div className="w-12 h-12 rounded-lg overflow-hidden bg-white border border-slate-200 shrink-0">
+                  {form.catalogo_capas_categorias[cat.chave] && <img src={form.catalogo_capas_categorias[cat.chave]} className="w-full h-full object-cover" />}
+                </div>
+                <input
+                  value={form.catalogo_nomes_categorias[cat.chave] ?? cat.label}
+                  onChange={(e) => set("catalogo_nomes_categorias", { ...form.catalogo_nomes_categorias, [cat.chave]: e.target.value })}
+                  className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold bg-white"
+                  style={{ color: BRAND.tinta }}
+                />
+                <label className="px-2.5 py-1.5 rounded-lg font-bold text-[11px] cursor-pointer shrink-0" style={{ background: BRAND.azul + "14", color: BRAND.azul }}>
+                  Trocar foto
+                  <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const dataUrl = await redimensionarImagem(file, 600, "image/jpeg");
+                    set("catalogo_capas_categorias", { ...form.catalogo_capas_categorias, [cat.chave]: dataUrl });
+                  }} />
+                </label>
+                <button
+                  title={oculta ? "Categoria escondida — clique pra mostrar de novo" : "Esconder essa categoria do catálogo"}
+                  onClick={() => set("catalogo_categorias_ocultas", oculta ? form.catalogo_categorias_ocultas.filter((c) => c !== cat.chave) : [...form.catalogo_categorias_ocultas, cat.chave])}
+                  className="px-2 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer shrink-0"
+                  style={{ color: oculta ? "#94a3b8" : "#fb7185" }}
+                >
+                  {oculta ? "↺" : "🗑️"}
+                </button>
               </div>
-              <input
-                value={form.catalogo_nomes_categorias[cat.chave] ?? cat.label}
-                onChange={(e) => set("catalogo_nomes_categorias", { ...form.catalogo_nomes_categorias, [cat.chave]: e.target.value })}
-                className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold bg-white"
-                style={{ color: BRAND.tinta }}
-              />
-              <label className="px-2.5 py-1.5 rounded-lg font-bold text-[11px] cursor-pointer shrink-0" style={{ background: BRAND.azul + "14", color: BRAND.azul }}>
-                Trocar foto
-                <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
-                  const file = e.target.files[0];
-                  if (!file) return;
-                  const dataUrl = await redimensionarImagem(file, 600, "image/jpeg");
-                  set("catalogo_capas_categorias", { ...form.catalogo_capas_categorias, [cat.chave]: dataUrl });
-                }} />
-              </label>
-            </div>
-          ))}
+            );
+          })}
 
           {form.catalogo_categorias_extras.map((extra) => (
             <div key={extra.id} className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50">
@@ -3617,10 +3629,10 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
                   set("catalogo_capas_categorias", { ...form.catalogo_capas_categorias, [extra.id]: dataUrl });
                 }} />
               </label>
-              <button onClick={() => {
+              <button title="Apagar essa categoria" onClick={() => {
                 set("catalogo_categorias_extras", form.catalogo_categorias_extras.filter((x) => x.id !== extra.id));
                 const c = { ...form.catalogo_capas_categorias }; delete c[extra.id]; set("catalogo_capas_categorias", c);
-              }} className="px-2 py-1.5 rounded-lg text-rose-400 text-[11px] font-bold cursor-pointer shrink-0">✕</button>
+              }} className="px-2 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer shrink-0" style={{ color: "#fb7185" }}>🗑️</button>
             </div>
           ))}
 
