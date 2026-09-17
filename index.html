@@ -1239,6 +1239,7 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
       if (!form.nome_loja.trim()) { setErro("Digite o nome da loja."); setSalvando(false); return; }
       const { error } = await sb.from("decoradoras").update({
         nome_loja: form.nome_loja.trim(), nome_responsavel: form.nome_responsavel, cnpj: form.cnpj, endereco: form.endereco,
+        google_maps_url: form.google_maps_url || null,
         logo_data_url: form.logo_data_url, assinatura_data_url: form.assinatura_data_url, sinal_percentual: Number(form.sinal_percentual) || 50,
         cor_principal: form.cor_principal, cor_destaque: form.cor_destaque, cor_alerta: form.cor_alerta, cor_sucesso: form.cor_sucesso,
         tipos_customizados: form.tipos_customizados || [], clausulas_extras: form.clausulas_extras || "",
@@ -1287,7 +1288,42 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
         <Field label="Nome da loja"><input className={inputClass} value={form.nome_loja} onChange={(e) => set("nome_loja", e.target.value)} /></Field>
         <Field label="Seu nome (responsável)"><input className={inputClass} value={form.nome_responsavel || ""} onChange={(e) => set("nome_responsavel", e.target.value)} /></Field>
         <Field label="CNPJ"><input className={inputClass} value={form.cnpj || ""} onChange={(e) => set("cnpj", e.target.value)} placeholder="00.000.000/0000-00" /></Field>
-        <Field label="Endereço"><input className={inputClass} value={form.endereco || ""} onChange={(e) => set("endereco", e.target.value)} /></Field>
+        <Field label="Endereço / local de retirada" hint="Esse é o endereço que vai automaticamente nos lembretes de retirada e devolução que você manda pro cliente pelo WhatsApp, na Agenda.">
+          <div className="flex gap-2">
+            <input className={inputClass} value={form.endereco || ""} onChange={(e) => set("endereco", e.target.value)} placeholder="Rua, número, bairro, cidade" />
+            {form.endereco && (
+              <BotaoCopiar
+                valor={form.endereco}
+                texto="Copiar"
+                textoCopiado="✓ Copiado!"
+                className="px-4 py-2 rounded-xl font-bold text-sm text-white cursor-pointer shrink-0"
+                style={{ background: BRAND.azul }}
+                styleCopiado={{ background: "#22C55E" }}
+              />
+            )}
+          </div>
+        </Field>
+        <Field
+          label="Link do Google Maps (opcional)"
+          ajuda="Abre o Google Maps, procura o endereço da sua loja, toca em 'Compartilhar' e escolhe 'Copiar link' — depois cola esse link aqui. Ele vai junto do endereço nos lembretes de retirada/devolução pelo WhatsApp, e a cliente só precisa tocar pra abrir a rota no mapa."
+          ajudaTitulo="Link do Google Maps"
+          ajudaEmoji="🗺️"
+          hint="Cola aqui o link de compartilhamento da localização no Google Maps."
+        >
+          <div className="flex gap-2">
+            <input className={inputClass} value={form.google_maps_url || ""} onChange={(e) => set("google_maps_url", e.target.value)} placeholder="https://maps.app.goo.gl/..." />
+            {form.google_maps_url && (
+              <BotaoCopiar
+                valor={form.google_maps_url}
+                texto="Copiar"
+                textoCopiado="✓ Copiado!"
+                className="px-4 py-2 rounded-xl font-bold text-sm text-white cursor-pointer shrink-0"
+                style={{ background: BRAND.azul }}
+                styleCopiado={{ background: "#22C55E" }}
+              />
+            )}
+          </div>
+        </Field>
         <Field label="Percentual do sinal" ajuda="O sinal é a parte do pagamento que a cliente adianta pra garantir a data dela. Esse número aqui é o padrão pra todos os contratos novos — você ainda pode mudar em um contrato específico, se quiser." ajudaEmoji="🔒" hint="Quanto você cobra de sinal no agendamento. Aparece no contrato e no financeiro.">
           <div className="flex items-center gap-2">
             <input type="number" min="0" max="100" className={inputClass} value={form.sinal_percentual} onChange={(e) => set("sinal_percentual", e.target.value.replace(/[^0-9]/g,""))} />
@@ -4446,9 +4482,16 @@ function buildEvents(contracts) {
 function buildReminderMessage(e, profile) {
   const data = formatDateLong(e.date);
   const loja = profile.nome_loja;
+  // Só faz sentido mandar o endereço da loja quando o cliente é quem se
+  // desloca até lá (retirada/devolução de Pegue e Monte, balões, peças
+  // avulsas). Em Decoração é a decoradora quem vai até o endereço do
+  // cliente, então não entra aqui.
+  const mostraLocal = e.tipoServico !== "decoracao";
+  const enderecoLinha = (mostraLocal && profile.endereco) ? `\n📍 Endereço: ${profile.endereco}` : "";
+  const mapaLinha = (mostraLocal && profile.google_maps_url) ? `\n🗺️ Ver no mapa: ${profile.google_maps_url}` : "";
 
   if (e.tipo !== "ida") {
-    return `Oi, ${e.nome}! Aqui é da ${loja}. 🔔\n\n*Lembrete: amanhã, ${data}, é a ${e.label.toLowerCase()} do(a) ${e.kit}*, das ${e.hora} às ${e.horaFim}.\n\nQualquer dúvida, me chama! 🎉`;
+    return `Oi, ${e.nome}! Aqui é da ${loja}. 🔔\n\n*Lembrete: amanhã, ${data}, é a ${e.label.toLowerCase()} do(a) ${e.kit}*, das ${e.hora} às ${e.horaFim}.${enderecoLinha}${mapaLinha}\n\nQualquer dúvida, me chama! 🎉`;
   }
 
   if (e.tipoServico === "decoracao") {
@@ -4456,11 +4499,11 @@ function buildReminderMessage(e, profile) {
   }
 
   if (e.tipoServico === "baloes") {
-    return `Oi, ${e.nome}! Aqui é da ${loja}. 🔔\n\n*Lembrete: amanhã, ${data}, é a retirada do seu pedido de balões*, das ${e.hora} às ${e.horaFim}.\n\nCuidados importantes pra durar mais:\n☀️ Evite deixar os balões no sol ou em local fechado e quente (tipo carro no sol).\n🚗 Transporte com cuidado, sem apertar ou empilhar peso em cima.\n📅 Balões de qualidade duram de 3 a 5 dias em condições ideais.\n\nQualquer dúvida, me chama! 🎈`;
+    return `Oi, ${e.nome}! Aqui é da ${loja}. 🔔\n\n*Lembrete: amanhã, ${data}, é a retirada do seu pedido de balões*, das ${e.hora} às ${e.horaFim}.${enderecoLinha}${mapaLinha}\n\nCuidados importantes pra durar mais:\n☀️ Evite deixar os balões no sol ou em local fechado e quente (tipo carro no sol).\n🚗 Transporte com cuidado, sem apertar ou empilhar peso em cima.\n📅 Balões de qualidade duram de 3 a 5 dias em condições ideais.\n\nQualquer dúvida, me chama! 🎈`;
   }
 
   // pegue_monte e peças avulsas usam a mesma mensagem
-  return `Oi, ${e.nome}! Aqui é da ${loja}. 🔔\n\n*Lembrete: amanhã, ${data}, é a retirada do seu ${e.tipoServico === "pecas_avulsas" ? "pedido" : "kit"} ${e.kit}*, das ${e.hora} às ${e.horaFim}.\n\nCuidados importantes:\n🚗 Só precisa trazer o porta-malas (ou banco de trás) liberado — nossos kits cabem em qualquer carro de passeio, não precisa de carro grande.\n🧼 Na devolução, entregue tudo limpo e no mesmo estado que retirou.\n⏰ A devolução tem horário marcado — atrasos geram multa.\n\nQualquer dúvida, me chama! 🎉`;
+  return `Oi, ${e.nome}! Aqui é da ${loja}. 🔔\n\n*Lembrete: amanhã, ${data}, é a retirada do seu ${e.tipoServico === "pecas_avulsas" ? "pedido" : "kit"} ${e.kit}*, das ${e.hora} às ${e.horaFim}.${enderecoLinha}${mapaLinha}\n\nCuidados importantes:\n🚗 Só precisa trazer o porta-malas (ou banco de trás) liberado — nossos kits cabem em qualquer carro de passeio, não precisa de carro grande.\n🧼 Na devolução, entregue tudo limpo e no mesmo estado que retirou.\n⏰ A devolução tem horário marcado — atrasos geram multa.\n\nQualquer dúvida, me chama! 🎉`;
 }
 
 function MiniCalendar({ viewDate, setViewDate, eventsByDate, selected, setSelected }) {
