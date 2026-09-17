@@ -1832,19 +1832,30 @@ function useConexaoWhatsApp(userId, profile, onProfileUpdate) {
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
+  // Sempre devolve { error } em vez de deixar a Promise rejeitar — assim
+  // quem chama nunca fica com o botão "travado" sem nenhum feedback (falha
+  // de rede, CORS, timeout etc. viram uma mensagem de erro normal na tela).
   async function chamarConectar(action) {
-    const { data: sessionData } = await sb.auth.getSession();
-    const token = sessionData && sessionData.session ? sessionData.session.access_token : null;
-    const resp = await fetch(`${SUPABASE_URL}/functions/v1/whatsapp-conectar`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ action }),
-    });
-    return resp.json();
+    try {
+      const { data: sessionData } = await sb.auth.getSession();
+      const token = sessionData && sessionData.session ? sessionData.session.access_token : null;
+      if (!token) return { error: "Sessão expirada — atualiza a página e entra de novo." };
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/whatsapp-conectar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action }),
+      });
+      let corpo;
+      try { corpo = await resp.json(); } catch (e) { corpo = null; }
+      if (!resp.ok) return { error: (corpo && corpo.error) || `Erro ao falar com o servidor (${resp.status}).` };
+      return corpo || {};
+    } catch (e) {
+      return { error: "Não consegui conectar com o servidor. Confere sua internet e tenta de novo." };
+    }
   }
 
   function aplicarConectado(numeroConectado) {
-    setStatus("WORKING"); setNumero(numeroConectado); setQr(null);
+    setStatus("WORKING"); setNumero(numeroConectado); setQr(null); setErro("");
     onProfileUpdate((p) => ({ ...p, whatsapp_proprio_conectado: true, whatsapp_proprio_numero: numeroConectado }));
   }
 
@@ -1863,15 +1874,17 @@ function useConexaoWhatsApp(userId, profile, onProfileUpdate) {
     if (r.error) { setErro(r.error); return; }
     if (r.conectado) { aplicarConectado(r.numero); return; }
     setStatus(r.status || "STARTING"); setQr(r.qr || null);
+    if (!r.qr) { setErro("Não consegui gerar o QR Code agora. Toca em \"Conectar WhatsApp\" de novo em alguns segundos."); return; }
     iniciarPolling();
   }
 
   async function desconectar() {
     setCarregando(true);
-    await chamarConectar("desconectar");
+    const r = await chamarConectar("desconectar");
     setCarregando(false);
+    if (r.error) { setErro(r.error); return; }
     if (pollRef.current) clearInterval(pollRef.current);
-    setStatus("NAO_CRIADA"); setNumero(null); setQr(null);
+    setStatus("NAO_CRIADA"); setNumero(null); setQr(null); setErro("");
     onProfileUpdate((p) => ({ ...p, whatsapp_proprio_conectado: false, whatsapp_proprio_numero: null }));
   }
 
