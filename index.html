@@ -265,6 +265,7 @@ function contractToDb(c, decoradoraId) {
     sinal_valor: c.valorSinal ? parseValorBR(c.valorSinal) : null,
     multa_percentual: c.multaPercentual ? Number(c.multaPercentual) : null,
     sem_multa: !!c.semMulta,
+    observacoes: c.observacoes || null, status_contrato: c.statusContrato || "ativo",
   };
 }
 function contractFromDb(r) {
@@ -284,6 +285,7 @@ function contractFromDb(r) {
     assinaturaClienteDataUrl: r.assinatura_cliente_data_url || null,
     devolvido: r.devolvido || false,
     observacoes: r.observacoes || "",
+    statusContrato: r.status_contrato || "ativo",
     createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
   };
 }
@@ -1057,8 +1059,9 @@ function PrimeirosPassos({ setPage, profile, contracts, userId }) {
 
 function HomeDashboard({ setPage, contracts, profile, userId, isOwner, membership }) {
   const hoje = todayISO();
-  const entregasHoje = contracts.filter((c) => c.dataRetirada === hoje || c.dataDevolucao === hoje).length;
-  const aReceber = contracts.reduce((s, c) => s + computeFinanceFaturamento(c, pctSinalEfetivo(c, profile)).pendente, 0);
+  const contratosAtivos = contracts.filter((c) => (c.statusContrato || "ativo") !== "cancelado");
+  const entregasHoje = contratosAtivos.filter((c) => c.dataRetirada === hoje || c.dataDevolucao === hoje).length;
+  const aReceber = contratosAtivos.reduce((s, c) => s + computeFinanceFaturamento(c, pctSinalEfetivo(c, profile)).pendente, 0);
   const primeiroNome = (profile.nome_responsavel || "").trim().split(" ")[0];
   const pode = (chave) => isOwner || !!(membership && membership.permissoes && membership.permissoes[chave]);
   return (
@@ -1436,6 +1439,7 @@ const CAMPOS_VAZIOS = {
   dataRetirada: "", horaRetiradaIni: "09:00", horaRetiradaFim: "13:00",
   dataDevolucao: "", horaDevolucaoIni: "09:00", horaDevolucaoFim: "19:00",
   statusPagamento: "sinal", sinalPercentualContrato: "", valorSinal: "", formaPagamento: "Pix", multaPercentual: "", semMulta: false,
+  observacoes: "", statusContrato: "ativo",
 };
 
 function ContratoPreview({ dados, profile }) {
@@ -1698,6 +1702,7 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
   const [itensSelecionados, setItensSelecionados] = useState({}); // { estoqueItemId: quantidade }
   const [itensSelecionadosOriginais, setItensSelecionadosOriginais] = useState({}); // como estava quando abriu (pra saber o que mudou)
   const [confirmarExclusao, setConfirmarExclusao] = useState(null); // contrato aguardando confirmação de exclusão
+  const [filtroStatusContrato, setFiltroStatusContrato] = useState("ativos"); // 'ativos' | 'concluidos' | 'cancelados' | 'todos'
 
   useEffect(() => {
     sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true }).then(({ data }) => {
@@ -1856,6 +1861,12 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
     await carregarContratos();
   }
 
+  async function mudarStatusContrato(c, novoStatus) {
+    const { error } = await sb.from("contracts").update({ status_contrato: novoStatus }).eq("id", c.id);
+    if (error) { setErro("Erro ao atualizar status: " + error.message); return; }
+    setContracts((cs) => cs.map((x) => x.id === c.id ? { ...x, statusContrato: novoStatus } : x));
+  }
+
   async function handlePrint() {
     try {
       let dadosParaImprimir = form;
@@ -1891,7 +1902,10 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
     window.open(whatsappLink(c.contratanteWhatsapp, msg), "_blank");
   }
 
-  const ordered = [...contracts].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).filter((c) => !busca.trim() || normalizeStr(c.contratanteNome).includes(normalizeStr(busca)));
+  const ordered = [...contracts]
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    .filter((c) => !busca.trim() || normalizeStr(c.contratanteNome).includes(normalizeStr(busca)))
+    .filter((c) => filtroStatusContrato === "todos" || (c.statusContrato || "ativo") === filtroStatusContrato.replace(/s$/, ""));
 
   if (carregando) return <Carregando texto="Carregando contratos..." />;
 
@@ -2060,6 +2074,9 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
                 </div>
               )}
             </Field>
+            <Field label="Observações" hint="Anotação interna sua — não entra no contrato que a cliente assina.">
+              <textarea className={inputClass} rows={3} value={form.observacoes} onChange={(e) => set("observacoes", e.target.value)} placeholder="Ex: cliente pediu pra trocar a cor do laço, combinar entrega com o segurança do prédio..." />
+            </Field>
             <ErrorBox>{erro}</ErrorBox>
             <div className="flex gap-3 mt-3">
               <button type="button" disabled={salvando} onClick={handleSave} className="flex-1 py-3 rounded-xl font-bold text-white active:scale-95 transition cursor-pointer disabled:opacity-60" style={{ background: BRAND.rosa }}>{salvando ? "Salvando..." : editingId ? "Salvar alterações" : "Salvar contrato"}</button>
@@ -2082,23 +2099,47 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
           <div className="relative">
             <input className={inputClass + " pl-10"} value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="🔎 Pesquisar pelo nome do cliente..." />
           </div>
+          <div className="flex gap-1.5 overflow-x-auto pb-1">
+            {[
+              { v: "ativos", l: "Ativos" }, { v: "concluidos", l: "✅ Concluídos" }, { v: "cancelados", l: "✕ Cancelados" }, { v: "todos", l: "Todos" },
+            ].map((op) => (
+              <button key={op.v} onClick={() => setFiltroStatusContrato(op.v)} className="shrink-0 px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer" style={{ background: filtroStatusContrato === op.v ? BRAND.rosa : "#F1F5F9", color: filtroStatusContrato === op.v ? "#fff" : BRAND.tinta }}>{op.l}</button>
+            ))}
+          </div>
           <SuccessBox>{salvo ? "Contrato salvo! Já está na lista abaixo." : ""}</SuccessBox>
+          {ordered.length === 0 && <p className="text-center text-sm text-slate-400 py-10">Nenhum contrato encontrado com esse filtro.</p>}
           {ordered.map((c) => {
             const fin = computeFinance(c, pctSinalEfetivo(c, profile));
+            const statusContrato = c.statusContrato || "ativo";
+            const dataReferencia = c.dataDevolucao || c.dataRetirada;
+            const jaPassou = statusContrato === "ativo" && dataReferencia && dataReferencia < todayISO();
             return (
-              <div key={c.id} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+              <div key={c.id} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100" style={{ opacity: statusContrato === "cancelado" ? 0.6 : 1 }}>
                 <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
                   <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white shrink-0 text-xl" style={{ background: BRAND.rosa }}>📄</div>
                   <div className="flex-1 min-w-0"><p className="font-bold text-xl leading-tight truncate fredoka" style={{ color: BRAND.tinta }}>{c.contratanteNome}</p><p className="text-sm text-slate-400 truncate">{c.produtoNome} · {labelData(c.tipoServico, "ida").toLowerCase()} {formatDateBR(c.dataRetirada)}</p></div>
                   <div className="flex items-center gap-2 flex-wrap">
+                    {statusContrato === "concluido" && <Pill color={BRAND.turquesa}>✅ Concluído</Pill>}
+                    {statusContrato === "cancelado" && <Pill color="#94a3b8">✕ Cancelado</Pill>}
+                    {jaPassou && <Pill color={BRAND.amarelo}>⏳ Já passou</Pill>}
                     <Pill color={c.statusPagamento === "pago" ? BRAND.turquesa : c.statusPagamento === "sinal" ? BRAND.amarelo : BRAND.rosa}>{c.statusPagamento === "pago" ? "Pago" : c.statusPagamento === "sinal" ? "Sinal pago" : "Pendente"}</Pill>
                     <Pill color={c.assinadoEm ? BRAND.turquesa : "#94a3b8"}>{c.assinadoEm ? "✅ Assinado" : "Aguardando assinatura"}</Pill>
                     <span className="font-bold text-sm" style={{ color: BRAND.azul }}>{formatBRL(fin.valor)}</span>
                   </div>
                 </div>
+                {c.observacoes && <p className="text-xs mt-2.5 px-3 py-2 rounded-lg bg-slate-50" style={{ color: "#64748b" }}>📝 {c.observacoes}</p>}
                 <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-50 flex-wrap">
                   <button onClick={() => handleSendWhatsapp(c)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold cursor-pointer" style={{ color: "#22C35E", background: "#22C35E18" }}>📲 WhatsApp</button>
                   <button onClick={() => editContract(c)} className="px-3 py-2 rounded-lg text-xs font-bold hover:bg-slate-50 cursor-pointer" style={{ color: BRAND.azul }}>Abrir / editar</button>
+                  {statusContrato === "ativo" && (
+                    <>
+                      <button onClick={() => mudarStatusContrato(c, "concluido")} className="px-3 py-2 rounded-lg text-xs font-bold cursor-pointer" style={{ color: BRAND.turquesa, background: BRAND.turquesa + "18" }}>✅ Dar baixa</button>
+                      <button onClick={() => mudarStatusContrato(c, "cancelado")} className="px-3 py-2 rounded-lg text-xs font-bold cursor-pointer" style={{ color: "#94a3b8", background: "#94a3b818" }}>✕ Cancelar</button>
+                    </>
+                  )}
+                  {statusContrato !== "ativo" && (
+                    <button onClick={() => mudarStatusContrato(c, "ativo")} className="px-3 py-2 rounded-lg text-xs font-bold cursor-pointer" style={{ color: BRAND.azul, background: BRAND.azul + "12" }}>↺ Reativar</button>
+                  )}
                   <button onClick={() => setConfirmarExclusao(c)} className="p-2 rounded-lg hover:bg-rose-50 text-rose-400 ml-auto cursor-pointer" title="Excluir contrato">🗑</button>
                 </div>
               </div>
@@ -2717,6 +2758,21 @@ const CATEGORIAS_CAPA_FIXAS = [
   { chave: "pm-prata", label: "Kit Prata (Pegue e Monte)" },
   { chave: "pm-ouro", label: "Kit Ouro (Pegue e Monte)" },
 ];
+
+// Mesma lógica de match do catalogo-cliente.html (CATEGORIAS_CATALOGO /
+// FAIXAS_PEGUE_MONTE) — precisa ficar idêntica pra foto de fallback mostrada
+// aqui em Configurações bater com a que realmente aparece pro cliente.
+const MATCH_CATEGORIA_FIXA = {
+  "infantil-menino": (k) => /infantil/i.test(k.tipo_evento || "") && /menino/i.test(k.publico || ""),
+  "infantil-menina": (k) => /infantil/i.test(k.tipo_evento || "") && /menina/i.test(k.publico || ""),
+  "adulto": (k) => /adulto/i.test(k.tipo_evento || ""),
+  "15anos": (k) => /15\s*anos|debutante/i.test(k.tipo_evento || ""),
+  "cha-fralda": (k) => /fralda|ch[aá] de beb[eê]/i.test(k.tipo_evento || ""),
+  "cha-revelacao": (k) => /revela[cç][aã]o/i.test(k.tipo_evento || ""),
+  "pm-basico": (k) => k.faixa_pegue_monte === "basico",
+  "pm-prata": (k) => k.faixa_pegue_monte === "prata",
+  "pm-ouro": (k) => k.faixa_pegue_monte === "ouro",
+};
 // Só os temas (exclui as 3 faixas de Pegue e Monte, que já têm campo próprio).
 const CATEGORIAS_TEMA_FIXAS = CATEGORIAS_CAPA_FIXAS.filter((c) => c.tipoEvento);
 
@@ -3042,7 +3098,7 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
       )}
 
       {aba === "config" && (
-        <ConfiguracoesCatalogo userId={userId} profile={profile} onProfileUpdate={onProfileUpdate} setErro={setErro} />
+        <ConfiguracoesCatalogo userId={userId} profile={profile} onProfileUpdate={onProfileUpdate} setErro={setErro} kits={kits} fotosPorKit={fotosPorKit} />
       )}
 
       {editando && (
@@ -3553,7 +3609,16 @@ function EditorPacotes({ titulo, corBotao, pacotes, onChange }) {
   );
 }
 
-function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
+function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits, fotosPorKit }) {
+  // Foto real que aparece pro cliente quando a decoradora não subiu uma capa
+  // própria pra essa categoria — mesmo fallback (foto de um kit da
+  // categoria) usado no catalogo-cliente.html, pra não mostrar vazio aqui
+  // enquanto lá mostra foto.
+  function fotoFallback(matchFn) {
+    if (!matchFn) return null;
+    const kit = (kits || []).find((k) => matchFn(k) && fotosPorKit && fotosPorKit[k.id] && fotosPorKit[k.id][0]);
+    return kit ? fotosPorKit[kit.id][0].imagem_url : null;
+  }
   const [form, setForm] = useState({
     logo_data_url: profile.logo_data_url || "",
     catalogo_usar_marca_dagua: profile.catalogo_usar_marca_dagua !== false,
@@ -3709,54 +3774,64 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro }) {
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
         <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>
           Categorias do catálogo
-          <Ajuda emoji="🗂️" titulo="Categorias do catálogo" texto="Essas viram os cards que a cliente vê na tela inicial do catálogo. As 9 primeiras já vêm prontas (você só pode trocar o nome e a foto, não apagar). Pra adicionar uma nova, clica em '+ Adicionar categoria' e usa a toglezinha pra deixar visível na página principal — mas repara que ela só aparece de verdade quando tiver pelo menos 1 kit com esse mesmo nome no campo 'Categoria' do kit, senão fica visível mas vazia (e por isso escondida do cliente)." />
+          <Ajuda emoji="🗂️" titulo="Categorias do catálogo" texto="Essas viram os cards que a cliente vê na tela inicial do catálogo. As 9 primeiras já vêm prontas (você só pode trocar o nome e a foto, não apagar). A foto mostrada aqui é a mesma que aparece pro cliente — se você não subiu uma capa própria, mostra a foto de um kit dessa categoria como reserva. A toglezinha controla se a categoria aparece na página principal — ela aparece mesmo sem kit nenhum vinculado ainda." />
         </p>
-        <p className="text-xs text-slate-400 mb-1">Nome e foto de cada categoria, tudo num lugar só. A lixeira esconde a categoria do catálogo (nas 9 padrão) ou apaga de vez (nas que você criou). Na sua categoria extra, use a toglezinha pra escolher se ela aparece na página principal.</p>
+        <p className="text-xs text-slate-400 mb-1">Nome, foto e visibilidade de cada categoria, tudo num lugar só. A lixeira apaga de vez as categorias que você criou (as 9 padrão não podem ser apagadas, só escondidas na toglezinha).</p>
         <p className="text-xs font-bold mb-3" style={{ color: BRAND.rosa }}>
           {[...CATEGORIAS_CAPA_FIXAS.map((c) => c.chave), ...form.catalogo_categorias_extras.map((e) => e.id)].filter((k) => !form.catalogo_categorias_ocultas.includes(k)).length} de {CATEGORIAS_CAPA_FIXAS.length + form.catalogo_categorias_extras.length} categorias visíveis na página principal agora
         </p>
         <div className="space-y-2">
           {CATEGORIAS_CAPA_FIXAS.map((cat) => {
             const oculta = form.catalogo_categorias_ocultas.includes(cat.chave);
+            const foto = form.catalogo_capas_categorias[cat.chave] || fotoFallback(MATCH_CATEGORIA_FIXA[cat.chave]);
             return (
-              <div key={cat.chave} className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50" style={{ opacity: oculta ? 0.5 : 1 }}>
-                <div className="w-12 h-12 rounded-lg overflow-hidden bg-white border border-slate-200 shrink-0">
-                  {form.catalogo_capas_categorias[cat.chave] && <img src={form.catalogo_capas_categorias[cat.chave]} className="w-full h-full object-cover" />}
+              <div key={cat.chave} className="p-2 rounded-xl bg-slate-50 space-y-2" style={{ opacity: oculta ? 0.5 : 1 }}>
+                <div className="flex items-center gap-2.5">
+                  <div className="w-12 h-12 rounded-lg overflow-hidden bg-white border border-slate-200 shrink-0">
+                    {foto && <img src={foto} className="w-full h-full object-cover" />}
+                  </div>
+                  <input
+                    value={form.catalogo_nomes_categorias[cat.chave] ?? cat.label}
+                    onChange={(e) => set("catalogo_nomes_categorias", { ...form.catalogo_nomes_categorias, [cat.chave]: e.target.value })}
+                    className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold bg-white"
+                    style={{ color: BRAND.tinta }}
+                  />
+                  <label className="px-2.5 py-1.5 rounded-lg font-bold text-[11px] cursor-pointer shrink-0" style={{ background: BRAND.azul + "14", color: BRAND.azul }}>
+                    Trocar foto
+                    <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                      const file = e.target.files[0];
+                      if (!file) return;
+                      const dataUrl = await redimensionarImagem(file, 600, "image/jpeg");
+                      set("catalogo_capas_categorias", { ...form.catalogo_capas_categorias, [cat.chave]: dataUrl });
+                    }} />
+                  </label>
                 </div>
-                <input
-                  value={form.catalogo_nomes_categorias[cat.chave] ?? cat.label}
-                  onChange={(e) => set("catalogo_nomes_categorias", { ...form.catalogo_nomes_categorias, [cat.chave]: e.target.value })}
-                  className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold bg-white"
-                  style={{ color: BRAND.tinta }}
-                />
-                <label className="px-2.5 py-1.5 rounded-lg font-bold text-[11px] cursor-pointer shrink-0" style={{ background: BRAND.azul + "14", color: BRAND.azul }}>
-                  Trocar foto
-                  <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
-                    const file = e.target.files[0];
-                    if (!file) return;
-                    const dataUrl = await redimensionarImagem(file, 600, "image/jpeg");
-                    set("catalogo_capas_categorias", { ...form.catalogo_capas_categorias, [cat.chave]: dataUrl });
-                  }} />
-                </label>
-                <button
-                  title={oculta ? "Categoria escondida — clique pra mostrar de novo" : "Esconder essa categoria do catálogo"}
-                  onClick={() => set("catalogo_categorias_ocultas", oculta ? form.catalogo_categorias_ocultas.filter((c) => c !== cat.chave) : [...form.catalogo_categorias_ocultas, cat.chave])}
-                  className="px-2 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer shrink-0"
-                  style={{ color: oculta ? "#94a3b8" : "#fb7185" }}
-                >
-                  {oculta ? "↺" : "🗑️"}
-                </button>
+                <div className="flex items-center justify-between pl-14">
+                  <span className="text-[11px] font-semibold" style={{ color: oculta ? "#94a3b8" : "#22C55E" }}>
+                    {oculta ? "Escondida da página principal" : "Visível na página principal"}
+                  </span>
+                  <button
+                    title={oculta ? "Mostrar essa categoria pro cliente" : "Esconder essa categoria do catálogo"}
+                    onClick={() => set("catalogo_categorias_ocultas", oculta ? form.catalogo_categorias_ocultas.filter((c) => c !== cat.chave) : [...form.catalogo_categorias_ocultas, cat.chave])}
+                    className="w-9 h-5 rounded-full relative cursor-pointer transition-colors shrink-0"
+                    style={{ background: oculta ? "#e5e7eb" : BRAND.rosa }}
+                  >
+                    <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: oculta ? 2 : 18 }} />
+                  </button>
+                </div>
               </div>
             );
           })}
 
           {form.catalogo_categorias_extras.map((extra) => {
             const oculta = form.catalogo_categorias_ocultas.includes(extra.id);
+            const alvo = (extra.nome || "").trim().toLowerCase();
+            const foto = form.catalogo_capas_categorias[extra.id] || (alvo && fotoFallback((k) => (k.tipo_evento || "").trim().toLowerCase() === alvo));
             return (
               <div key={extra.id} className="p-2 rounded-xl bg-slate-50 space-y-2" style={{ opacity: oculta ? 0.5 : 1 }}>
                 <div className="flex items-center gap-2.5">
                   <div className="w-12 h-12 rounded-lg overflow-hidden bg-white border border-slate-200 shrink-0">
-                    {form.catalogo_capas_categorias[extra.id] && <img src={form.catalogo_capas_categorias[extra.id]} className="w-full h-full object-cover" />}
+                    {foto && <img src={foto} className="w-full h-full object-cover" />}
                   </div>
                   <input
                     value={extra.nome}
@@ -3943,7 +4018,9 @@ function FinanceiroTab({ userId, profile }) {
     if (filtroFim && dataStr > filtroFim) return false;
     return true;
   }
-  const contractsFiltrados = useMemo(() => contracts.filter((c) => dentroDoPeriodo(c.dataRetirada)), [contracts, filtroInicio, filtroFim]);
+  // Contrato cancelado não conta pra faturamento/a receber — senão o
+  // financeiro mostraria como pendente um dinheiro que não vai mais entrar.
+  const contractsFiltrados = useMemo(() => contracts.filter((c) => (c.statusContrato || "ativo") !== "cancelado" && dentroDoPeriodo(c.dataRetirada)), [contracts, filtroInicio, filtroFim]);
   const despesasFiltradas = useMemo(() => despesas.filter((d) => dentroDoPeriodo(d.data)), [despesas, filtroInicio, filtroFim]);
   const receitasManuaisFiltradas = useMemo(() => receitasManuais.filter((r) => dentroDoPeriodo(r.data)), [receitasManuais, filtroInicio, filtroFim]);
 
@@ -4304,7 +4381,7 @@ const DIAS_SEMANA = ["D","S","T","Q","Q","S","S"];
 
 function buildEvents(contracts) {
   const events = [];
-  contracts.forEach((c) => {
+  contracts.filter((c) => (c.statusContrato || "ativo") !== "cancelado").forEach((c) => {
     if (c.dataRetirada) events.push({ id: c.id+"-r", contractId: c.id, date: c.dataRetirada, tipo: "ida", label: labelData(c.tipoServico,"ida"), nome: c.contratanteNome, kit: c.produtoNome, hora: c.horaRetiradaIni, horaFim: c.horaRetiradaFim, whatsapp: c.contratanteWhatsapp, tipoServico: c.tipoServico });
     if (c.dataDevolucao) events.push({ id: c.id+"-d", contractId: c.id, date: c.dataDevolucao, tipo: "volta", label: labelData(c.tipoServico,"volta"), nome: c.contratanteNome, kit: c.produtoNome, hora: c.horaDevolucaoIni, horaFim: c.horaDevolucaoFim, whatsapp: c.contratanteWhatsapp, tipoServico: c.tipoServico });
   });
