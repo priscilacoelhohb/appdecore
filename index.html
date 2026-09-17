@@ -782,14 +782,15 @@ const PERGUNTAS_ONBOARDING = [
   { chave: "tipo_servico", campoDb: "onboarding_tipo_servico", pergunta: "Qual é o principal tipo de serviço que você oferece hoje?", opcoes: [
     { v: "pegue_monte", l: "Pegue e Monte" }, { v: "decoracao", l: "Decoração completa" },
     { v: "baloes", l: "Balões" }, { v: "pecas_avulsas", l: "Peças avulsas" },
+    { v: "todos", l: "Todos", largo: true },
   ]},
-  { chave: "qtd_kits", campoDb: "onboarding_qtd_kits", pergunta: "Quantos kits ou produtos você já tem prontos pra alugar hoje?", opcoes: [
+  { chave: "qtd_kits", campoDb: "onboarding_qtd_kits", pergunta: "Quantos produtos você já tem prontos pra atender hoje?", opcoes: [
     { v: "nenhum", l: "Ainda não tenho" }, { v: "1-10", l: "1 a 10" },
     { v: "11-30", l: "11 a 30" }, { v: "30+", l: "Mais de 30" },
   ]},
   { chave: "canal_pedidos", campoDb: "onboarding_canal_pedidos", pergunta: "Como você recebe a maioria dos pedidos hoje?", opcoes: [
     { v: "whatsapp_pessoal", l: "WhatsApp pessoal" }, { v: "instagram", l: "Instagram" },
-    { v: "indicacao", l: "Indicação / boca a boca" }, { v: "outro", l: "Outro" },
+    { v: "indicacao", l: "Indicação / boca a boca" }, { v: "todos", l: "Todos" },
   ]},
 ];
 
@@ -819,6 +820,12 @@ function EtapaBoasVindas({ profile, onContinuar }) {
           <span className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: BRAND.amarelo + "30" }}>💰</span>
           <p className="text-sm" style={{ color: BRAND.tinta }}><b>Financeiro</b> sem planilha, sem dor de cabeça</p>
         </div>
+        {profile.plano_tipo === "premium" && (
+          <div className="flex items-center gap-3">
+            <span className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0" style={{ background: BRAND.roxo + "18" }}>✨</span>
+            <p className="text-sm" style={{ color: BRAND.tinta }}><b>Catálogo</b> com fotos reais dos seus kits</p>
+          </div>
+        )}
       </div>
       <button onClick={onContinuar} className="w-full py-3.5 rounded-2xl font-bold text-white cursor-pointer active:scale-[0.98] transition" style={{ background: `linear-gradient(120deg, ${BRAND.rosa}, ${BRAND.roxo})` }}>
         Vamos começar! 🚀
@@ -843,7 +850,7 @@ function EtapaPerguntas({ respostas, setRespostas, onContinuar }) {
                 <button
                   key={op.v} type="button"
                   onClick={() => setRespostas((r) => ({ ...r, [p.chave]: op.v }))}
-                  className="py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer"
+                  className={"py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer" + (op.largo ? " col-span-2" : "")}
                   style={respostas[p.chave] === op.v ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}
                 >{op.l}</button>
               ))}
@@ -1982,6 +1989,7 @@ function AutomacaoRow({ automacao, onToggle, onEditar }) {
 function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
   const [mensagem, setMensagem] = useState(automacao.mensagem || "");
   const [enviarPara, setEnviarPara] = useState(automacao.config?.enviar_para || "primeiro_contato");
+  const [diasReativacao, setDiasReativacao] = useState(String(automacao.config?.dias_reativacao || 7));
   const [salvando, setSalvando] = useState(false);
 
   const variaveis = {
@@ -1992,7 +2000,8 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
 
   async function salvar() {
     setSalvando(true);
-    await onSalvar(mensagem, automacao.chave === "boas_vindas" ? { enviar_para: enviarPara } : automacao.config);
+    const config = automacao.chave === "boas_vindas" ? { enviar_para: enviarPara, dias_reativacao: Number(diasReativacao) || 7 } : automacao.config;
+    await onSalvar(mensagem, config);
     setSalvando(false);
   }
 
@@ -2004,11 +2013,19 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
 
         {automacao.chave === "boas_vindas" && (
           <div className="mb-4">
-            <p className="text-xs font-bold text-slate-500 mb-1.5">Mandar para</p>
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setEnviarPara("primeiro_contato")} className="py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer" style={enviarPara === "primeiro_contato" ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>Só primeiro contato</button>
-              <button type="button" onClick={() => setEnviarPara("todos")} className="py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer" style={enviarPara === "todos" ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>Todo mundo</button>
+            <p className="text-xs font-bold text-slate-500 mb-1.5">Quando mandar</p>
+            <div className="space-y-1.5">
+              <button type="button" onClick={() => setEnviarPara("primeiro_contato")} className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer" style={enviarPara === "primeiro_contato" ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>Primeiro contato do cliente</button>
+              <button type="button" onClick={() => setEnviarPara("reativacao")} className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer" style={enviarPara === "reativacao" ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>De novo se ela sumir por um tempo</button>
+              <button type="button" onClick={() => setEnviarPara("todos")} className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer" style={enviarPara === "todos" ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>Em toda mensagem que ela mandar</button>
             </div>
+            {enviarPara === "reativacao" && (
+              <div className="flex items-center gap-2 mt-2 pl-1">
+                <span className="text-xs text-slate-500">Manda de novo depois de</span>
+                <input type="number" min="1" value={diasReativacao} onChange={(e) => setDiasReativacao(e.target.value.replace(/[^0-9]/g, ""))} className="w-14 px-2 py-1 rounded-lg border border-slate-200 text-xs text-center" />
+                <span className="text-xs text-slate-500">dias sem ela falar de novo</span>
+              </div>
+            )}
           </div>
         )}
 
