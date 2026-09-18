@@ -2131,6 +2131,7 @@ function WhatsAppTab({ userId, profile, onProfileUpdate }) {
   const [automacoes, setAutomacoes] = useState([]);
   const [carregandoAuto, setCarregandoAuto] = useState(true);
   const [editando, setEditando] = useState(null);
+  const [erro, setErro] = useState("");
 
   const carregarAutomacoes = useCallback(async () => {
     const { data } = await sb.from("whatsapp_automacoes").select("*").eq("decoradora_id", userId);
@@ -2144,14 +2145,23 @@ function WhatsAppTab({ userId, profile, onProfileUpdate }) {
     conexao.desconectar();
   }
 
+  // Muda a telinha na hora (otimista), mas só fica assim de verdade se o
+  // banco confirmar — senão a decoradora acha que desligou e a automação
+  // continua mandando mensagem escondido. Se der erro, desfaz e avisa.
   async function toggleAutomacao(a) {
     const novo = !a.ativa;
+    setErro("");
     setAutomacoes((as) => as.map((x) => (x.id === a.id ? { ...x, ativa: novo } : x)));
-    await sb.from("whatsapp_automacoes").update({ ativa: novo }).eq("id", a.id);
+    const { error } = await sb.from("whatsapp_automacoes").update({ ativa: novo }).eq("id", a.id).select().maybeSingle();
+    if (error) {
+      setAutomacoes((as) => as.map((x) => (x.id === a.id ? { ...x, ativa: a.ativa } : x)));
+      setErro(`Não consegui ${novo ? "ligar" : "desligar"} "${a.nome}": ${error.message}`);
+    }
   }
 
   async function salvarAutomacao(mensagem, config) {
-    await sb.from("whatsapp_automacoes").update({ mensagem, config: config || {} }).eq("id", editando.id);
+    const { error } = await sb.from("whatsapp_automacoes").update({ mensagem, config: config || {} }).eq("id", editando.id).select().maybeSingle();
+    if (error) { setErro("Não consegui salvar essa mensagem: " + error.message); return; }
     setAutomacoes((as) => as.map((x) => (x.id === editando.id ? { ...x, mensagem, config: config || {} } : x)));
     setEditando(null);
   }
@@ -2169,6 +2179,8 @@ function WhatsAppTab({ userId, profile, onProfileUpdate }) {
       </div>
 
       <ConexaoWhatsApp status={conexao.status} numero={conexao.numero} qr={conexao.qr} carregando={conexao.carregando} erro={conexao.erro} onIniciar={conexao.iniciarConexao} onDesconectar={desconectarComConfirmacao} />
+
+      {erro && <div className="bg-red-50 text-red-600 text-sm rounded-xl px-4 py-3 mt-4">{erro}</div>}
 
       <div className="mt-6">
         <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Ações automáticas</p>
