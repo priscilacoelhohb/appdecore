@@ -4384,10 +4384,10 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
         <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>
           Categorias do catálogo
-          <Ajuda emoji="🗂️" titulo="Categorias do catálogo" texto="Essas são as categorias por TEMA — as que aparecem no campo Categoria lá em Novo Kit. As 6 primeiras já vêm prontas (você só pode trocar o nome e a foto, não apagar). A foto mostrada aqui é a mesma que aparece pro cliente — se você não subiu uma capa própria, mostra a foto de um kit dessa categoria como reserva. A toglezinha controla se a categoria aparece na página principal — ela aparece mesmo sem kit nenhum vinculado ainda. Procurando Bronze/Prata/Ouro? Isso é Nível, tá na seção de baixo." />
+          <Ajuda emoji="🗂️" titulo="Categorias do catálogo" texto="Essas são as categorias por TEMA — as que aparecem no campo Categoria lá em Novo Kit. As 6 primeiras já vêm prontas (você só pode trocar o nome e a foto, não apagar de vez — o 🗑️ nelas esconde da página principal, e vira ↺ pra restaurar). A foto mostrada aqui é a mesma que aparece pro cliente — se você não subiu uma capa própria, mostra a foto de um kit dessa categoria como reserva. Uma categoria escondida some da página principal mesmo tendo kit vinculado. Procurando Bronze/Prata/Ouro? Isso é Nível, tá na seção de baixo." />
           {categoriasSalvando && <span className="text-[10px] font-normal text-slate-400 ml-2">Salvando...</span>}
         </p>
-        <p className="text-xs text-slate-400 mb-1">Nome, foto e visibilidade de cada categoria, tudo num lugar só — salva sozinho, não precisa clicar em "Salvar" lá embaixo. A lixeira apaga de vez as categorias que você criou (as 6 padrão não podem ser apagadas, só escondidas na toglezinha). É essa lista que aparece no campo Categoria quando você cria um kit.</p>
+        <p className="text-xs text-slate-400 mb-1">Nome, foto e visibilidade de cada categoria, tudo num lugar só — salva sozinho, não precisa clicar em "Salvar" lá embaixo. Nas categorias que você criou, o 🗑️ apaga de vez; nas 6 padrão, o 🗑️ só esconde (toque de novo pra restaurar). É essa lista que aparece no campo Categoria quando você cria um kit.</p>
         <p className="text-xs font-bold mb-3" style={{ color: BRAND.rosa }}>
           {[...CATEGORIAS_CAPA_FIXAS.filter((c) => c.tipoEvento).map((c) => c.chave), ...form.catalogo_categorias_extras.map((e) => e.id)].filter((k) => !form.catalogo_categorias_ocultas.includes(k)).length} de {CATEGORIAS_CAPA_FIXAS.filter((c) => c.tipoEvento).length + form.catalogo_categorias_extras.length} categorias visíveis na página principal agora
         </p>
@@ -4427,16 +4427,16 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
                     <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#F1F5F9", color: "#64748b" }}>{qtdKits} {qtdKits === 1 ? "kit" : "kits"}</span>
                   </span>
                   <button
-                    title={oculta ? "Mostrar essa categoria pro cliente" : "Esconder essa categoria do catálogo"}
+                    title={oculta ? "Restaurar essa categoria pro cliente" : "Esconder essa categoria do catálogo (padrão, não dá pra apagar)"}
                     onClick={() => {
                       const novo = oculta ? form.catalogo_categorias_ocultas.filter((c) => c !== cat.chave) : [...form.catalogo_categorias_ocultas, cat.chave];
                       set("catalogo_categorias_ocultas", novo);
                       persistirCampo("catalogo_categorias_ocultas", novo);
                     }}
-                    className="w-9 h-5 rounded-full relative cursor-pointer transition-colors shrink-0"
-                    style={{ background: oculta ? "#e5e7eb" : BRAND.rosa }}
+                    className="px-2 py-1 rounded-lg text-sm cursor-pointer shrink-0"
+                    style={{ color: oculta ? "#22C55E" : "#fb7185" }}
                   >
-                    <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: oculta ? 2 : 18 }} />
+                    {oculta ? "↺" : "🗑️"}
                   </button>
                 </div>
               </div>
@@ -4483,22 +4483,11 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
                     persistirCampo("catalogo_capas_categorias", novasCapas);
                   }} className="px-2 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer shrink-0" style={{ color: "#fb7185" }}>🗑️</button>
                 </div>
-                <div className="flex items-center justify-between pl-14">
-                  <span className="text-[11px] font-semibold flex items-center gap-1.5" style={{ color: oculta ? "#94a3b8" : "#22C55E" }}>
-                    {oculta ? "Escondida da página principal" : "Visível na página principal"}
+                <div className="pl-14">
+                  <span className="text-[11px] font-semibold flex items-center gap-1.5" style={{ color: "#22C55E" }}>
+                    Visível na página principal
                     <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#F1F5F9", color: "#64748b" }}>{qtdKits} {qtdKits === 1 ? "kit" : "kits"}</span>
                   </span>
-                  <button
-                    onClick={() => {
-                      const novo = oculta ? form.catalogo_categorias_ocultas.filter((c) => c !== extra.id) : [...form.catalogo_categorias_ocultas, extra.id];
-                      set("catalogo_categorias_ocultas", novo);
-                      persistirCampo("catalogo_categorias_ocultas", novo);
-                    }}
-                    className="w-9 h-5 rounded-full relative cursor-pointer transition-colors shrink-0"
-                    style={{ background: oculta ? "#e5e7eb" : BRAND.rosa }}
-                  >
-                    <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: oculta ? 2 : 18 }} />
-                  </button>
                 </div>
               </div>
             );
@@ -4560,16 +4549,16 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
                     <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#F1F5F9", color: "#64748b" }}>{qtdKits} {qtdKits === 1 ? "kit" : "kits"}</span>
                   </span>
                   <button
-                    title={oculta ? "Mostrar esse nível pro cliente" : "Esconder esse nível do catálogo"}
+                    title={oculta ? "Restaurar esse nível pro cliente" : "Esconder esse nível do catálogo (padrão, não dá pra apagar)"}
                     onClick={() => {
                       const novo = oculta ? form.catalogo_categorias_ocultas.filter((c) => c !== cat.chave) : [...form.catalogo_categorias_ocultas, cat.chave];
                       set("catalogo_categorias_ocultas", novo);
                       persistirCampo("catalogo_categorias_ocultas", novo);
                     }}
-                    className="w-9 h-5 rounded-full relative cursor-pointer transition-colors shrink-0"
-                    style={{ background: oculta ? "#e5e7eb" : BRAND.rosa }}
+                    className="px-2 py-1 rounded-lg text-sm cursor-pointer shrink-0"
+                    style={{ color: oculta ? "#22C55E" : "#fb7185" }}
                   >
-                    <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: oculta ? 2 : 18 }} />
+                    {oculta ? "↺" : "🗑️"}
                   </button>
                 </div>
               </div>

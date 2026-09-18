@@ -52,12 +52,6 @@ function preencherModeloContratoPublico(template, c, valor, pctEfetivo) {
   Object.entries(mapa).forEach(([chave, valorCampo]) => { texto = texto.split(chave).join(valorCampo); });
   return texto;
 }
-function labelData(tipoServico, qual) {
-  const isDecoracao = tipoServico === "decoracao";
-  if (qual === "ida") return isDecoracao ? "Data da montagem" : "Data de retirada";
-  return isDecoracao ? "Data da desmontagem/retirada" : "Data de devolução";
-}
-
 /* ============================================================
    ASSINATURA DIGITAL (canvas) — igual ao painel da decoradora
 ============================================================ */
