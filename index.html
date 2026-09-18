@@ -4226,6 +4226,7 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
     catalogo_cor_destaque: profile.catalogo_cor_destaque || "#EC1E79",
     catalogo_texto_boasvindas: profile.catalogo_texto_boasvindas || "",
     catalogo_mostrar_valores: profile.catalogo_mostrar_valores !== false,
+    catalogo_mostrar_explicacao_servico: profile.catalogo_mostrar_explicacao_servico !== false,
     catalogo_instagram: profile.catalogo_instagram || "",
     whatsapp_contato: profile.whatsapp_contato || "",
     catalogo_ativo: profile.catalogo_ativo !== false,
@@ -4579,18 +4580,41 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 space-y-3">
         <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Preferências</p>
 
-        {[
-          ["catalogo_ativo", "Catálogo ativo", "Libera o link pros clientes"],
-          ["catalogo_mostrar_valores", "Mostrar valores", "Cliente vê o preço de cada kit"],
-          ["catalogo_usar_marca_dagua", "Usar marca d'água", "Sua logo aparece sutil nas fotos"],
-        ].map(([campo, titulo, desc]) => (
-          <div key={campo} className="flex items-center justify-between py-1">
-            <div><span className="text-sm font-semibold block" style={{ color: BRAND.tinta }}>{titulo}</span><span className="text-xs text-slate-400">{desc}</span></div>
-            <button onClick={() => set(campo, !form[campo])} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors shrink-0 ml-3" style={{ background: form[campo] ? BRAND.rosa : "#e5e7eb" }}>
-              <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all" style={{ left: form[campo] ? 26 : 4 }} />
-            </button>
+        <div className="flex items-center justify-between py-1 gap-3">
+          <div className="flex-1 min-w-0">
+            <span className="text-sm font-semibold block" style={{ color: BRAND.tinta }}>Banner "Pegue e Monte x Decoração"</span>
+            <span className="text-xs text-slate-400">Explica a diferença pro cliente, no topo do catálogo</span>
+            <div className="mt-2 rounded-xl px-3 py-2.5 text-center" style={{ background: "linear-gradient(135deg, #8B5CF6, #2563EB)" }}>
+              <p className="fredoka font-bold text-white uppercase tracking-wide text-[11px] leading-tight">Pegue e Monte ou Decoração? Veja a diferença</p>
+            </div>
           </div>
-        ))}
+          <button onClick={() => {
+            const novo = !form.catalogo_mostrar_explicacao_servico;
+            set("catalogo_mostrar_explicacao_servico", novo);
+            persistirCampo("catalogo_mostrar_explicacao_servico", novo);
+          }} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors shrink-0" style={{ background: form.catalogo_mostrar_explicacao_servico ? BRAND.rosa : "#e5e7eb" }}>
+            <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all" style={{ left: form.catalogo_mostrar_explicacao_servico ? 26 : 4 }} />
+          </button>
+        </div>
+
+        <div className="border-t border-slate-100 pt-3 space-y-3">
+          {[
+            ["catalogo_ativo", "Catálogo ativo", "Libera o link pros clientes"],
+            ["catalogo_mostrar_valores", "Mostrar valores", "Cliente vê o preço de cada kit"],
+            ["catalogo_usar_marca_dagua", "Usar marca d'água", "Sua logo aparece sutil nas fotos"],
+          ].map(([campo, titulo, desc]) => (
+            <div key={campo} className="flex items-center justify-between py-1">
+              <div><span className="text-sm font-semibold block" style={{ color: BRAND.tinta }}>{titulo}</span><span className="text-xs text-slate-400">{desc}</span></div>
+              <button onClick={() => {
+                const novo = !form[campo];
+                set(campo, novo);
+                persistirCampo(campo, novo);
+              }} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors shrink-0 ml-3" style={{ background: form[campo] ? BRAND.rosa : "#e5e7eb" }}>
+                <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all" style={{ left: form[campo] ? 26 : 4 }} />
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
 
       {form.catalogo_ativo && (
