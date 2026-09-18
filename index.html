@@ -3811,9 +3811,13 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
   // o formulário mais limpo — por baixo dos panos continua gravando nos
   // mesmos dois campos de sempre, então kit antigo não perde nada.
   const opcoesCategoria = useMemo(() => {
+    // Mesmo nome que a decoradora já customizou em Configurações do Catálogo
+    // (catalogo_nomes_categorias) — senão essa lista fica desalinhada do que
+    // ela vê lá e do que o cliente vê no link do catálogo.
+    const nomesCustom = profile?.catalogo_nomes_categorias || {};
     const extras = (profile?.catalogo_categorias_extras || []).map((e) => typeof e === "string" ? { id: "extra-" + e, nome: e } : e);
     return [
-      ...CATEGORIAS_TEMA_FIXAS,
+      ...CATEGORIAS_TEMA_FIXAS.map((c) => ({ ...c, label: nomesCustom[c.chave] || c.label })),
       ...extras.filter((e) => e.nome && e.nome.trim()).map((e) => ({ chave: e.id, label: e.nome, tipoEvento: e.nome, publico: null })),
     ];
   }, [profile]);
