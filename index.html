@@ -2015,7 +2015,7 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
 
   const variaveis = {
     boas_vindas: ["{{link_catalogo}}"],
-    contrato_assinatura: ["{{nome_cliente}}", "{{link_contrato}}"],
+    contrato_assinatura: ["{{nome_cliente}}", "{{nome_loja}}", "{{resumo_contrato}}", "{{link_contrato}}"],
     lembrete_sinal: ["{{nome_cliente}}"],
     confirmacao_agendamento: ["{{nome_cliente}}", "{{data_retirada}}"],
     lembrete_retirada: ["{{nome_cliente}}", "{{nome_loja}}", "{{produto}}", "{{data}}", "{{hora}}", "{{endereco}}"],
@@ -2104,6 +2104,9 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
           </>
         ) : (
           <>
+            {automacao.chave === "contrato_assinatura" && (
+              <p className="text-xs text-slate-400 mb-3 px-3 py-2 rounded-xl bg-slate-50">{"{{resumo_contrato}}"} vira um blocão sozinho com produto, valor (pago/falta) e as datas — igual o resumo que já ia quando você mandava manual.</p>
+            )}
             <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem</p>
             <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-2" rows={5} value={mensagem} onChange={(e) => setMensagem(e.target.value)} />
             {variaveis.length > 0 && (
