@@ -3300,16 +3300,6 @@ function EstoqueTab({ userId, profile, onProfileUpdate }) {
    "kits/"), não base64 no banco — mesmo motivo de sempre (Egress).
 ============================================================ */
 
-// Os 3 níveis padrão do Pegue e Monte — fixos, pra dar pro cliente uma
-// navegação por preço igual em qualquer catálogo (viram categoria própria
-// no catálogo). A decoradora pode cadastrar níveis extras em Configurações,
-// mas esses ficam só como etiqueta do kit, sem categoria fixa própria.
-const NIVEIS_PM_FIXOS = [
-  { valor: "basico", label: "Bronze" },
-  { valor: "prata", label: "Prata" },
-  { valor: "ouro", label: "Ouro" },
-];
-
 // Mesma lista (chave + rótulo) das categorias fixas do catalogo-cliente.html —
 // precisa ficar igual nos dois arquivos pra capa bater com o card certo.
 const CATEGORIAS_CAPA_FIXAS = [
@@ -3338,8 +3328,6 @@ const MATCH_CATEGORIA_FIXA = {
   "pm-prata": (k) => k.faixa_pegue_monte === "prata",
   "pm-ouro": (k) => k.faixa_pegue_monte === "ouro",
 };
-// Só os temas (exclui as 3 faixas de Pegue e Monte, que já têm campo próprio).
-const CATEGORIAS_TEMA_FIXAS = CATEGORIAS_CAPA_FIXAS.filter((c) => c.tipoEvento);
 
 async function dataUrlParaBlob(dataUrl) {
   const resposta = await fetch(dataUrl);
@@ -3807,17 +3795,15 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
   const [fotosPendentes, setFotosPendentes] = useState([]); // {tempId, file, previewUrl} — ainda não subiram
   const set = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
 
-  // "Categoria" unifica Tipo de evento + Público numa escolha só, pra deixar
-  // o formulário mais limpo — por baixo dos panos continua gravando nos
-  // mesmos dois campos de sempre, então kit antigo não perde nada.
+  // "Categoria" (tema: infantil, adulto, religioso...) e "Nível" (faixa de
+  // preço: bronze, prata, ouro...) são duas coisas independentes — um kit
+  // pode ter as duas ao mesmo tempo, cada uma no seu campo (tipo_evento
+  // /publico pra categoria, faixa_pegue_monte/nivel pra nível). Não mistura.
   const opcoesCategoria = useMemo(() => {
-    // Mesmo nome que a decoradora já customizou em Configurações do Catálogo
-    // (catalogo_nomes_categorias) — senão essa lista fica desalinhada do que
-    // ela vê lá e do que o cliente vê no link do catálogo.
     const nomesCustom = profile?.catalogo_nomes_categorias || {};
     const extras = (profile?.catalogo_categorias_extras || []).map((e) => typeof e === "string" ? { id: "extra-" + e, nome: e } : e);
     return [
-      ...CATEGORIAS_TEMA_FIXAS.map((c) => ({ ...c, label: nomesCustom[c.chave] || c.label })),
+      ...CATEGORIAS_CAPA_FIXAS.filter((c) => c.tipoEvento).map((c) => ({ ...c, label: nomesCustom[c.chave] || c.label })),
       ...extras.filter((e) => e.nome && e.nome.trim()).map((e) => ({ chave: e.id, label: e.nome, tipoEvento: e.nome, publico: null })),
     ];
   }, [profile]);
@@ -3825,14 +3811,15 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
     return opcoesCategoria.find((c) => c.tipoEvento === tipoEvento && (c.publico == null || c.publico === publico));
   }
 
-  // "Nível" unifica os 3 níveis fixos do Pegue e Monte (que viram categoria
-  // própria no catálogo) com os níveis extras que a decoradora cadastrar em
-  // Configurações — por baixo dos panos, os 3 fixos gravam em
-  // faixa_pegue_monte (mesmo campo de sempre) e os extras gravam em nivel.
+  // Os 3 níveis fixos (Bronze/Prata/Ouro) puxam o nome direto de
+  // Configurações > Categorias do catálogo (mesmo "chave" pm-*, mesmo campo
+  // catalogo_nomes_categorias) — é o mesmo lugar que ela já edita nome e
+  // foto, então o nome aqui nunca fica desalinhado do que está configurado lá.
   const opcoesNivel = useMemo(() => {
+    const nomesCustom = profile?.catalogo_nomes_categorias || {};
     const extras = (profile?.catalogo_niveis_extras || []).map((e) => typeof e === "string" ? { id: "nivel-" + e, nome: e } : e);
     return [
-      ...NIVEIS_PM_FIXOS.map((n) => ({ chave: n.valor, label: n.label, fixo: true })),
+      ...CATEGORIAS_CAPA_FIXAS.filter((c) => !c.tipoEvento).map((c) => ({ chave: c.chave.replace("pm-", ""), label: nomesCustom[c.chave] || c.label, fixo: true })),
       ...extras.filter((e) => e.nome && e.nome.trim()).map((e) => ({ chave: e.id, label: e.nome, fixo: false })),
     ];
   }, [profile]);
@@ -4003,7 +3990,7 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-bold text-slate-500 mb-1 block">Nível<Ajuda emoji="🎁" titulo="Nível" texto="Bronze/Prata/Ouro são fixos e viram categoria própria no catálogo, pra ajudar a cliente a navegar por faixa de preço. Cadastre níveis extras (tipo Luxo) em Configurações — esses ficam só como etiqueta do kit. Deixe em branco se esse kit não tiver nível." /></label>
+              <label className="text-xs font-bold text-slate-500 mb-1 block">Nível<Ajuda emoji="🎁" titulo="Nível" texto="Faixa de preço do kit — Bronze/Prata/Ouro são fixos (o nome pode ser trocado em Configurações), e viram categoria própria no catálogo. Cadastre níveis extras (tipo Mini Mesa) em Configurações — esses ficam só como etiqueta do kit. Deixe em branco se esse kit não tiver nível." /></label>
               <select
                 value={valorSelectNivel()}
                 onChange={(e) => {
@@ -4407,6 +4394,7 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
           {CATEGORIAS_CAPA_FIXAS.map((cat) => {
             const oculta = form.catalogo_categorias_ocultas.includes(cat.chave);
             const foto = form.catalogo_capas_categorias[cat.chave] || fotoFallback(MATCH_CATEGORIA_FIXA[cat.chave]);
+            const qtdKits = (kits || []).filter(MATCH_CATEGORIA_FIXA[cat.chave]).length;
             return (
               <div key={cat.chave} className="p-2 rounded-xl bg-slate-50 space-y-2" style={{ opacity: oculta ? 0.5 : 1 }}>
                 <div className="flex items-center gap-2.5">
@@ -4433,8 +4421,9 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
                   </label>
                 </div>
                 <div className="flex items-center justify-between pl-14">
-                  <span className="text-[11px] font-semibold" style={{ color: oculta ? "#94a3b8" : "#22C55E" }}>
+                  <span className="text-[11px] font-semibold flex items-center gap-1.5" style={{ color: oculta ? "#94a3b8" : "#22C55E" }}>
                     {oculta ? "Escondida da página principal" : "Visível na página principal"}
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#F1F5F9", color: "#64748b" }}>{qtdKits} {qtdKits === 1 ? "kit" : "kits"}</span>
                   </span>
                   <button
                     title={oculta ? "Mostrar essa categoria pro cliente" : "Esconder essa categoria do catálogo"}
@@ -4456,7 +4445,9 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
           {form.catalogo_categorias_extras.map((extra) => {
             const oculta = form.catalogo_categorias_ocultas.includes(extra.id);
             const alvo = (extra.nome || "").trim().toLowerCase();
-            const foto = form.catalogo_capas_categorias[extra.id] || (alvo && fotoFallback((k) => (k.tipo_evento || "").trim().toLowerCase() === alvo));
+            const matchExtra = (k) => (k.tipo_evento || "").trim().toLowerCase() === alvo;
+            const foto = form.catalogo_capas_categorias[extra.id] || (alvo && fotoFallback(matchExtra));
+            const qtdKits = alvo ? (kits || []).filter(matchExtra).length : 0;
             return (
               <div key={extra.id} className="p-2 rounded-xl bg-slate-50 space-y-2" style={{ opacity: oculta ? 0.5 : 1 }}>
                 <div className="flex items-center gap-2.5">
@@ -4492,8 +4483,9 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
                   }} className="px-2 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer shrink-0" style={{ color: "#fb7185" }}>🗑️</button>
                 </div>
                 <div className="flex items-center justify-between pl-14">
-                  <span className="text-[11px] font-semibold" style={{ color: oculta ? "#94a3b8" : "#22C55E" }}>
+                  <span className="text-[11px] font-semibold flex items-center gap-1.5" style={{ color: oculta ? "#94a3b8" : "#22C55E" }}>
                     {oculta ? "Escondida da página principal" : "Visível na página principal"}
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#F1F5F9", color: "#64748b" }}>{qtdKits} {qtdKits === 1 ? "kit" : "kits"}</span>
                   </span>
                   <button
                     onClick={() => {
@@ -4527,14 +4519,14 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
 
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
         <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>
-          Níveis Pegue e Monte
-          <Ajuda emoji="🎖️" titulo="Níveis Pegue e Monte" texto="Bronze, Prata e Ouro são fixos e viram categoria própria no catálogo, pra cliente navegar por faixa de preço — só o nome do kit muda em cada catálogo. Cadastre níveis extras aqui (tipo Luxo) se seus kits tiverem mais de 3 faixas — esses ficam só como etiqueta do kit, sem categoria própria no catálogo." />
+          Níveis extras
+          <Ajuda emoji="🎖️" titulo="Níveis extras" texto="Bronze, Prata e Ouro já ficam lá em cima, em Categorias do catálogo — pode trocar nome e foto deles lá. Aqui é só pra cadastrar níveis a mais (tipo Luxo), se seus kits tiverem mais de 3 faixas — esses ficam como etiqueta do kit, sem card próprio no catálogo." />
         </p>
-        <p className="text-xs text-slate-400 mb-3">Aparece na hora de criar um kit, no campo "Nível" — salva sozinho, igual as categorias.</p>
+        <p className="text-xs text-slate-400 mb-3">Aparece na hora de criar um kit, junto com as outras categorias — salva sozinho.</p>
         <div className="space-y-2">
-          {NIVEIS_PM_FIXOS.map((n) => (
-            <div key={n.valor} className="px-3 py-2.5 rounded-xl bg-slate-50 text-sm font-semibold" style={{ color: BRAND.tinta }}>{n.label}</div>
-          ))}
+          {form.catalogo_niveis_extras.length === 0 && (
+            <p className="text-xs text-slate-400 px-1">Nenhum nível extra cadastrado ainda.</p>
+          )}
           {form.catalogo_niveis_extras.map((extra) => (
             <div key={extra.id} className="flex items-center gap-2">
               <input
