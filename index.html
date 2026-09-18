@@ -2008,7 +2008,7 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
   const [mensagemBaloes2h, setMensagemBaloes2h] = useState(automacao.config?.mensagem_baloes_2h || "");
   const [mensagemDecoracao, setMensagemDecoracao] = useState(automacao.config?.mensagem_decoracao || "");
   const [mensagemDecoracao2h, setMensagemDecoracao2h] = useState(automacao.config?.mensagem_decoracao_2h || "");
-  const [enviarPara, setEnviarPara] = useState(automacao.config?.enviar_para || "primeiro_contato");
+  const [enviarPara, setEnviarPara] = useState(automacao.config?.enviar_para || "reativacao");
   const [diasReativacao, setDiasReativacao] = useState(String(automacao.config?.dias_reativacao || 7));
   const [salvando, setSalvando] = useState(false);
 
@@ -3773,7 +3773,7 @@ function CropFotoModal({ src, onConfirmar, onPular }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" onClick={(e) => e.stopPropagation()}>
       <div className="bg-white rounded-2xl p-4 w-full sm:max-w-md">
         <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Ajustar foto</p>
         <p className="text-xs text-slate-400 mb-3">Arraste as bordas pra recortar. A foto vira quadrada, igual aparece no catálogo.</p>
@@ -4120,9 +4120,9 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
       </div>
 
       {fotoAmpliada && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.9)" }} onClick={() => setFotoAmpliada(null)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.9)" }} onClick={(e) => { e.stopPropagation(); setFotoAmpliada(null); }}>
           <img src={fotoAmpliada} className="max-w-full max-h-full rounded-2xl object-contain" />
-          <button onClick={() => setFotoAmpliada(null)} className="absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center text-white text-xl cursor-pointer" style={{ background: "rgba(255,255,255,.15)" }}>✕</button>
+          <button onClick={(e) => { e.stopPropagation(); setFotoAmpliada(null); }} className="absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center text-white text-xl cursor-pointer" style={{ background: "rgba(255,255,255,.15)" }}>✕</button>
         </div>
       )}
 
