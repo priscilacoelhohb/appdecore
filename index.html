@@ -4384,15 +4384,15 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
         <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>
           Categorias do catálogo
-          <Ajuda emoji="🗂️" titulo="Categorias do catálogo" texto="Essas viram os cards que a cliente vê na tela inicial do catálogo. As 9 primeiras já vêm prontas (você só pode trocar o nome e a foto, não apagar). A foto mostrada aqui é a mesma que aparece pro cliente — se você não subiu uma capa própria, mostra a foto de um kit dessa categoria como reserva. A toglezinha controla se a categoria aparece na página principal — ela aparece mesmo sem kit nenhum vinculado ainda." />
+          <Ajuda emoji="🗂️" titulo="Categorias do catálogo" texto="Essas são as categorias por TEMA — as que aparecem no campo Categoria lá em Novo Kit. As 6 primeiras já vêm prontas (você só pode trocar o nome e a foto, não apagar). A foto mostrada aqui é a mesma que aparece pro cliente — se você não subiu uma capa própria, mostra a foto de um kit dessa categoria como reserva. A toglezinha controla se a categoria aparece na página principal — ela aparece mesmo sem kit nenhum vinculado ainda. Procurando Bronze/Prata/Ouro? Isso é Nível, tá na seção de baixo." />
           {categoriasSalvando && <span className="text-[10px] font-normal text-slate-400 ml-2">Salvando...</span>}
         </p>
-        <p className="text-xs text-slate-400 mb-1">Nome, foto e visibilidade de cada categoria, tudo num lugar só — salva sozinho, não precisa clicar em "Salvar" lá embaixo. A lixeira apaga de vez as categorias que você criou (as 9 padrão não podem ser apagadas, só escondidas na toglezinha).</p>
+        <p className="text-xs text-slate-400 mb-1">Nome, foto e visibilidade de cada categoria, tudo num lugar só — salva sozinho, não precisa clicar em "Salvar" lá embaixo. A lixeira apaga de vez as categorias que você criou (as 6 padrão não podem ser apagadas, só escondidas na toglezinha). É essa lista que aparece no campo Categoria quando você cria um kit.</p>
         <p className="text-xs font-bold mb-3" style={{ color: BRAND.rosa }}>
-          {[...CATEGORIAS_CAPA_FIXAS.map((c) => c.chave), ...form.catalogo_categorias_extras.map((e) => e.id)].filter((k) => !form.catalogo_categorias_ocultas.includes(k)).length} de {CATEGORIAS_CAPA_FIXAS.length + form.catalogo_categorias_extras.length} categorias visíveis na página principal agora
+          {[...CATEGORIAS_CAPA_FIXAS.filter((c) => c.tipoEvento).map((c) => c.chave), ...form.catalogo_categorias_extras.map((e) => e.id)].filter((k) => !form.catalogo_categorias_ocultas.includes(k)).length} de {CATEGORIAS_CAPA_FIXAS.filter((c) => c.tipoEvento).length + form.catalogo_categorias_extras.length} categorias visíveis na página principal agora
         </p>
         <div className="space-y-2">
-          {CATEGORIAS_CAPA_FIXAS.map((cat) => {
+          {CATEGORIAS_CAPA_FIXAS.filter((c) => c.tipoEvento).map((cat) => {
             const oculta = form.catalogo_categorias_ocultas.includes(cat.chave);
             const foto = form.catalogo_capas_categorias[cat.chave] || fotoFallback(MATCH_CATEGORIA_FIXA[cat.chave]);
             const qtdKits = (kits || []).filter(MATCH_CATEGORIA_FIXA[cat.chave]).length;
@@ -4520,11 +4520,62 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
 
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
         <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>
-          Níveis extras
-          <Ajuda emoji="🎖️" titulo="Níveis extras" texto="Bronze, Prata e Ouro já ficam lá em cima, em Categorias do catálogo — pode trocar nome e foto deles lá. Aqui é só pra cadastrar níveis a mais (tipo Luxo), se seus kits tiverem mais de 3 faixas — esses ficam como etiqueta do kit, sem card próprio no catálogo." />
+          Níveis Pegue e Monte
+          <Ajuda emoji="🎖️" titulo="Níveis Pegue e Monte" texto="Essas são as faixas de preço — as que aparecem no campo Nível lá em Novo Kit, separado de Categoria. Bronze/Prata/Ouro são fixos (só pode trocar nome e foto, não apagar) e viram categoria própria no catálogo. Cadastre níveis extras (tipo Luxo) se precisar de mais de 3 faixas — esses ficam só como etiqueta do kit, sem card próprio." />
         </p>
-        <p className="text-xs text-slate-400 mb-3">Aparece na hora de criar um kit, junto com as outras categorias — salva sozinho.</p>
+        <p className="text-xs text-slate-400 mb-3">É essa lista que aparece no campo Nível quando você cria um kit — salva sozinho.</p>
         <div className="space-y-2">
+          {CATEGORIAS_CAPA_FIXAS.filter((c) => !c.tipoEvento).map((cat) => {
+            const oculta = form.catalogo_categorias_ocultas.includes(cat.chave);
+            const foto = form.catalogo_capas_categorias[cat.chave] || fotoFallback(MATCH_CATEGORIA_FIXA[cat.chave]);
+            const qtdKits = (kits || []).filter(MATCH_CATEGORIA_FIXA[cat.chave]).length;
+            return (
+              <div key={cat.chave} className="p-2 rounded-xl bg-slate-50 space-y-2" style={{ opacity: oculta ? 0.5 : 1 }}>
+                <div className="flex items-center gap-2.5">
+                  <div className="w-12 h-12 rounded-lg overflow-hidden bg-white border border-slate-200 shrink-0">
+                    {foto && <img src={foto} className="w-full h-full object-cover" />}
+                  </div>
+                  <input
+                    value={form.catalogo_nomes_categorias[cat.chave] ?? cat.label}
+                    onChange={(e) => set("catalogo_nomes_categorias", { ...form.catalogo_nomes_categorias, [cat.chave]: e.target.value })}
+                    onBlur={(e) => persistirCampo("catalogo_nomes_categorias", { ...form.catalogo_nomes_categorias, [cat.chave]: e.target.value })}
+                    className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold bg-white"
+                    style={{ color: BRAND.tinta }}
+                  />
+                  <label className="px-2.5 py-1.5 rounded-lg font-bold text-[11px] cursor-pointer shrink-0" style={{ background: BRAND.azul + "14", color: BRAND.azul }}>
+                    Trocar foto
+                    <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                      const file = e.target.files[0];
+                      if (!file) return;
+                      const dataUrl = await redimensionarImagem(file, 600, "image/jpeg");
+                      const novo = { ...form.catalogo_capas_categorias, [cat.chave]: dataUrl };
+                      set("catalogo_capas_categorias", novo);
+                      persistirCampo("catalogo_capas_categorias", novo);
+                    }} />
+                  </label>
+                </div>
+                <div className="flex items-center justify-between pl-14">
+                  <span className="text-[11px] font-semibold flex items-center gap-1.5" style={{ color: oculta ? "#94a3b8" : "#22C55E" }}>
+                    {oculta ? "Escondida da página principal" : "Visível na página principal"}
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#F1F5F9", color: "#64748b" }}>{qtdKits} {qtdKits === 1 ? "kit" : "kits"}</span>
+                  </span>
+                  <button
+                    title={oculta ? "Mostrar esse nível pro cliente" : "Esconder esse nível do catálogo"}
+                    onClick={() => {
+                      const novo = oculta ? form.catalogo_categorias_ocultas.filter((c) => c !== cat.chave) : [...form.catalogo_categorias_ocultas, cat.chave];
+                      set("catalogo_categorias_ocultas", novo);
+                      persistirCampo("catalogo_categorias_ocultas", novo);
+                    }}
+                    className="w-9 h-5 rounded-full relative cursor-pointer transition-colors shrink-0"
+                    style={{ background: oculta ? "#e5e7eb" : BRAND.rosa }}
+                  >
+                    <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all" style={{ left: oculta ? 2 : 18 }} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+
           {form.catalogo_niveis_extras.length === 0 && (
             <p className="text-xs text-slate-400 px-1">Nenhum nível extra cadastrado ainda.</p>
           )}
