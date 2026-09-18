@@ -11,6 +11,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Poppins:wght@400;500;600;700&display=swap');
   html, body { font-family: 'Poppins', sans-serif; margin: 0; max-width: 100%; overflow-x: hidden; }
@@ -3286,14 +3288,12 @@ function EstoqueTab({ userId, profile, onProfileUpdate }) {
    "kits/"), não base64 no banco — mesmo motivo de sempre (Egress).
 ============================================================ */
 
-const TIPOS_EVENTO_KIT = ["Aniversário Infantil", "Mesversário", "Chá de Bebê/Fralda", "Festa Junina", "15 Anos", "Adulto", "Dia dos Pais/Mães", "Formatura", "Casamento/Noivado"];
-const PUBLICOS_KIT = ["Menina", "Menino", "Mulher", "Homem", "Unissex"];
-const NIVEIS_KIT = ["Minimalista", "Prata", "Ouro", "Diamante", "Luxo"];
-// Faixa padronizada do Pegue e Monte — fixa (não é "livre" como o Nível
-// acima), pra dar pro cliente uma navegação por preço igual em qualquer
-// catálogo, independente de como cada decoradora chama seus próprios níveis.
-const FAIXAS_PEGUE_MONTE = [
-  { valor: "basico", label: "Básico" },
+// Os 3 níveis padrão do Pegue e Monte — fixos, pra dar pro cliente uma
+// navegação por preço igual em qualquer catálogo (viram categoria própria
+// no catálogo). A decoradora pode cadastrar níveis extras em Configurações,
+// mas esses ficam só como etiqueta do kit, sem categoria fixa própria.
+const NIVEIS_PM_FIXOS = [
+  { valor: "basico", label: "Bronze" },
   { valor: "prata", label: "Prata" },
   { valor: "ouro", label: "Ouro" },
 ];
@@ -3307,7 +3307,7 @@ const CATEGORIAS_CAPA_FIXAS = [
   { chave: "15anos", label: "Kit 15 Anos", tipoEvento: "15 Anos", publico: null },
   { chave: "cha-fralda", label: "Chá de Fralda", tipoEvento: "Chá de Bebê/Fralda", publico: null },
   { chave: "cha-revelacao", label: "Chá Revelação", tipoEvento: "Chá Revelação", publico: null },
-  { chave: "pm-basico", label: "Kit Básico (Pegue e Monte)" },
+  { chave: "pm-basico", label: "Kit Bronze (Pegue e Monte)" },
   { chave: "pm-prata", label: "Kit Prata (Pegue e Monte)" },
   { chave: "pm-ouro", label: "Kit Ouro (Pegue e Monte)" },
 ];
@@ -3328,34 +3328,6 @@ const MATCH_CATEGORIA_FIXA = {
 };
 // Só os temas (exclui as 3 faixas de Pegue e Monte, que já têm campo próprio).
 const CATEGORIAS_TEMA_FIXAS = CATEGORIAS_CAPA_FIXAS.filter((c) => c.tipoEvento);
-
-// Select com opção de digitar um valor customizado, pra não travar
-// a decoradora numa lista fixa quando ela quiser algo diferente.
-function SelectComOutro({ label, valor, opcoes, onChange, placeholderOutro }) {
-  const naLista = opcoes.includes(valor);
-  const [modoCustom, setModoCustom] = useState(!!valor && !naLista);
-  return (
-    <div>
-      <label className="text-xs font-bold text-slate-500 mb-1 block">{label}</label>
-      {!modoCustom ? (
-        <select
-          value={naLista ? valor : ""}
-          onChange={(e) => { if (e.target.value === "__outro__") { setModoCustom(true); onChange(""); } else { onChange(e.target.value); } }}
-          className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
-        >
-          <option value="">—</option>
-          {opcoes.map((o) => <option key={o} value={o}>{o}</option>)}
-          <option value="__outro__">Outro (digitar)</option>
-        </select>
-      ) : (
-        <div className="flex gap-1">
-          <input autoFocus value={valor || ""} onChange={(e) => onChange(e.target.value)} placeholder={placeholderOutro} className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm" />
-          <button onClick={() => { setModoCustom(false); onChange(""); }} className="px-2 rounded-xl text-xs text-slate-400 cursor-pointer" title="Voltar pra lista">✕</button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 async function dataUrlParaBlob(dataUrl) {
   const resposta = await fetch(dataUrl);
@@ -3769,6 +3741,54 @@ function KitsLista({ kits, fotosPorKit, onNovo, onEditar, onExcluir }) {
   );
 }
 
+// Recorte quadrado (1:1) antes da foto entrar no kit — mesmo formato usado
+// nas miniaturas em grade do catálogo. Usa a lib Cropper.js.
+function CropFotoModal({ src, onConfirmar, onPular }) {
+  const imgRef = React.useRef(null);
+  const cropperRef = React.useRef(null);
+  const [processando, setProcessando] = useState(false);
+
+  useEffect(() => {
+    if (!imgRef.current || !src) return;
+    cropperRef.current = new Cropper(imgRef.current, {
+      aspectRatio: 1,
+      viewMode: 1,
+      autoCropArea: 1,
+      background: false,
+      movable: true,
+      zoomable: true,
+      scalable: false,
+      rotatable: false,
+    });
+    return () => { cropperRef.current?.destroy(); cropperRef.current = null; };
+  }, [src]);
+
+  function confirmar() {
+    if (!cropperRef.current) return;
+    setProcessando(true);
+    cropperRef.current.getCroppedCanvas({ width: 1000, height: 1000, imageSmoothingQuality: "high" }).toBlob((blob) => {
+      setProcessando(false);
+      if (blob) onConfirmar(blob);
+    }, "image/jpeg", 0.9);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
+      <div className="bg-white rounded-2xl p-4 w-full sm:max-w-md">
+        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Ajustar foto</p>
+        <p className="text-xs text-slate-400 mb-3">Arraste as bordas pra recortar. A foto vira quadrada, igual aparece no catálogo.</p>
+        <div className="h-72 overflow-hidden rounded-xl bg-slate-100">
+          {src && <img ref={imgRef} src={src} className="max-w-full block" />}
+        </div>
+        <div className="flex gap-2 mt-4">
+          <button onClick={onPular} className="flex-1 py-2.5 rounded-xl font-bold text-xs cursor-pointer" style={{ background: BRAND.bg, color: BRAND.tinta }}>Usar sem recortar</button>
+          <button onClick={confirmar} disabled={processando} className="flex-1 py-2.5 rounded-xl font-bold text-xs text-white cursor-pointer disabled:opacity-60" style={{ background: BRAND.rosa }}>{processando ? "..." : "Recortar e usar"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto, onFotoGeradaSalva }) {
   const [form, setForm] = useState(kit);
   const [salvando, setSalvando] = useState(false);
@@ -3788,20 +3808,49 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
   function acharCategoria(tipoEvento, publico) {
     return opcoesCategoria.find((c) => c.tipoEvento === tipoEvento && (c.publico == null || c.publico === publico));
   }
-  const [modoCategoriaOutro, setModoCategoriaOutro] = useState(() => {
-    const temAlgo = !!(kit.tipo_evento || kit.publico);
-    return temAlgo && !acharCategoria(kit.tipo_evento, kit.publico);
-  });
-  const [mostrarMaisOpcoes, setMostrarMaisOpcoes] = useState(false);
 
+  // "Nível" unifica os 3 níveis fixos do Pegue e Monte (que viram categoria
+  // própria no catálogo) com os níveis extras que a decoradora cadastrar em
+  // Configurações — por baixo dos panos, os 3 fixos gravam em
+  // faixa_pegue_monte (mesmo campo de sempre) e os extras gravam em nivel.
+  const opcoesNivel = useMemo(() => {
+    const extras = (profile?.catalogo_niveis_extras || []).map((e) => typeof e === "string" ? { id: "nivel-" + e, nome: e } : e);
+    return [
+      ...NIVEIS_PM_FIXOS.map((n) => ({ chave: n.valor, label: n.label, fixo: true })),
+      ...extras.filter((e) => e.nome && e.nome.trim()).map((e) => ({ chave: e.id, label: e.nome, fixo: false })),
+    ];
+  }, [profile]);
+  function valorSelectNivel() {
+    if (form.faixa_pegue_monte) return form.faixa_pegue_monte;
+    if (form.nivel) { const extra = opcoesNivel.find((o) => !o.fixo && o.label === form.nivel); if (extra) return extra.chave; }
+    return "";
+  }
   const totalFotos = fotos.length + fotosPendentes.length;
+
+  // Toda foto nova passa por um recorte antes de virar pendente — se
+  // escolher várias de uma vez, recorta uma de cada vez, em fila.
+  const [filaCrop, setFilaCrop] = useState([]);
+  const cropSrc = useMemo(() => (filaCrop[0] ? URL.createObjectURL(filaCrop[0]) : null), [filaCrop[0]]);
+  useEffect(() => () => { if (cropSrc) URL.revokeObjectURL(cropSrc); }, [cropSrc]);
 
   function selecionarFotos(fileList) {
     const arquivos = Array.from(fileList || []).filter((f) => f && f.type.startsWith("image/"));
     if (arquivos.length === 0) return;
-    const espacoRestante = Math.max(0, 5 - totalFotos);
-    const novos = arquivos.slice(0, espacoRestante).map((file) => ({ tempId: uid(), file, previewUrl: URL.createObjectURL(file) }));
-    if (novos.length > 0) setFotosPendentes((p) => [...p, ...novos]);
+    const espacoRestante = Math.max(0, 5 - totalFotos - filaCrop.length);
+    const aceitos = arquivos.slice(0, espacoRestante);
+    if (aceitos.length > 0) setFilaCrop((f) => [...f, ...aceitos]);
+  }
+
+  function aoConfirmarCrop(blob) {
+    setFotosPendentes((p) => [...p, { tempId: uid(), file: blob, previewUrl: URL.createObjectURL(blob) }]);
+    setFilaCrop((f) => f.slice(1));
+  }
+
+  function aoPularCrop() {
+    // Decoradora desistiu de ajustar essa foto — usa ela original mesmo, sem recorte.
+    const original = filaCrop[0];
+    if (original) setFotosPendentes((p) => [...p, { tempId: uid(), file: original, previewUrl: URL.createObjectURL(original) }]);
+    setFilaCrop((f) => f.slice(1));
   }
 
   function removerFotoPendente(tempId) {
@@ -3921,55 +3970,42 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
           </div>
 
           <div>
-            <label className="text-xs font-bold text-slate-500 mb-1 block">Categoria</label>
-            {!modoCategoriaOutro ? (
-              <select
-                value={acharCategoria(form.tipo_evento, form.publico)?.chave || ""}
-                onChange={(e) => {
-                  if (e.target.value === "__outro__") { setModoCategoriaOutro(true); return; }
-                  const c = opcoesCategoria.find((o) => o.chave === e.target.value);
-                  if (c) { set("tipo_evento", c.tipoEvento); set("publico", c.publico); }
-                }}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
-              >
-                <option value="">—</option>
-                {opcoesCategoria.map((c) => <option key={c.chave} value={c.chave}>{c.label}</option>)}
-                <option value="__outro__">Outra (digitar)</option>
-              </select>
-            ) : (
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <SelectComOutro label="" valor={form.tipo_evento} opcoes={TIPOS_EVENTO_KIT} onChange={(v) => set("tipo_evento", v)} placeholderOutro="Digite o tipo de evento" />
-                  <SelectComOutro label="" valor={form.publico} opcoes={PUBLICOS_KIT} onChange={(v) => set("publico", v)} placeholderOutro="Digite o público" />
-                </div>
-                <button type="button" onClick={() => setModoCategoriaOutro(false)} className="text-xs font-bold cursor-pointer" style={{ color: BRAND.azul }}>← Voltar pra lista de categorias</button>
-              </div>
-            )}
+            <label className="text-xs font-bold text-slate-500 mb-1 block">Categoria<Ajuda emoji="🗂️" titulo="Categoria" texto="Escolhe entre as categorias já cadastradas em Configurações do Catálogo. Não achou a que precisa? Cadastre uma nova lá antes de continuar aqui." /></label>
+            <select
+              value={acharCategoria(form.tipo_evento, form.publico)?.chave || ""}
+              onChange={(e) => {
+                const c = opcoesCategoria.find((o) => o.chave === e.target.value);
+                set("tipo_evento", c ? c.tipoEvento : "");
+                set("publico", c ? c.publico : "");
+              }}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+            >
+              <option value="">—</option>
+              {opcoesCategoria.map((c) => <option key={c.chave} value={c.chave}>{c.label}</option>)}
+            </select>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-bold text-slate-500 mb-1 block">Faixa Pegue e Monte<Ajuda emoji="🎁" titulo="Faixa Pegue e Monte" texto="Classificação fixa (Básico/Prata/Ouro), igual em todos os catálogos, pra ajudar a cliente a navegar por faixa de preço. Deixe em branco se esse kit não for um pacote padrão de Pegue e Monte." /></label>
-              <select value={form.faixa_pegue_monte || ""} onChange={(e) => set("faixa_pegue_monte", e.target.value || null)} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+              <label className="text-xs font-bold text-slate-500 mb-1 block">Nível<Ajuda emoji="🎁" titulo="Nível" texto="Bronze/Prata/Ouro são fixos e viram categoria própria no catálogo, pra ajudar a cliente a navegar por faixa de preço. Cadastre níveis extras (tipo Luxo) em Configurações — esses ficam só como etiqueta do kit. Deixe em branco se esse kit não tiver nível." /></label>
+              <select
+                value={valorSelectNivel()}
+                onChange={(e) => {
+                  const opc = opcoesNivel.find((o) => o.chave === e.target.value);
+                  if (!opc) { set("faixa_pegue_monte", null); set("nivel", ""); return; }
+                  if (opc.fixo) { set("faixa_pegue_monte", opc.chave); set("nivel", ""); }
+                  else { set("faixa_pegue_monte", null); set("nivel", opc.label); }
+                }}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+              >
                 <option value="">—</option>
-                {FAIXAS_PEGUE_MONTE.map((f) => <option key={f.valor} value={f.valor}>{f.label}</option>)}
+                {opcoesNivel.map((o) => <option key={o.chave} value={o.chave}>{o.label}</option>)}
               </select>
             </div>
             <div>
               <label className="text-xs font-bold text-slate-500 mb-1 block">Tema</label>
               <input value={form.tema || ""} onChange={(e) => set("tema", e.target.value)} placeholder="Ex: Futebol" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
             </div>
-          </div>
-
-          <div>
-            <button type="button" onClick={() => setMostrarMaisOpcoes((v) => !v)} className="text-xs font-bold cursor-pointer" style={{ color: "#94a3b8" }}>
-              {mostrarMaisOpcoes ? "▾" : "▸"} Mais opções
-            </button>
-            {mostrarMaisOpcoes && (
-              <div className="mt-2">
-                <SelectComOutro label="Nível (nome livre, seu, tipo Ouro/Prata/Luxo)" valor={form.nivel} opcoes={NIVEIS_KIT} onChange={(v) => set("nivel", v)} placeholderOutro="Digite o nível" />
-              </div>
-            )}
           </div>
 
           <div>
@@ -4089,6 +4125,10 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
           <button onClick={() => setFotoAmpliada(null)} className="absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center text-white text-xl cursor-pointer" style={{ background: "rgba(255,255,255,.15)" }}>✕</button>
         </div>
       )}
+
+      {filaCrop.length > 0 && cropSrc && (
+        <CropFotoModal src={cropSrc} onConfirmar={aoConfirmarCrop} onPular={aoPularCrop} />
+      )}
     </div>
   );
 }
@@ -4193,6 +4233,7 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
     catalogo_nomes_categorias: profile.catalogo_nomes_categorias || {},
     catalogo_capas_categorias: profile.catalogo_capas_categorias || {},
     catalogo_categorias_ocultas: profile.catalogo_categorias_ocultas || [],
+    catalogo_niveis_extras: (profile.catalogo_niveis_extras || []).map((e) => typeof e === "string" ? { id: "nivel-" + uid(), nome: e } : e),
     catalogo_pacotes_pegue_monte: profile.catalogo_pacotes_pegue_monte || [],
     catalogo_pacotes_decoracao: profile.catalogo_pacotes_decoracao || [],
   });
@@ -4464,6 +4505,47 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
             style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}
           >
             + Adicionar categoria
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>
+          Níveis Pegue e Monte
+          <Ajuda emoji="🎖️" titulo="Níveis Pegue e Monte" texto="Bronze, Prata e Ouro são fixos e viram categoria própria no catálogo, pra cliente navegar por faixa de preço — só o nome do kit muda em cada catálogo. Cadastre níveis extras aqui (tipo Luxo) se seus kits tiverem mais de 3 faixas — esses ficam só como etiqueta do kit, sem categoria própria no catálogo." />
+        </p>
+        <p className="text-xs text-slate-400 mb-3">Aparece na hora de criar um kit, no campo "Nível" — salva sozinho, igual as categorias.</p>
+        <div className="space-y-2">
+          {NIVEIS_PM_FIXOS.map((n) => (
+            <div key={n.valor} className="px-3 py-2.5 rounded-xl bg-slate-50 text-sm font-semibold" style={{ color: BRAND.tinta }}>{n.label}</div>
+          ))}
+          {form.catalogo_niveis_extras.map((extra) => (
+            <div key={extra.id} className="flex items-center gap-2">
+              <input
+                value={extra.nome}
+                onChange={(e) => set("catalogo_niveis_extras", form.catalogo_niveis_extras.map((x) => x.id === extra.id ? { ...x, nome: e.target.value } : x))}
+                onBlur={(e) => persistirCampo("catalogo_niveis_extras", form.catalogo_niveis_extras.map((x) => x.id === extra.id ? { ...x, nome: e.target.value } : x))}
+                placeholder="Ex: Luxo"
+                className="flex-1 min-w-0 px-3 py-2 rounded-xl border border-slate-200 text-sm font-semibold bg-white"
+                style={{ color: BRAND.tinta }}
+              />
+              <button title="Apagar esse nível" onClick={() => {
+                const novo = form.catalogo_niveis_extras.filter((x) => x.id !== extra.id);
+                set("catalogo_niveis_extras", novo);
+                persistirCampo("catalogo_niveis_extras", novo);
+              }} className="px-2 py-2 rounded-lg text-[11px] font-bold cursor-pointer shrink-0" style={{ color: "#fb7185" }}>🗑️</button>
+            </div>
+          ))}
+          <button
+            onClick={() => {
+              const novo = [...form.catalogo_niveis_extras, { id: "nivel-" + uid(), nome: "" }];
+              set("catalogo_niveis_extras", novo);
+              persistirCampo("catalogo_niveis_extras", novo);
+            }}
+            className="w-full py-2.5 rounded-xl font-bold text-xs cursor-pointer border-2 border-dashed"
+            style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}
+          >
+            + Adicionar nível
           </button>
         </div>
       </div>
