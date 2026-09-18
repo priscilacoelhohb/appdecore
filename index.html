@@ -1006,13 +1006,19 @@ function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, use
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {isOwner && profile.plano_tipo === "premium" && !profile.whatsapp_proprio_conectado ? (
+          {isOwner && profile.plano_tipo === "premium" && !profile.whatsapp_proprio_conectado && (
             <button onClick={() => setPage("whatsapp")} className="flex items-center gap-1.5 pl-2 pr-3 py-2 rounded-full font-bold text-xs cursor-pointer active:scale-95 transition shrink-0" style={{ background: "#22C55E", color: "#fff" }} aria-label="Conectar WhatsApp">
               <img src="whatsapp-logo.png" alt="" className="w-5 h-5 rounded-full bg-white p-0.5 shrink-0" />
               <span className="sm:hidden whitespace-nowrap">Conectar</span>
               <span className="hidden sm:inline whitespace-nowrap">Conectar WhatsApp</span>
             </button>
-          ) : (
+          )}
+          {isOwner && profile.plano_tipo === "premium" && profile.whatsapp_proprio_conectado && (
+            <button onClick={() => setPage("whatsapp")} className="p-2.5 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer relative shrink-0" aria-label="WhatsApp conectado" title="WhatsApp conectado" style={{ minWidth: 44, minHeight: 44 }}>
+              <img src="whatsapp-logo.png" alt="" className="w-5 h-5 rounded-full" style={{ opacity: 0.85 }} />
+              <span className="absolute bottom-1.5 right-1.5 w-2 h-2 rounded-full" style={{ background: "#22C55E", border: "1.5px solid " + BRAND.azulEscuro }}></span>
+            </button>
+          )}
           <div className="relative">
             <button onClick={() => setSinoAberto((v) => !v)} className="p-2.5 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer relative" aria-label="Notificações" style={{ minWidth: 44, minHeight: 44 }}>
               <IconBell />
@@ -1036,7 +1042,6 @@ function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, use
               </div>
             )}
           </div>
-          )}
           <button onClick={() => setPage("perfil")} className="p-2.5 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Editar perfil" style={{ minWidth: 44, minHeight: 44 }}><IconSettings /></button>
           <button onClick={onLogout} className="p-2.5 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Sair" style={{ minWidth: 44, minHeight: 44 }}><IconLogout /></button>
         </div>
@@ -1996,24 +2001,37 @@ function AutomacaoRow({ automacao, onToggle, onEditar }) {
 
 function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
   const [mensagem, setMensagem] = useState(automacao.mensagem || "");
+  const [mensagem2h, setMensagem2h] = useState(automacao.config?.mensagem_2h || "");
+  const [mensagemDecoracao, setMensagemDecoracao] = useState(automacao.config?.mensagem_decoracao || "");
+  const [mensagemDecoracao2h, setMensagemDecoracao2h] = useState(automacao.config?.mensagem_decoracao_2h || "");
   const [enviarPara, setEnviarPara] = useState(automacao.config?.enviar_para || "primeiro_contato");
   const [diasReativacao, setDiasReativacao] = useState(String(automacao.config?.dias_reativacao || 7));
   const [salvando, setSalvando] = useState(false);
+
+  const ehLembreteRetirada = automacao.chave === "lembrete_retirada";
+  const ehLembreteDevolucao = automacao.chave === "lembrete_devolucao";
 
   const variaveis = {
     boas_vindas: ["{{link_catalogo}}"],
     contrato_assinatura: ["{{nome_cliente}}", "{{link_contrato}}"],
     lembrete_sinal: ["{{nome_cliente}}"],
     confirmacao_agendamento: ["{{nome_cliente}}", "{{data_retirada}}"],
-    lembrete_retirada: ["{{nome_cliente}}", "{{produto}}", "{{data}}", "{{hora}}", "{{quando}}", "{{endereco}}"],
-    lembrete_devolucao: ["{{nome_cliente}}", "{{produto}}", "{{data}}", "{{hora}}", "{{quando}}", "{{endereco}}"],
+    lembrete_retirada: ["{{nome_cliente}}", "{{produto}}", "{{data}}", "{{hora}}", "{{endereco}}"],
+    lembrete_devolucao: ["{{nome_cliente}}", "{{produto}}", "{{data}}", "{{hora}}", "{{endereco}}"],
     aniversario: ["{{nome_cliente}}", "{{nome_aniversariante}}", "{{dias}}"],
     pos_venda: ["{{nome_cliente}}"],
   }[automacao.chave] || [];
 
   async function salvar() {
     setSalvando(true);
-    const config = automacao.chave === "boas_vindas" ? { enviar_para: enviarPara, dias_reativacao: Number(diasReativacao) || 7 } : automacao.config;
+    let config = automacao.config || {};
+    if (automacao.chave === "boas_vindas") {
+      config = { enviar_para: enviarPara, dias_reativacao: Number(diasReativacao) || 7 };
+    } else if (ehLembreteRetirada) {
+      config = { ...config, mensagem_2h: mensagem2h };
+    } else if (ehLembreteDevolucao) {
+      config = { ...config, mensagem_2h: mensagem2h, mensagem_decoracao: mensagemDecoracao, mensagem_decoracao_2h: mensagemDecoracao2h };
+    }
     await onSalvar(mensagem, config);
     setSalvando(false);
   }
@@ -2042,14 +2060,42 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
           </div>
         )}
 
-        {(automacao.chave === "lembrete_retirada" || automacao.chave === "lembrete_devolucao") && (
-          <p className="text-xs text-slate-400 mb-3 px-3 py-2 rounded-xl bg-slate-50">Essa mensagem é mandada 2x: 1 dia antes e 2h antes — {"{{quando}}"} vira "amanhã" ou "daqui a 2 horas" sozinho. {"{{endereco}}"} só aparece se não for Decoração (aí quem vai até o cliente é você).</p>
-        )}
+        {(ehLembreteRetirada || ehLembreteDevolucao) ? (
+          <>
+            <p className="text-xs text-slate-400 mb-3 px-3 py-2 rounded-xl bg-slate-50">Esse lembrete é mandado 2x — 1 dia antes e 2 horas antes — cada um com o seu próprio texto, pra não repetir a mesma mensagem. {"{{endereco}}"} só aparece se não for Decoração (aí quem vai até o cliente é você).</p>
 
-        <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem</p>
-        <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-2" rows={5} value={mensagem} onChange={(e) => setMensagem(e.target.value)} />
-        {variaveis.length > 0 && (
-          <p className="text-[11px] text-slate-400 mb-4">Variáveis que você pode usar: {variaveis.map((v) => <code key={v} className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{v}</code>)}</p>
+            <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 1 dia antes{ehLembreteDevolucao ? " (kit)" : ""}</p>
+            <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-3" rows={4} value={mensagem} onChange={(e) => setMensagem(e.target.value)} />
+
+            <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 2 horas antes{ehLembreteDevolucao ? " (kit)" : ""}</p>
+            <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-2" rows={4} value={mensagem2h} onChange={(e) => setMensagem2h(e.target.value)} />
+
+            {variaveis.length > 0 && (
+              <p className="text-[11px] text-slate-400 mb-4">Variáveis que você pode usar: {variaveis.map((v) => <code key={v} className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{v}</code>)}</p>
+            )}
+
+            {ehLembreteDevolucao && (
+              <>
+                <p className="text-xs text-slate-400 mb-3 px-3 py-2 rounded-xl bg-slate-50">Quando o contrato for <b>Decoração</b>, não tem kit pra devolver — é você quem vai até lá desmontar. Por isso esses dois usam um texto à parte:</p>
+
+                <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 1 dia antes (Decoração)</p>
+                <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-3" rows={4} value={mensagemDecoracao} onChange={(e) => setMensagemDecoracao(e.target.value)} />
+
+                <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 2 horas antes (Decoração)</p>
+                <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-2" rows={4} value={mensagemDecoracao2h} onChange={(e) => setMensagemDecoracao2h(e.target.value)} />
+
+                <p className="text-[11px] text-slate-400 mb-4">Variáveis: <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{nome_cliente}}"}</code> <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{produto}}"}</code> <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{data}}"}</code> <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{hora}}"}</code> (sem {"{{endereco}}"} aqui, já que quem vai até o cliente é você)</p>
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem</p>
+            <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-2" rows={5} value={mensagem} onChange={(e) => setMensagem(e.target.value)} />
+            {variaveis.length > 0 && (
+              <p className="text-[11px] text-slate-400 mb-4">Variáveis que você pode usar: {variaveis.map((v) => <code key={v} className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{v}</code>)}</p>
+            )}
+          </>
         )}
 
         <div className="flex gap-2 mt-2">
@@ -5871,6 +5917,34 @@ function App() {
     if (!profile) return;
     sb.from("contracts").select("*").eq("decoradora_id", profile.id).then(({ data }) => setHomeContracts((data || []).map(contractFromDb)));
   }, [profile, page]);
+
+  // Enquanto o WhatsApp da decoradora estiver marcado como conectado, confere
+  // de tempos em tempos se ele continua de pé de verdade (o número pode cair
+  // sozinho — sem internet no aparelho, ela desconectou pelo celular etc.) —
+  // assim o indicador do cabeçalho não fica preso num "conectado" que já não
+  // é real até ela recarregar a página.
+  useEffect(() => {
+    if (!isOwner || !profile || profile.plano_tipo !== "premium" || !profile.whatsapp_proprio_conectado) return;
+    const verificar = async () => {
+      try {
+        const { data: sessionData } = await sb.auth.getSession();
+        const token = sessionData && sessionData.session ? sessionData.session.access_token : null;
+        if (!token) return;
+        const resp = await fetch(`${SUPABASE_URL}/functions/v1/whatsapp-conectar`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ action: "status" }),
+        });
+        if (!resp.ok) return;
+        const corpo = await resp.json();
+        setProfile((p) => (p ? { ...p, whatsapp_proprio_conectado: !!corpo.conectado, whatsapp_proprio_numero: corpo.numero || null } : p));
+      } catch (e) {
+        // falha de rede não deve derrubar o indicador — só tenta de novo no próximo ciclo
+      }
+    };
+    const intervalo = setInterval(verificar, 180000);
+    return () => clearInterval(intervalo);
+  }, [isOwner, profile?.id, profile?.plano_tipo, profile?.whatsapp_proprio_conectado]);
 
   useEffect(() => {
     if (!profile) return;
