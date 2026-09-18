@@ -2002,6 +2002,8 @@ function AutomacaoRow({ automacao, onToggle, onEditar }) {
 function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
   const [mensagem, setMensagem] = useState(automacao.mensagem || "");
   const [mensagem2h, setMensagem2h] = useState(automacao.config?.mensagem_2h || "");
+  const [mensagemBaloes, setMensagemBaloes] = useState(automacao.config?.mensagem_baloes || "");
+  const [mensagemBaloes2h, setMensagemBaloes2h] = useState(automacao.config?.mensagem_baloes_2h || "");
   const [mensagemDecoracao, setMensagemDecoracao] = useState(automacao.config?.mensagem_decoracao || "");
   const [mensagemDecoracao2h, setMensagemDecoracao2h] = useState(automacao.config?.mensagem_decoracao_2h || "");
   const [enviarPara, setEnviarPara] = useState(automacao.config?.enviar_para || "primeiro_contato");
@@ -2016,8 +2018,8 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
     contrato_assinatura: ["{{nome_cliente}}", "{{link_contrato}}"],
     lembrete_sinal: ["{{nome_cliente}}"],
     confirmacao_agendamento: ["{{nome_cliente}}", "{{data_retirada}}"],
-    lembrete_retirada: ["{{nome_cliente}}", "{{produto}}", "{{data}}", "{{hora}}", "{{endereco}}"],
-    lembrete_devolucao: ["{{nome_cliente}}", "{{produto}}", "{{data}}", "{{hora}}", "{{endereco}}"],
+    lembrete_retirada: ["{{nome_cliente}}", "{{nome_loja}}", "{{produto}}", "{{data}}", "{{hora}}", "{{endereco}}"],
+    lembrete_devolucao: ["{{nome_cliente}}", "{{nome_loja}}", "{{produto}}", "{{data}}", "{{hora}}", "{{endereco}}"],
     aniversario: ["{{nome_cliente}}", "{{nome_aniversariante}}", "{{dias}}"],
     pos_venda: ["{{nome_cliente}}"],
   }[automacao.chave] || [];
@@ -2028,7 +2030,7 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
     if (automacao.chave === "boas_vindas") {
       config = { enviar_para: enviarPara, dias_reativacao: Number(diasReativacao) || 7 };
     } else if (ehLembreteRetirada) {
-      config = { ...config, mensagem_2h: mensagem2h };
+      config = { ...config, mensagem_2h: mensagem2h, mensagem_baloes: mensagemBaloes, mensagem_baloes_2h: mensagemBaloes2h, mensagem_decoracao: mensagemDecoracao, mensagem_decoracao_2h: mensagemDecoracao2h };
     } else if (ehLembreteDevolucao) {
       config = { ...config, mensagem_2h: mensagem2h, mensagem_decoracao: mensagemDecoracao, mensagem_decoracao_2h: mensagemDecoracao2h };
     }
@@ -2064,29 +2066,41 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
           <>
             <p className="text-xs text-slate-400 mb-3 px-3 py-2 rounded-xl bg-slate-50">Esse lembrete é mandado 2x — 1 dia antes e 2 horas antes — cada um com o seu próprio texto, pra não repetir a mesma mensagem. {"{{endereco}}"} só aparece se não for Decoração (aí quem vai até o cliente é você).</p>
 
-            <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 1 dia antes{ehLembreteDevolucao ? " (kit)" : ""}</p>
+            <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 1 dia antes (kit)</p>
             <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-3" rows={4} value={mensagem} onChange={(e) => setMensagem(e.target.value)} />
 
-            <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 2 horas antes{ehLembreteDevolucao ? " (kit)" : ""}</p>
+            <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 2 horas antes (kit)</p>
             <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-2" rows={4} value={mensagem2h} onChange={(e) => setMensagem2h(e.target.value)} />
 
             {variaveis.length > 0 && (
               <p className="text-[11px] text-slate-400 mb-4">Variáveis que você pode usar: {variaveis.map((v) => <code key={v} className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{v}</code>)}</p>
             )}
 
-            {ehLembreteDevolucao && (
+            {ehLembreteRetirada && (
               <>
-                <p className="text-xs text-slate-400 mb-3 px-3 py-2 rounded-xl bg-slate-50">Quando o contrato for <b>Decoração</b>, não tem kit pra devolver — é você quem vai até lá desmontar. Por isso esses dois usam um texto à parte:</p>
+                <p className="text-xs text-slate-400 mb-3 px-3 py-2 rounded-xl bg-slate-50">Quando for retirada de <b>balões</b>, o texto muda pra incluir os cuidados de conservação:</p>
 
-                <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 1 dia antes (Decoração)</p>
-                <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-3" rows={4} value={mensagemDecoracao} onChange={(e) => setMensagemDecoracao(e.target.value)} />
+                <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 1 dia antes (Balões)</p>
+                <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-3" rows={4} value={mensagemBaloes} onChange={(e) => setMensagemBaloes(e.target.value)} />
 
-                <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 2 horas antes (Decoração)</p>
-                <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-2" rows={4} value={mensagemDecoracao2h} onChange={(e) => setMensagemDecoracao2h(e.target.value)} />
-
-                <p className="text-[11px] text-slate-400 mb-4">Variáveis: <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{nome_cliente}}"}</code> <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{produto}}"}</code> <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{data}}"}</code> <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{hora}}"}</code> (sem {"{{endereco}}"} aqui, já que quem vai até o cliente é você)</p>
+                <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 2 horas antes (Balões)</p>
+                <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-4" rows={4} value={mensagemBaloes2h} onChange={(e) => setMensagemBaloes2h(e.target.value)} />
               </>
             )}
+
+            <p className="text-xs text-slate-400 mb-3 px-3 py-2 rounded-xl bg-slate-50">
+              {ehLembreteRetirada
+                ? <>Quando o contrato for <b>Decoração</b>, esse lembrete é sobre a montagem, não a retirada de um kit. Por isso esses dois usam um texto à parte:</>
+                : <>Quando o contrato for <b>Decoração</b>, não tem kit pra devolver — é você quem vai até lá desmontar. Por isso esses dois usam um texto à parte:</>}
+            </p>
+
+            <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 1 dia antes (Decoração)</p>
+            <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-3" rows={4} value={mensagemDecoracao} onChange={(e) => setMensagemDecoracao(e.target.value)} />
+
+            <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 2 horas antes (Decoração)</p>
+            <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-2" rows={4} value={mensagemDecoracao2h} onChange={(e) => setMensagemDecoracao2h(e.target.value)} />
+
+            <p className="text-[11px] text-slate-400 mb-4">Variáveis: <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{nome_cliente}}"}</code> <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{nome_loja}}"}</code> <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{produto}}"}</code> <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{data}}"}</code> <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{hora}}"}</code> (sem {"{{endereco}}"} aqui, já que quem vai até o cliente é você)</p>
           </>
         ) : (
           <>
