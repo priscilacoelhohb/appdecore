@@ -3317,7 +3317,10 @@ const CATEGORIAS_CAPA_FIXAS = [
 // Mesma lógica de match do catalogo-cliente.html (CATEGORIAS_CATALOGO /
 // FAIXAS_PEGUE_MONTE) — precisa ficar idêntica pra foto de fallback mostrada
 // aqui em Configurações bater com a que realmente aparece pro cliente.
-const MATCH_CATEGORIA_FIXA = {
+// Um kit pode estar em mais de uma categoria (ex.: Menino e Menina): além do
+// tipo_evento/publico "principal", as chaves marcadas ficam em categorias_chaves.
+const kitTemChaveCategoria = (k, chave) => Array.isArray(k.categorias_chaves) && k.categorias_chaves.includes(chave);
+const MATCH_CATEGORIA_FIXA_BASE = {
   "infantil-menino": (k) => /infantil/i.test(k.tipo_evento || "") && /menino/i.test(k.publico || ""),
   "infantil-menina": (k) => /infantil/i.test(k.tipo_evento || "") && /menina/i.test(k.publico || ""),
   "adulto": (k) => /adulto/i.test(k.tipo_evento || ""),
@@ -3328,6 +3331,9 @@ const MATCH_CATEGORIA_FIXA = {
   "pm-prata": (k) => k.faixa_pegue_monte === "prata",
   "pm-ouro": (k) => k.faixa_pegue_monte === "ouro",
 };
+const MATCH_CATEGORIA_FIXA = Object.fromEntries(
+  Object.entries(MATCH_CATEGORIA_FIXA_BASE).map(([chave, fn]) => [chave, chave.startsWith("pm-") ? fn : (k) => fn(k) || kitTemChaveCategoria(k, chave)])
+);
 
 async function dataUrlParaBlob(dataUrl) {
   const resposta = await fetch(dataUrl);
@@ -3504,8 +3510,8 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
       }
     }
     setEditando({
-      id: null, nome: "", itens_inclusos: [], tipo_evento: "", publico: "", nivel: "", faixa_pegue_monte: null, tema: "", cor: "",
-      preco: "", status: "publicado", aceita_variacao_cor: true, em_destaque: false,
+      id: null, nome: "", itens_inclusos: [], tipo_evento: "", publico: "", categorias_chaves: [], nivel: "", faixa_pegue_monte: null, tema: "", cor: "",
+      preco: "", mostrar_preco: true, status: "publicado", aceita_variacao_cor: true, em_destaque: false,
     });
   }
 
@@ -3517,6 +3523,8 @@ function CatalogoTab({ userId, profile, onProfileUpdate }) {
       itens_inclusos: dadosKit.itens_inclusos || [],
       tipo_evento: dadosKit.tipo_evento || null,
       publico: dadosKit.publico || null,
+      categorias_chaves: Array.isArray(dadosKit.categorias_chaves) ? dadosKit.categorias_chaves : [],
+      mostrar_preco: dadosKit.mostrar_preco !== false,
       nivel: dadosKit.nivel || null,
       faixa_pegue_monte: dadosKit.faixa_pegue_monte || null,
       tema: dadosKit.tema || null,
@@ -3786,7 +3794,7 @@ function CropFotoModal({ src, onConfirmar, onPular }) {
 }
 
 function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto, onFotoGeradaSalva }) {
-  const [form, setForm] = useState(kit);
+  const [form, setForm] = useState({ ...kit, categorias_chaves: Array.isArray(kit.categorias_chaves) ? kit.categorias_chaves : [], mostrar_preco: kit.mostrar_preco !== false });
   const [salvando, setSalvando] = useState(false);
   const [fotosPendentes, setFotosPendentes] = useState([]); // {tempId, file, previewUrl} — ainda não subiram
   const set = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
@@ -3805,6 +3813,25 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
   }, [profile]);
   function acharCategoria(tipoEvento, publico) {
     return opcoesCategoria.find((c) => c.tipoEvento === tipoEvento && (c.publico == null || c.publico === publico));
+  }
+  // Kits antigos só têm tipo_evento/publico: a categoria deles vira a seleção
+  // inicial. Depois de salvar de novo, tudo passa a vir de categorias_chaves.
+  const chavesSelecionadas = useMemo(() => {
+    if (form.categorias_chaves.length > 0) return form.categorias_chaves;
+    const antiga = acharCategoria(form.tipo_evento, form.publico);
+    return antiga ? [antiga.chave] : [];
+  }, [form.categorias_chaves, form.tipo_evento, form.publico, opcoesCategoria]);
+  function alternarCategoria(chave) {
+    const novas = chavesSelecionadas.includes(chave) ? chavesSelecionadas.filter((c) => c !== chave) : [...chavesSelecionadas, chave];
+    const principal = opcoesCategoria.find((o) => o.chave === novas[0]);
+    // Menino + Menina juntos = kit unissex; o resto segue a primeira marcada.
+    const unissex = novas.includes("infantil-menino") && novas.includes("infantil-menina");
+    setForm((f) => ({
+      ...f,
+      categorias_chaves: novas,
+      tipo_evento: principal ? principal.tipoEvento : "",
+      publico: unissex ? "Unissex" : (principal ? principal.publico : ""),
+    }));
   }
 
   // Os 3 níveis fixos (Bronze/Prata/Ouro) puxam o nome direto de
@@ -3969,19 +3996,23 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
           </div>
 
           <div>
-            <label className="text-xs font-bold text-slate-500 mb-1 block">Categoria<Ajuda emoji="🗂️" titulo="Categoria" texto="Escolhe entre as categorias já cadastradas em Configurações do Catálogo. Não achou a que precisa? Cadastre uma nova lá antes de continuar aqui." /></label>
-            <select
-              value={acharCategoria(form.tipo_evento, form.publico)?.chave || ""}
-              onChange={(e) => {
-                const c = opcoesCategoria.find((o) => o.chave === e.target.value);
-                set("tipo_evento", c ? c.tipoEvento : "");
-                set("publico", c ? c.publico : "");
-              }}
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
-            >
-              <option value="">—</option>
-              {opcoesCategoria.map((c) => <option key={c.chave} value={c.chave}>{c.label}</option>)}
-            </select>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">Categoria (pode marcar mais de uma)<Ajuda emoji="🗂️" titulo="Categoria" texto="Marque todas as categorias em que esse kit se encaixa — por exemplo, um kit de personagem unissex pode ficar em Masculino e Feminino ao mesmo tempo, e aparece nas duas no catálogo. São as categorias cadastradas em Configurações do Catálogo. Não achou a que precisa? Cadastre uma nova lá antes de continuar aqui." /></label>
+            <div className="flex flex-wrap gap-1.5">
+              {opcoesCategoria.map((c) => {
+                const marcada = chavesSelecionadas.includes(c.chave);
+                return (
+                  <button
+                    key={c.chave}
+                    type="button"
+                    onClick={() => alternarCategoria(c.chave)}
+                    className="px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer"
+                    style={{ background: marcada ? BRAND.rosa : "#F1F5F9", color: marcada ? "#fff" : BRAND.tinta }}
+                  >
+                    {marcada ? "✓ " : ""}{c.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -4010,6 +4041,17 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
           <div>
             <label className="text-xs font-bold text-slate-500 mb-1 block">Preço (opcional)</label>
             <input value={form.preco || ""} onChange={(e) => set("preco", e.target.value.replace(/[^0-9.,]/g, ""))} placeholder="250,00" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+            <div className="flex items-center justify-between pt-3">
+              <div>
+                <span className="text-sm font-semibold block" style={{ color: BRAND.tinta }}>Mostrar o preço desse kit pro cliente</span>
+                {profile?.catalogo_mostrar_valores === false && (
+                  <span className="text-xs" style={{ color: "#b45309" }}>Os preços estão escondidos pra todos os kits em Configurações (Mostrar valores). Ligue lá pra essa chave valer.</span>
+                )}
+              </div>
+              <button onClick={() => set("mostrar_preco", !form.mostrar_preco)} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors shrink-0 ml-3" style={{ background: form.mostrar_preco ? BRAND.rosa : "#e5e7eb" }}>
+                <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all" style={{ left: form.mostrar_preco ? 26 : 4 }} />
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center justify-between py-2">
@@ -4442,7 +4484,7 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
           {form.catalogo_categorias_extras.map((extra) => {
             const oculta = form.catalogo_categorias_ocultas.includes(extra.id);
             const alvo = (extra.nome || "").trim().toLowerCase();
-            const matchExtra = (k) => (k.tipo_evento || "").trim().toLowerCase() === alvo;
+            const matchExtra = (k) => (k.tipo_evento || "").trim().toLowerCase() === alvo || kitTemChaveCategoria(k, extra.id);
             const foto = form.catalogo_capas_categorias[extra.id] || (alvo && fotoFallback(matchExtra));
             const qtdKits = alvo ? (kits || []).filter(matchExtra).length : 0;
             return (
@@ -4636,7 +4678,7 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
         <div className="border-t border-slate-100 pt-3 space-y-3">
           {[
             ["catalogo_ativo", "Catálogo ativo", "Libera o link pros clientes"],
-            ["catalogo_mostrar_valores", "Mostrar valores", "Cliente vê o preço de cada kit"],
+            ["catalogo_mostrar_valores", "Mostrar valores", "Liga ou desliga o preço em todos os kits. Ligado, cada kit ainda pode esconder o dele."],
             ["catalogo_usar_marca_dagua", "Usar marca d'água", "Sua logo aparece sutil nas fotos"],
           ].map(([campo, titulo, desc]) => (
             <div key={campo} className="flex items-center justify-between py-1">
