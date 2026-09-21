@@ -3670,17 +3670,14 @@ function KitsLista({ kits, fotosPorKit, onNovo, onEditar, onExcluir }) {
   const [busca, setBusca] = useState("");
   const [filtroEvento, setFiltroEvento] = useState("");
   const [filtroPublico, setFiltroPublico] = useState("");
-  const [filtroNivel, setFiltroNivel] = useState("");
 
   const eventosDisponiveis = [...new Set((kits || []).map((k) => k.tipo_evento).filter(Boolean))];
   const publicosDisponiveis = [...new Set((kits || []).map((k) => k.publico).filter(Boolean))];
-  const niveisDisponiveis = [...new Set((kits || []).map((k) => k.nivel).filter(Boolean))];
 
   const filtrados = (kits || []).filter((k) =>
     k.nome.toLowerCase().includes(busca.toLowerCase()) &&
     (!filtroEvento || k.tipo_evento === filtroEvento) &&
-    (!filtroPublico || k.publico === filtroPublico) &&
-    (!filtroNivel || k.nivel === filtroNivel)
+    (!filtroPublico || k.publico === filtroPublico)
   );
 
   return (
@@ -3692,7 +3689,6 @@ function KitsLista({ kits, fotosPorKit, onNovo, onEditar, onExcluir }) {
 
       <ChipsFiltro label="Tipo de evento" opcoes={eventosDisponiveis} valor={filtroEvento} onChange={setFiltroEvento} />
       <ChipsFiltro label="Público" opcoes={publicosDisponiveis} valor={filtroPublico} onChange={setFiltroPublico} />
-      <ChipsFiltro label="Nível" opcoes={niveisDisponiveis} valor={filtroNivel} onChange={setFiltroNivel} />
 
       {filtrados.length === 0 && (
         <div className="text-center py-16 text-slate-400 text-sm">
