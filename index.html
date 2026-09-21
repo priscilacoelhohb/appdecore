@@ -3745,9 +3745,10 @@ function KitsLista({ kits, fotosPorKit, onNovo, onEditar, onExcluir }) {
   );
 }
 
-// Recorte quadrado (1:1) antes da foto entrar no kit — mesmo formato usado
-// nas miniaturas em grade do catálogo. Usa a lib Cropper.js.
-function CropFotoModal({ src, onConfirmar, onPular }) {
+// Recorte antes da foto entrar no kit (padrão quadrado 1:1, igual às miniaturas
+// em grade do catálogo) ou no banner (proporção e largura vêm por props).
+// Usa a lib Cropper.js.
+function CropFotoModal({ src, onConfirmar, onPular, proporcao = 1, larguraSaida = 1000, titulo = "Ajustar foto", descricao = "Arraste as bordas pra recortar. A foto vira quadrada, igual aparece no catálogo." }) {
   const imgRef = React.useRef(null);
   const cropperRef = React.useRef(null);
   const [processando, setProcessando] = useState(false);
@@ -3755,7 +3756,7 @@ function CropFotoModal({ src, onConfirmar, onPular }) {
   useEffect(() => {
     if (!imgRef.current || !src) return;
     cropperRef.current = new Cropper(imgRef.current, {
-      aspectRatio: 1,
+      aspectRatio: proporcao,
       viewMode: 1,
       autoCropArea: 1,
       background: false,
@@ -3770,7 +3771,7 @@ function CropFotoModal({ src, onConfirmar, onPular }) {
   function confirmar() {
     if (!cropperRef.current) return;
     setProcessando(true);
-    cropperRef.current.getCroppedCanvas({ width: 1000, height: 1000, imageSmoothingQuality: "high" }).toBlob((blob) => {
+    cropperRef.current.getCroppedCanvas({ width: larguraSaida, height: Math.round(larguraSaida / proporcao), imageSmoothingQuality: "high" }).toBlob((blob) => {
       setProcessando(false);
       if (blob) onConfirmar(blob);
     }, "image/jpeg", 0.9);
@@ -3779,8 +3780,8 @@ function CropFotoModal({ src, onConfirmar, onPular }) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" onClick={(e) => e.stopPropagation()}>
       <div className="bg-white rounded-2xl p-4 w-full sm:max-w-md">
-        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>Ajustar foto</p>
-        <p className="text-xs text-slate-400 mb-3">Arraste as bordas pra recortar. A foto vira quadrada, igual aparece no catálogo.</p>
+        <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>{titulo}</p>
+        <p className="text-xs text-slate-400 mb-3">{descricao}</p>
         <div className="h-72 overflow-hidden rounded-xl bg-slate-100">
           {src && <img ref={imgRef} src={src} className="max-w-full block" />}
         </div>
@@ -4324,6 +4325,27 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
     set(campo, dataUrl);
   }
 
+  // Banner: a imagem passa por um recorte na proporção exata (3:1 no
+  // computador, 4:3 no celular), igual ao que a página do cliente mostra.
+  const [cropBanner, setCropBanner] = useState(null); // { campo, file, proporcao, largura, rotulo }
+  const cropBannerSrc = useMemo(() => (cropBanner ? URL.createObjectURL(cropBanner.file) : null), [cropBanner]);
+  useEffect(() => () => { if (cropBannerSrc) URL.revokeObjectURL(cropBannerSrc); }, [cropBannerSrc]);
+  function escolherBanner(campo, file, proporcao, largura, rotulo) {
+    if (!file || !file.type.startsWith("image/")) return;
+    setCropBanner({ campo, file, proporcao, largura, rotulo });
+  }
+  function confirmarCropBanner(blob) {
+    const campo = cropBanner.campo;
+    const leitor = new FileReader();
+    leitor.onload = () => { set(campo, leitor.result); setCropBanner(null); };
+    leitor.readAsDataURL(blob);
+  }
+  function pularCropBanner() {
+    const { campo, file, largura } = cropBanner;
+    setCropBanner(null);
+    handleUploadImagem(campo, file, largura);
+  }
+
   function formatarWhatsappBR(bruto) {
     let digitos = (bruto || "").replace(/\D/g, "");
     if (!digitos) return "";
@@ -4383,24 +4405,35 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
         )}
 
         <label className="text-xs font-bold text-slate-500 mb-1 block">Banner do catálogo (computador)</label>
-        <p className="text-[11px] text-slate-400 mb-2">Tamanho ideal: 1200 x 400px (bem largo e baixo).</p>
+        <p className="text-[11px] text-slate-400 mb-2">Tamanho ideal: <b>1200 x 400px</b> (proporção 3:1, bem largo e baixo). Se a imagem tiver outra proporção, você ajusta o recorte ao subir.</p>
         <div className="flex items-center gap-3 mb-4">
-          {form.catalogo_banner_url ? <img src={form.catalogo_banner_url} className="w-24 h-14 rounded-xl object-cover" /> : <div className="w-24 h-14 rounded-xl bg-slate-100" />}
+          {form.catalogo_banner_url ? <img src={form.catalogo_banner_url} className="w-36 rounded-lg object-cover" style={{ aspectRatio: "3 / 1" }} /> : <div className="w-36 rounded-lg bg-slate-100" style={{ aspectRatio: "3 / 1" }} />}
           <label className="px-3 py-2 rounded-xl font-bold text-xs cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
             Trocar banner
-            <input type="file" accept="image/*" className="hidden" onChange={(e) => handleUploadImagem("catalogo_banner_url", e.target.files[0], 1200)} />
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => { escolherBanner("catalogo_banner_url", e.target.files[0], 3, 1200, "Banner do computador (3:1)"); e.target.value = ""; }} />
           </label>
         </div>
 
         <label className="text-xs font-bold text-slate-500 mb-1 block">Banner do catálogo (celular)</label>
-        <p className="text-[11px] text-slate-400 mb-2">Tamanho ideal: 800 x 600px (mais quadrado, fica melhor na tela do celular).</p>
+        <p className="text-[11px] text-slate-400 mb-2">Tamanho ideal: <b>800 x 600px</b> (proporção 4:3, mais quadrado, fica melhor na tela do celular). Sem banner de celular, o do computador aparece no celular também.</p>
         <div className="flex items-center gap-3 mb-4">
-          {form.catalogo_banner_mobile_url ? <img src={form.catalogo_banner_mobile_url} className="w-14 h-14 rounded-xl object-cover" /> : <div className="w-14 h-14 rounded-xl bg-slate-100" />}
+          {form.catalogo_banner_mobile_url ? <img src={form.catalogo_banner_mobile_url} className="w-20 rounded-lg object-cover" style={{ aspectRatio: "4 / 3" }} /> : <div className="w-20 rounded-lg bg-slate-100" style={{ aspectRatio: "4 / 3" }} />}
           <label className="px-3 py-2 rounded-xl font-bold text-xs cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>
             Trocar banner
-            <input type="file" accept="image/*" className="hidden" onChange={(e) => handleUploadImagem("catalogo_banner_mobile_url", e.target.files[0], 800)} />
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => { escolherBanner("catalogo_banner_mobile_url", e.target.files[0], 4 / 3, 800, "Banner do celular (4:3)"); e.target.value = ""; }} />
           </label>
         </div>
+        {cropBanner && (
+          <CropFotoModal
+            src={cropBannerSrc}
+            proporcao={cropBanner.proporcao}
+            larguraSaida={cropBanner.largura}
+            titulo={cropBanner.rotulo}
+            descricao="Arraste e use as bordas pra escolher a parte que vai aparecer. O recorte já sai no tamanho certo pro catálogo. Depois clique em Salvar lá embaixo."
+            onConfirmar={confirmarCropBanner}
+            onPular={pularCropBanner}
+          />
+        )}
 
         <label className="text-xs font-bold text-slate-500 mb-1 block">Cor de destaque</label>
         <input type="color" value={form.catalogo_cor_destaque} onChange={(e) => set("catalogo_cor_destaque", e.target.value)} className="w-16 h-10 rounded-lg border border-slate-200 cursor-pointer" />
