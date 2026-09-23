@@ -2010,8 +2010,6 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
   const [mensagemBaloes2h, setMensagemBaloes2h] = useState(automacao.config?.mensagem_baloes_2h || "");
   const [mensagemDecoracao, setMensagemDecoracao] = useState(automacao.config?.mensagem_decoracao || "");
   const [mensagemDecoracao2h, setMensagemDecoracao2h] = useState(automacao.config?.mensagem_decoracao_2h || "");
-  const [enviarPara, setEnviarPara] = useState(automacao.config?.enviar_para || "reativacao");
-  const [diasReativacao, setDiasReativacao] = useState(String(automacao.config?.dias_reativacao || 7));
   const [salvando, setSalvando] = useState(false);
 
   const ehLembreteRetirada = automacao.chave === "lembrete_retirada";
@@ -2031,9 +2029,7 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
   async function salvar() {
     setSalvando(true);
     let config = automacao.config || {};
-    if (automacao.chave === "boas_vindas") {
-      config = { enviar_para: enviarPara, dias_reativacao: Number(diasReativacao) || 7 };
-    } else if (ehLembreteRetirada) {
+    if (ehLembreteRetirada) {
       config = { ...config, mensagem_2h: mensagem2h, mensagem_baloes: mensagemBaloes, mensagem_baloes_2h: mensagemBaloes2h, mensagem_decoracao: mensagemDecoracao, mensagem_decoracao_2h: mensagemDecoracao2h };
     } else if (ehLembreteDevolucao) {
       config = { ...config, mensagem_2h: mensagem2h, mensagem_decoracao: mensagemDecoracao, mensagem_decoracao_2h: mensagemDecoracao2h };
@@ -2049,21 +2045,7 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
         <p className="text-xs text-slate-400 mb-4">{automacao.descricao}</p>
 
         {automacao.chave === "boas_vindas" && (
-          <div className="mb-4">
-            <p className="text-xs font-bold text-slate-500 mb-1.5">Quando mandar</p>
-            <div className="space-y-1.5">
-              <button type="button" onClick={() => setEnviarPara("primeiro_contato")} className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer" style={enviarPara === "primeiro_contato" ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>Primeiro contato do cliente</button>
-              <button type="button" onClick={() => setEnviarPara("reativacao")} className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer" style={enviarPara === "reativacao" ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>De novo se ela sumir por um tempo</button>
-              <button type="button" onClick={() => setEnviarPara("todos")} className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold border-2 transition cursor-pointer" style={enviarPara === "todos" ? { background: BRAND.azul, borderColor: BRAND.azul, color: "#fff" } : { borderColor: "#e2e8f0", color: BRAND.tinta }}>Em toda mensagem que ela mandar</button>
-            </div>
-            {enviarPara === "reativacao" && (
-              <div className="flex items-center gap-2 mt-2 pl-1">
-                <span className="text-xs text-slate-500">Manda de novo depois de</span>
-                <input type="number" min="1" value={diasReativacao} onChange={(e) => setDiasReativacao(e.target.value.replace(/[^0-9]/g, ""))} className="w-14 px-2 py-1 rounded-lg border border-slate-200 text-xs text-center" />
-                <span className="text-xs text-slate-500">dias sem ela falar de novo</span>
-              </div>
-            )}
-          </div>
+          <p className="text-xs text-slate-400 mb-3 px-3 py-2 rounded-xl bg-slate-50">Manda essa mensagem uma vez, na primeira vez que um número novo escrever pra você — automático, sem precisar configurar nada.</p>
         )}
 
         {(ehLembreteRetirada || ehLembreteDevolucao) ? (
