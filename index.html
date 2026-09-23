@@ -453,6 +453,7 @@ function AuthScreen({ onAuthed }) {
             stripe_customer_id: pendente.stripe_customer_id,
             stripe_subscription_id: pendente.stripe_subscription_id,
             cakto_subscription_id: pendente.cakto_subscription_id,
+            ciclo_cobranca: pendente.ciclo_cobranca || "mensal",
             fonte_pagamento_ativa: pendente.cakto_subscription_id ? "cakto" : (pendente.stripe_customer_id ? "stripe" : null),
             // Sem isso, a conta nascia com plano_tipo certo mas plano_status
             // ainda em "trial" (o padrão da tabela) — ela pagou mas o app
@@ -508,6 +509,7 @@ function AuthScreen({ onAuthed }) {
             stripe_customer_id: pendente.stripe_customer_id,
             stripe_subscription_id: pendente.stripe_subscription_id,
             cakto_subscription_id: pendente.cakto_subscription_id,
+            ciclo_cobranca: pendente.ciclo_cobranca || "mensal",
             fonte_pagamento_ativa: pendente.cakto_subscription_id ? "cakto" : (pendente.stripe_customer_id ? "stripe" : null),
             plano_status: "ativo",
           };
