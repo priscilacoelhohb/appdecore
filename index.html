@@ -4047,8 +4047,11 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
           </div>
 
           <div className="flex items-center justify-between py-2">
-            <span className="text-sm font-semibold" style={{ color: BRAND.tinta }}>Kit em destaque</span>
-            <button onClick={() => set("em_destaque", !form.em_destaque)} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors" style={{ background: form.em_destaque ? BRAND.rosa : "#e5e7eb" }}>
+            <div>
+              <span className="text-sm font-semibold block" style={{ color: BRAND.tinta }}>Kit mais alugado</span>
+              <span className="text-xs text-slate-400">Mostra o selo "🔥 Mais alugado" e coloca esse kit primeiro no catálogo</span>
+            </div>
+            <button onClick={() => set("em_destaque", !form.em_destaque)} className="w-12 h-7 rounded-full relative cursor-pointer transition-colors shrink-0 ml-3" style={{ background: form.em_destaque ? BRAND.rosa : "#e5e7eb" }}>
               <span className="absolute top-1 w-5 h-5 rounded-full bg-white transition-all" style={{ left: form.em_destaque ? 26 : 4 }} />
             </button>
           </div>
