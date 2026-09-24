@@ -2069,8 +2069,9 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
               <p className="text-xs font-bold text-slate-500 mb-1.5">Mandar o segundo lembrete quantas horas antes?</p>
               <div className="flex items-center gap-2">
                 <input type="number" min="0.5" step="0.5" value={horasAntes} onChange={(e) => setHorasAntes(e.target.value)} className="w-20 px-3 py-2 rounded-xl border border-slate-200 text-sm text-center" />
-                <span className="text-xs text-slate-500">horas antes (ex: 1,5 = 1h30). Ajuste pra não cair fora do horário comercial.</span>
+                <span className="text-xs text-slate-500">horas antes. Ajuste pra não cair fora do horário comercial.</span>
               </div>
+              <p className="text-[11px] text-slate-400 mt-1">Exemplos: digite <b>1</b> pra mandar 1 hora antes · <b>2</b> pra 2 horas antes · <b>0,5</b> pra meia hora antes · <b>1,5</b> pra 1 hora e meia antes.</p>
             </div>
 
             <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 1 dia antes (kit)</p>
