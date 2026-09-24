@@ -964,21 +964,32 @@ function TrialGate({ profile, onLogout, children }) {
     );
   }
 
+  // Link de pagamento certo pro plano e ciclo dela — mesmos 4 links usados na
+  // landing page, sempre via Cakto (o botão "Assinar agora" antes mandava
+  // Premium pro Stripe e Básico pra Cakto, dois gateways pro mesmo funil —
+  // foi exatamente esse padrão que causou cobrança em dobro numa decoradora
+  // real; unificado aqui só na Cakto).
+  const LINKS_ASSINATURA = {
+    basico: { mensal: "https://pay.cakto.com.br/b3o264t_975931", anual: "https://pay.cakto.com.br/5krz36f_1131923" },
+    premium: { mensal: "https://pay.cakto.com.br/v6va3mm", anual: "https://pay.cakto.com.br/598ihk8_1131831" },
+  };
+  const planoAtual = profile.plano_tipo === "premium" ? "premium" : "basico";
+  const cicloAtual = profile.ciclo_cobranca === "anual" ? "anual" : "mensal";
+  const linkPagamento = LINKS_ASSINATURA[planoAtual][cicloAtual];
+
+  const TEXTOS_BLOQUEIO = {
+    trial: { titulo: "Seu teste grátis acabou", texto: "Seus 7 dias grátis chegaram ao fim. Assine agora pra continuar usando o painel.", botao: "Assinar agora" },
+    inadimplente: { titulo: "Pagamento pendente", texto: "Sua última cobrança não foi confirmada. Faça o pagamento pra voltar a acessar.", botao: "Fazer pagamento e voltar a acessar" },
+  };
+  const textoBloqueio = TEXTOS_BLOQUEIO[status] || { titulo: "Acesso indisponível", texto: "Sua conta está com o acesso pausado no momento. Faça o pagamento pra voltar a acessar, ou fale com a gente.", botao: "Fazer pagamento e voltar a acessar" };
+
   return (
     <div className="min-h-screen flex items-center justify-center p-6" style={{ background: BRAND.bg }}>
       <div className="max-w-sm bg-white rounded-3xl shadow-xl p-8 text-center">
         <div className="text-4xl mb-3">⏰</div>
-        <h2 className="fredoka text-xl font-bold mb-2" style={{ color: BRAND.tinta }}>
-          {status === "trial" ? "Seu teste grátis acabou" : "Acesso indisponível"}
-        </h2>
-        <p className="text-sm text-slate-400 mb-6">
-          {status === "trial"
-            ? "Seus 7 dias grátis chegaram ao fim. Assine agora pra continuar usando o painel."
-            : "Sua conta está com o acesso pausado no momento. Fale com a gente pra regularizar."}
-        </p>
-        {status === "trial" && (
-          <a href={profile.plano_tipo === "premium" ? `https://buy.stripe.com/4gM5kwgoRh1I7Z57HdfQI08?prefilled_email=${encodeURIComponent(profile.email || "")}` : "https://pay.cakto.com.br/b3o264t_975931"} className="block w-full py-3 rounded-xl font-bold text-white cursor-pointer text-center mb-3" style={{ background: BRAND.rosa || BRAND.azul }}>Assinar agora</a>
-        )}
+        <h2 className="fredoka text-xl font-bold mb-2" style={{ color: BRAND.tinta }}>{textoBloqueio.titulo}</h2>
+        <p className="text-sm text-slate-400 mb-6">{textoBloqueio.texto}</p>
+        <a href={linkPagamento} className="block w-full py-3 rounded-xl font-bold text-white cursor-pointer text-center mb-3" style={{ background: BRAND.rosa || BRAND.azul }}>{textoBloqueio.botao}</a>
         <button onClick={onLogout} className="w-full py-3 rounded-xl font-bold text-white cursor-pointer" style={{ background: BRAND.azul }}>Sair</button>
       </div>
     </div>
