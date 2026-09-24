@@ -2021,6 +2021,7 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
   const [mensagemBaloes2h, setMensagemBaloes2h] = useState(automacao.config?.mensagem_baloes_2h || "");
   const [mensagemDecoracao, setMensagemDecoracao] = useState(automacao.config?.mensagem_decoracao || "");
   const [mensagemDecoracao2h, setMensagemDecoracao2h] = useState(automacao.config?.mensagem_decoracao_2h || "");
+  const [horasAntes, setHorasAntes] = useState(String(automacao.config?.horas_antes ?? 2));
   const [salvando, setSalvando] = useState(false);
 
   const ehLembreteRetirada = automacao.chave === "lembrete_retirada";
@@ -2040,10 +2041,11 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
   async function salvar() {
     setSalvando(true);
     let config = automacao.config || {};
+    const horasAntesNum = Math.max(Number(String(horasAntes).replace(",", ".")) || 2, 0.5);
     if (ehLembreteRetirada) {
-      config = { ...config, mensagem_2h: mensagem2h, mensagem_baloes: mensagemBaloes, mensagem_baloes_2h: mensagemBaloes2h, mensagem_decoracao: mensagemDecoracao, mensagem_decoracao_2h: mensagemDecoracao2h };
+      config = { ...config, mensagem_2h: mensagem2h, mensagem_baloes: mensagemBaloes, mensagem_baloes_2h: mensagemBaloes2h, mensagem_decoracao: mensagemDecoracao, mensagem_decoracao_2h: mensagemDecoracao2h, horas_antes: horasAntesNum };
     } else if (ehLembreteDevolucao) {
-      config = { ...config, mensagem_2h: mensagem2h, mensagem_decoracao: mensagemDecoracao, mensagem_decoracao_2h: mensagemDecoracao2h };
+      config = { ...config, mensagem_2h: mensagem2h, mensagem_decoracao: mensagemDecoracao, mensagem_decoracao_2h: mensagemDecoracao2h, horas_antes: horasAntesNum };
     }
     await onSalvar(mensagem, config);
     setSalvando(false);
@@ -2061,12 +2063,20 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
 
         {(ehLembreteRetirada || ehLembreteDevolucao) ? (
           <>
-            <p className="text-xs text-slate-400 mb-3 px-3 py-2 rounded-xl bg-slate-50">Esse lembrete é mandado 2x — 1 dia antes e 2 horas antes — cada um com o seu próprio texto, pra não repetir a mesma mensagem. {"{{endereco}}"} só aparece se não for Decoração (aí quem vai até o cliente é você).</p>
+            <p className="text-xs text-slate-400 mb-3 px-3 py-2 rounded-xl bg-slate-50">Esse lembrete é mandado 2x — 1 dia antes e {horasAntes || 2} hora{Number(horasAntes) === 1 ? "" : "s"} antes — cada um com o seu próprio texto, pra não repetir a mesma mensagem. {"{{endereco}}"} só aparece se não for Decoração (aí quem vai até o cliente é você).</p>
+
+            <div className="mb-4">
+              <p className="text-xs font-bold text-slate-500 mb-1.5">Mandar o segundo lembrete quantas horas antes?</p>
+              <div className="flex items-center gap-2">
+                <input type="number" min="0.5" step="0.5" value={horasAntes} onChange={(e) => setHorasAntes(e.target.value)} className="w-20 px-3 py-2 rounded-xl border border-slate-200 text-sm text-center" />
+                <span className="text-xs text-slate-500">horas antes (ex: 1,5 = 1h30). Ajuste pra não cair fora do horário comercial.</span>
+              </div>
+            </div>
 
             <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 1 dia antes (kit)</p>
             <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-3" rows={4} value={mensagem} onChange={(e) => setMensagem(e.target.value)} />
 
-            <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 2 horas antes (kit)</p>
+            <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — {horasAntes || 2}h antes (kit)</p>
             <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-2" rows={4} value={mensagem2h} onChange={(e) => setMensagem2h(e.target.value)} />
 
             {variaveis.length > 0 && (
@@ -2080,7 +2090,7 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
                 <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 1 dia antes (Balões)</p>
                 <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-3" rows={4} value={mensagemBaloes} onChange={(e) => setMensagemBaloes(e.target.value)} />
 
-                <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 2 horas antes (Balões)</p>
+                <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — {horasAntes || 2}h antes (Balões)</p>
                 <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-4" rows={4} value={mensagemBaloes2h} onChange={(e) => setMensagemBaloes2h(e.target.value)} />
               </>
             )}
@@ -2094,7 +2104,7 @@ function EditarAutomacaoModal({ automacao, onFechar, onSalvar }) {
             <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 1 dia antes (Decoração)</p>
             <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-3" rows={4} value={mensagemDecoracao} onChange={(e) => setMensagemDecoracao(e.target.value)} />
 
-            <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — 2 horas antes (Decoração)</p>
+            <p className="text-xs font-bold text-slate-500 mb-1.5">Mensagem — {horasAntes || 2}h antes (Decoração)</p>
             <textarea className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm mb-2" rows={4} value={mensagemDecoracao2h} onChange={(e) => setMensagemDecoracao2h(e.target.value)} />
 
             <p className="text-[11px] text-slate-400 mb-4">Variáveis: <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{nome_cliente}}"}</code> <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{nome_loja}}"}</code> <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{produto}}"}</code> <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{data}}"}</code> <code className="px-1.5 py-0.5 rounded bg-slate-100 mx-0.5">{"{{hora}}"}</code> (sem {"{{endereco}}"} aqui, já que quem vai até o cliente é você)</p>
