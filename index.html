@@ -5263,10 +5263,19 @@ function AgendaTab({ userId, profile }) {
 
   useEffect(() => {
     if (!imprimindo) return;
-    const t = setTimeout(() => window.print(), 150); // pequena espera pro conteúdo renderizar antes de abrir a impressão
+    // Fotos do estoque ficam no Storage (link), então precisam terminar de
+    // baixar antes de abrir a impressão — senão saem quadrados em branco.
+    // Espera no máximo 5s pra não travar se alguma foto não carregar.
+    let cancelado = false;
+    let t;
+    const urls = (fotosPorContrato[imprimindo.contractId] || []).map(fotoDoItem).filter(Boolean);
+    const carregadas = Promise.all(urls.map((u) => new Promise((ok) => { const img = new Image(); img.onload = img.onerror = ok; img.src = u; })));
+    Promise.race([carregadas, new Promise((ok) => setTimeout(ok, 5000))]).then(() => {
+      if (!cancelado) t = setTimeout(() => window.print(), 150); // pequena espera pro conteúdo renderizar antes de abrir a impressão
+    });
     function aoFechar() { setImprimindo(null); }
     window.addEventListener("afterprint", aoFechar);
-    return () => { clearTimeout(t); window.removeEventListener("afterprint", aoFechar); };
+    return () => { cancelado = true; clearTimeout(t); window.removeEventListener("afterprint", aoFechar); };
   }, [imprimindo]);
 
   useEffect(() => {
@@ -5593,7 +5602,7 @@ function AgendaTab({ userId, profile }) {
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {fotos.map((f, i) => (
                     <div key={i} style={{ textAlign: "center" }}>
-                      <img src={f.foto_data_url} style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 8, border: "1px solid #ccc" }} />
+                      <img src={fotoDoItem(f)} style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 8, border: "1px solid #ccc" }} />
                       <p style={{ fontSize: 10, margin: "2px 0 0", color: "#555", maxWidth: 90 }}>{f.material}{f.modelo ? ` — ${f.modelo}` : ""}</p>
                     </div>
                   ))}
