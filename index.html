@@ -142,6 +142,10 @@ function validarCPF(v) {
   };
   return calcDigito(9) === parseInt(d[9], 10) && calcDigito(10) === parseInt(d[10], 10);
 }
+function formatarDocumento(tipo, v) {
+  if (tipo === "rg") return (v || "").toUpperCase().replace(/[^0-9A-Z.\-]/g, "").slice(0, 15);
+  return formatarCPF(v);
+}
 function parseDateLocal(str) { if (!str) return null; const [y, m, d] = str.split("-").map(Number); return new Date(y, m - 1, d); }
 function formatDateBR(str) { const d = parseDateLocal(str); return d ? d.toLocaleDateString("pt-BR") : ""; }
 const MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
@@ -257,7 +261,7 @@ function whatsappLink(phoneRaw, message) {
 function contractToDb(c, decoradoraId) {
   return {
     id: c.id, decoradora_id: decoradoraId, tipo_servico: c.tipoServico,
-    contratante_nome: c.contratanteNome, contratante_cpf: c.contratanteCPF,
+    contratante_nome: c.contratanteNome, contratante_cpf: c.contratanteCPF, contratante_documento_tipo: c.contratanteDocumentoTipo || "cpf",
     contratante_endereco: c.contratanteEndereco, contratante_whatsapp: c.contratanteWhatsapp,
     produto_nome: c.produtoNome, material_entregue: c.materialEntregue, material_observacoes: c.materialObservacoes,
     valor: parseValorBR(c.valor),
@@ -275,7 +279,7 @@ function contractToDb(c, decoradoraId) {
 function contractFromDb(r) {
   return {
     id: r.id, tipoServico: r.tipo_servico || "pegue_monte",
-    contratanteNome: r.contratante_nome || "", contratanteCPF: r.contratante_cpf || "",
+    contratanteNome: r.contratante_nome || "", contratanteCPF: r.contratante_cpf || "", contratanteDocumentoTipo: r.contratante_documento_tipo || "cpf",
     contratanteEndereco: r.contratante_endereco || "", contratanteWhatsapp: r.contratante_whatsapp || "",
     produtoNome: r.produto_nome || "", materialEntregue: r.material_entregue || "", materialObservacoes: r.material_observacoes || "",
     valor: r.valor || 0,
@@ -1595,7 +1599,7 @@ function PerfilTab({ profile, userId, onSaved, setPage }) {
    PRÉ-VISUALIZAÇÃO DO CONTRATO
 ============================================================ */
 const CAMPOS_VAZIOS = {
-  tipoServico: "pegue_monte", contratanteNome: "", contratanteCPF: "", contratanteEndereco: "", contratanteWhatsapp: "",
+  tipoServico: "pegue_monte", contratanteNome: "", contratanteCPF: "", contratanteDocumentoTipo: "cpf", contratanteEndereco: "", contratanteWhatsapp: "",
   produtoNome: "", materialEntregue: "", materialObservacoes: "", valor: "",
   dataRetirada: "", horaRetiradaIni: "09:00", horaRetiradaFim: "13:00",
   dataDevolucao: "", horaDevolucaoIni: "09:00", horaDevolucaoFim: "19:00",
@@ -1617,7 +1621,7 @@ function ContratoPreview({ dados, profile }) {
           <div>
             <p className="inline-block text-white text-[11px] font-bold px-2 py-0.5 rounded mb-1" style={{ background: BRAND.azul }}>CONTRATANTE</p>
             <p className="font-semibold">{dados.contratanteNome || "—"}</p>
-            <p>CPF: {dados.contratanteCPF || "—"}</p>
+            <p>{dados.contratanteDocumentoTipo === "rg" ? "RG" : "CPF"}: {dados.contratanteCPF || "—"}</p>
             <p>Endereço: {dados.contratanteEndereco || "—"}</p>
             <p>WhatsApp: {dados.contratanteWhatsapp || "—"}</p>
           </div>
@@ -1697,7 +1701,7 @@ function ContratoPreview({ dados, profile }) {
             <div className="w-full max-w-[220px] mx-auto h-16 flex items-end justify-center">{dados.assinaturaClienteDataUrl && <img src={dados.assinaturaClienteDataUrl} className="max-h-16 object-contain" />}</div>
             <div className="w-full max-w-[220px] border-t border-slate-400 mx-auto mb-1" />
             <p className="text-[12px]">{dados.contratanteNome || "Nome do contratante"}</p>
-            <p className="text-[11px] text-slate-400">CPF: {dados.contratanteCPF || "—"}</p>
+            <p className="text-[11px] text-slate-400">{dados.contratanteDocumentoTipo === "rg" ? "RG" : "CPF"}: {dados.contratanteCPF || "—"}</p>
             <p className="text-[10px] text-slate-300 mt-0.5">CONTRATANTE</p>
           </div>
           <div className="text-center">
@@ -1744,7 +1748,7 @@ function buildContractHtml(dados, profile) {
   @media print{.btn-imprimir{display:none}}</style></head>
   <body><button class="btn-imprimir" onclick="window.print()">🖨️ Imprimir</button><div class="header">${profile.logo_data_url ? `<img src="${profile.logo_data_url}"/>` : ""}<div><h1>Contrato</h1><p>${escapar(profile.nome_loja)}</p></div></div>
   <div class="content">
-    <div class="grid2"><div><span class="tag">CONTRATANTE</span><br/><b>${escapar(dados.contratanteNome)}</b><br/>CPF: ${escapar(dados.contratanteCPF)}<br/>Endereço: ${escapar(dados.contratanteEndereco)}<br/>WhatsApp: ${escapar(dados.contratanteWhatsapp)}</div>
+    <div class="grid2"><div><span class="tag">CONTRATANTE</span><br/><b>${escapar(dados.contratanteNome)}</b><br/>${dados.contratanteDocumentoTipo === "rg" ? "RG" : "CPF"}: ${escapar(dados.contratanteCPF)}<br/>Endereço: ${escapar(dados.contratanteEndereco)}<br/>WhatsApp: ${escapar(dados.contratanteWhatsapp)}</div>
     <div><span class="tag">CONTRATADA</span><br/><b>Empresa ${escapar(profile.nome_loja)}</b><br/>CNPJ: ${escapar(profile.cnpj)}<br/>${escapar(profile.endereco)}</div></div>
     <div class="produto"><b>${escapar(dados.produtoNome)}</b><br/>${dados.materialEntregue ? `Material: ${escapar(dados.materialEntregue)}<br/>` : ""}<b>${formatBRL(dados.valor)}</b></div>
     <p>${paragrafo}</p>
@@ -1763,7 +1767,7 @@ function buildContractHtml(dados, profile) {
     })()}
     ${profile.clausulas_extras && profile.clausulas_extras.trim() ? `<h2>9. CLÁUSULAS ADICIONAIS</h2><p style="white-space:pre-line">${escapar(profile.clausulas_extras)}</p>` : ""}
     <p style="text-align:center;font-size:11px;color:#999;margin-top:24px">ESTOU CIENTE E CONCORDO COM OS TERMOS ACIMA.</p>
-    <div class="assinaturas"><div><div style="height:64px;display:flex;align-items:flex-end;justify-content:center">${dados.assinaturaClienteDataUrl ? `<img src="${dados.assinaturaClienteDataUrl}"/>` : ""}</div><div class="linha"></div>${escapar(dados.contratanteNome)}<br/><span style="font-size:11px;color:#999">CPF: ${escapar(dados.contratanteCPF)}</span></div>
+    <div class="assinaturas"><div><div style="height:64px;display:flex;align-items:flex-end;justify-content:center">${dados.assinaturaClienteDataUrl ? `<img src="${dados.assinaturaClienteDataUrl}"/>` : ""}</div><div class="linha"></div>${escapar(dados.contratanteNome)}<br/><span style="font-size:11px;color:#999">${dados.contratanteDocumentoTipo === "rg" ? "RG" : "CPF"}: ${escapar(dados.contratanteCPF)}</span></div>
     <div><div style="height:64px;display:flex;align-items:flex-end;justify-content:center">${profile.assinatura_data_url ? `<img src="${profile.assinatura_data_url}"/>` : ""}</div><div class="linha"></div>${escapar(profile.nome_responsavel || profile.nome_loja)}<br/><span style="font-size:11px;color:#999">${escapar(profile.nome_loja)}</span></div></div>
     <div style="margin-top:20px;padding-top:14px;border-top:1px dashed #ddd">
       <span class="pill" style="background:${BRAND.azul}22;color:${BRAND.azul}">Total ${formatBRL(fin.valor)}</span>
@@ -2285,11 +2289,11 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
       if (editingId && c.id === editingId) return;
       const key = normalizeStr(c.contratanteNome);
       if (!key) return;
-      if (!map[key]) map[key] = { nome: c.contratanteNome, cpf: c.contratanteCPF, endereco: c.contratanteEndereco, whatsapp: c.contratanteWhatsapp, count: 0, lastCreatedAt: 0 };
+      if (!map[key]) map[key] = { nome: c.contratanteNome, cpf: c.contratanteCPF, documentoTipo: c.contratanteDocumentoTipo || "cpf", endereco: c.contratanteEndereco, whatsapp: c.contratanteWhatsapp, count: 0, lastCreatedAt: 0 };
       map[key].count += 1;
       if ((c.createdAt || 0) >= map[key].lastCreatedAt) {
         map[key].lastCreatedAt = c.createdAt || 0;
-        map[key].cpf = c.contratanteCPF; map[key].endereco = c.contratanteEndereco; map[key].whatsapp = c.contratanteWhatsapp;
+        map[key].cpf = c.contratanteCPF; map[key].documentoTipo = c.contratanteDocumentoTipo || "cpf"; map[key].endereco = c.contratanteEndereco; map[key].whatsapp = c.contratanteWhatsapp;
       }
     });
     return map;
@@ -2309,12 +2313,12 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
     if (!match) return;
     setForm((f) => {
       if (f.contratanteCPF.trim() || f.contratanteEndereco.trim() || f.contratanteWhatsapp.trim()) return f;
-      return { ...f, contratanteCPF: match.cpf || f.contratanteCPF, contratanteEndereco: match.endereco || f.contratanteEndereco, contratanteWhatsapp: match.whatsapp || f.contratanteWhatsapp };
+      return { ...f, contratanteCPF: match.cpf || f.contratanteCPF, contratanteDocumentoTipo: match.cpf ? (match.documentoTipo || "cpf") : f.contratanteDocumentoTipo, contratanteEndereco: match.endereco || f.contratanteEndereco, contratanteWhatsapp: match.whatsapp || f.contratanteWhatsapp };
     });
   }, [form.contratanteNome, clientesAnteriores, editingId]);
 
   function selecionarCliente(cl) {
-    setForm((f) => ({ ...f, contratanteNome: cl.nome, contratanteCPF: cl.cpf || f.contratanteCPF, contratanteEndereco: cl.endereco || f.contratanteEndereco, contratanteWhatsapp: cl.whatsapp || f.contratanteWhatsapp }));
+    setForm((f) => ({ ...f, contratanteNome: cl.nome, contratanteCPF: cl.cpf || f.contratanteCPF, contratanteDocumentoTipo: cl.cpf ? (cl.documentoTipo || "cpf") : f.contratanteDocumentoTipo, contratanteEndereco: cl.endereco || f.contratanteEndereco, contratanteWhatsapp: cl.whatsapp || f.contratanteWhatsapp }));
     setMostrarSugestoes(false);
   }
 
@@ -2336,7 +2340,7 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
     if (!String(form.valor).trim()) faltando.push("valor");
     if (!form.dataRetirada && form.tipoServico !== "baloes") faltando.push("data de retirada");
     if (faltando.length > 0) { setErro("Preencha antes: " + faltando.join(", ") + "."); return; }
-    if (form.contratanteCPF.trim() && !validarCPF(form.contratanteCPF)) { setErro("CPF inválido — confira os números digitados."); return; }
+    if (form.contratanteCPF.trim() && (form.contratanteDocumentoTipo || "cpf") === "cpf" && !validarCPF(form.contratanteCPF)) { setErro("CPF inválido — confira os números digitados. Se for RG, troca o tipo de documento ali em cima."); return; }
     setSalvando(true);
     const id = editingId || uid();
     const row = contractToDb({ ...form, id }, userId);
@@ -2483,7 +2487,14 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
               {clienteRepetido && <p className="text-xs font-semibold mt-1.5" style={{ color: BRAND.turquesa }}>🎉 Esse cliente já fechou {clienteRepetido.count} festa{clienteRepetido.count > 1 ? "s" : ""} com a gente!</p>}
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="CPF" ajuda="É o documento da pessoa que está contratando (só números, o app coloca os pontos e o traço sozinho). Serve pra identificar direitinho quem assinou o contrato, caso precise provar isso um dia." ajudaEmoji="🪪"><input className={inputClass} value={form.contratanteCPF} onChange={(e) => set("contratanteCPF", formatarCPF(e.target.value))} maxLength={14} placeholder="000.000.000-00" /></Field>
+              <Field label="Documento" ajuda="É o documento da pessoa que está contratando — pode ser CPF ou RG, o que ela tiver na mão. Serve pra identificar direitinho quem assinou o contrato, caso precise provar isso um dia." ajudaEmoji="🪪">
+                <div className="flex items-center gap-1.5 mb-2">
+                  {[["cpf", "CPF"], ["rg", "RG"]].map(([tipo, rotulo]) => (
+                    <button type="button" key={tipo} onClick={() => set("contratanteDocumentoTipo", tipo)} className="px-3 py-1 rounded-full text-xs font-bold cursor-pointer transition-colors" style={(form.contratanteDocumentoTipo || "cpf") === tipo ? { background: BRAND.azul, color: "#fff" } : { background: "#f1f5f9", color: BRAND.tinta }}>{rotulo}</button>
+                  ))}
+                </div>
+                <input className={inputClass} value={form.contratanteCPF} onChange={(e) => set("contratanteCPF", formatarDocumento(form.contratanteDocumentoTipo, e.target.value))} maxLength={(form.contratanteDocumentoTipo || "cpf") === "cpf" ? 14 : 15} placeholder={(form.contratanteDocumentoTipo || "cpf") === "cpf" ? "000.000.000-00" : "Número do RG"} />
+              </Field>
               <Field label="Valor do produto"><input className={inputClass} value={form.valor} onChange={(e) => set("valor", e.target.value.replace(/[^0-9.,]/g, ""))} placeholder="90,00" /></Field>
             </div>
             <Field label="Multa por atraso na devolução (%)" ajuda="Multa é tipo uma 'penalidade' — um valor extra que a cliente paga se devolver as peças mais tarde do que combinado. Isso incentiva todo mundo a devolver na hora certa, pra não atrapalhar a próxima festa que já usa essas mesmas peças." ajudaEmoji="⏰" hint={form.semMulta ? "Multa desativada pra este contrato" : "Cobrada por hora de atraso. Deixe em branco pra usar 10% (padrão)"}>
@@ -2935,7 +2946,7 @@ function ClientesTab({ userId, onAbrirContrato }) {
     for (const c of contracts) {
       const digitos = onlyDigits(c.contratante_whatsapp || "");
       const chave = digitos || `nome:${(c.contratante_nome || "sem nome").trim().toLowerCase()}`;
-      if (!mapa[chave]) mapa[chave] = { nome: c.contratante_nome || "Sem nome", whatsapp: c.contratante_whatsapp || "", cpf: c.contratante_cpf || "", contratos: [] };
+      if (!mapa[chave]) mapa[chave] = { nome: c.contratante_nome || "Sem nome", whatsapp: c.contratante_whatsapp || "", cpf: c.contratante_cpf || "", documentoTipo: c.contratante_documento_tipo || "cpf", contratos: [] };
       mapa[chave].contratos.push(c);
       if (c.contratante_nome) mapa[chave].nome = c.contratante_nome;
     }
@@ -2979,7 +2990,7 @@ function ClientesTab({ userId, onAbrirContrato }) {
                   <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shrink-0" style={{ background: BRAND.roxo }}>{cl.nome.charAt(0).toUpperCase()}</div>
                   <div className="min-w-0 flex-1">
                     <p className="font-bold text-sm truncate" style={{ color: BRAND.tinta }}>{cl.nome}</p>
-                    <p className="text-xs text-slate-400 truncate">{cl.whatsapp || "sem WhatsApp cadastrado"}{cl.cpf ? ` · CPF ${cl.cpf}` : ""}</p>
+                    <p className="text-xs text-slate-400 truncate">{cl.whatsapp || "sem WhatsApp cadastrado"}{cl.cpf ? ` · ${cl.documentoTipo === "rg" ? "RG" : "CPF"} ${cl.cpf}` : ""}</p>
                   </div>
                   <div className="text-right shrink-0">
                     <p className="font-bold text-sm" style={{ color: BRAND.azul }}>{cl.qtd}x alugou</p>
