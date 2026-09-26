@@ -4038,7 +4038,15 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
       .map((e) => typeof e === "string" ? { id: "nivel-" + e, nome: e } : e)
       .filter((e) => e.nome && e.nome.trim() && !jaTem.has(normalizarNivel(e.nome)))
       .map((e) => ({ chave: e.id, label: e.nome.trim(), fixo: false }));
-    return [...fixos, ...extras, ...legados];
+    // Pacotes de Decoração (Configurações > Pacotes Decoração) entram como
+    // opções do mesmo campo, num grupo separado — funcionam igual aos extras
+    // do Pegue e Monte (o nome fica salvo em kit.nivel). Se o nome repetir o
+    // de um nível já listado acima, vale o que já estava (evita opção dupla).
+    const jaTemComLegados = new Set([...jaTem, ...legados.map((l) => normalizarNivel(l.label))]);
+    const decoracao = (profile?.catalogo_pacotes_decoracao || [])
+      .filter((p) => p.nome && p.nome.trim() && !jaTemComLegados.has(normalizarNivel(p.nome)))
+      .map((p) => ({ chave: p.id, label: p.nome.trim(), fixo: false, decoracao: true }));
+    return [...fixos, ...extras, ...legados, ...decoracao];
   }, [profile]);
   function valorSelectNivel() {
     if (form.faixa_pegue_monte) return form.faixa_pegue_monte;
@@ -4046,14 +4054,16 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
     return "";
   }
   const opcaoNivelAtual = opcoesNivel.find((o) => o.chave === valorSelectNivel());
-  // Busca o Pacote Pegue e Monte com o mesmo nome do nível selecionado, pra
-  // preencher "O que vem no kit" sozinho — tanto pros níveis fixos (Bronze/
-  // Prata/Ouro) quanto pros extras, caso a decoradora tenha cadastrado um
-  // pacote com aquele nome. Sem pacote cadastrado, ela preenche na mão.
+  // Busca o Pacote (Pegue e Monte ou Decoração) com o mesmo nome do nível
+  // selecionado, pra preencher "O que vem no kit" sozinho — tanto pros níveis
+  // fixos (Bronze/Prata/Ouro) quanto pros extras e pros pacotes de Decoração,
+  // caso a decoradora tenha cadastrado um pacote com aquele nome. Se o mesmo
+  // nome existir nos dois, vale o Pegue e Monte. Sem pacote, ela preenche na mão.
   function itensDoPacotePorNivel(label) {
     if (!label) return null;
     const alvo = normalizarNivel(label);
-    const pacote = (profile?.catalogo_pacotes_pegue_monte || []).find((p) => normalizarNivel(p.nome) === alvo);
+    const acharPacote = (lista) => (lista || []).find((p) => normalizarNivel(p.nome) === alvo);
+    const pacote = acharPacote(profile?.catalogo_pacotes_pegue_monte) || acharPacote(profile?.catalogo_pacotes_decoracao);
     if (!pacote || !pacote.itens || !pacote.itens.trim()) return null;
     return pacote.itens.split("\n").map((s) => s.trim()).filter(Boolean);
   }
@@ -4170,7 +4180,7 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-bold text-slate-500 mb-1 block">Nível<Ajuda emoji="🎁" titulo="Nível" texto="Faixa de preço do kit — Bronze/Prata/Ouro são fixos (o nome pode ser trocado em Configurações), e viram categoria própria no catálogo. Cadastre níveis extras em Pacotes Pegue e Monte, lá em Configurações, se precisar de mais faixas. Escolher um nível com pacote cadastrado já preenche 'O que vem no kit' sozinho. Deixe em branco se esse kit não tiver nível." /></label>
+              <label className="text-xs font-bold text-slate-500 mb-1 block">Nível<Ajuda emoji="🎁" titulo="Nível" texto="Faixa de preço do kit — Bronze/Prata/Ouro são fixos (o nome pode ser trocado em Configurações), e viram categoria própria no catálogo. Cadastre níveis extras em Pacotes Pegue e Monte, lá em Configurações, se precisar de mais faixas. Seus Pacotes Decoração também aparecem aqui, no grupo Decoração. Escolher um nível ou pacote com itens cadastrados já preenche 'O que vem no kit' sozinho. Deixe em branco se esse kit não tiver nível." /></label>
               <select
                 value={valorSelectNivel()}
                 onChange={(e) => {
@@ -4186,7 +4196,18 @@ function KitEditorModal({ kit, fotos, profile, onFechar, onSalvar, onExcluirFoto
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
               >
                 <option value="">—</option>
-                {opcoesNivel.map((o) => <option key={o.chave} value={o.chave}>{o.label}</option>)}
+                {opcoesNivel.some((o) => o.decoracao) ? (
+                  <>
+                    <optgroup label="Pegue e Monte">
+                      {opcoesNivel.filter((o) => !o.decoracao).map((o) => <option key={o.chave} value={o.chave}>{o.label}</option>)}
+                    </optgroup>
+                    <optgroup label="Decoração">
+                      {opcoesNivel.filter((o) => o.decoracao).map((o) => <option key={o.chave} value={o.chave}>{o.label}</option>)}
+                    </optgroup>
+                  </>
+                ) : (
+                  opcoesNivel.map((o) => <option key={o.chave} value={o.chave}>{o.label}</option>)
+                )}
               </select>
             </div>
             <div>
@@ -4806,9 +4827,9 @@ function ConfiguracoesCatalogo({ userId, profile, onProfileUpdate, setErro, kits
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
         <p className="font-bold text-sm mb-1" style={{ color: BRAND.tinta }}>
           Pacotes Decoração
-          <Ajuda emoji="🎀" titulo="Pacotes Decoração" texto="Igual ao Pegue e Monte, mas pros seus pacotes de decoração completa (com montagem no local). Também opcional." />
+          <Ajuda emoji="🎀" titulo="Pacotes Decoração" texto="Igual ao Pegue e Monte, mas pros seus pacotes de decoração completa (com montagem no local). Esses nomes também viram opção no campo Nível lá em Novo Kit (grupo Decoração) — e se tiver 'o que vem incluso' preenchido aqui, o kit já nasce com os itens prontos. Também opcional." />
         </p>
-        <p className="text-xs text-slate-400 mb-3">Mostra pra cliente o que vem em cada pacote de decoração. Deixe vazio se não quiser usar.</p>
+        <p className="text-xs text-slate-400 mb-3">Mostra pra cliente o que vem em cada pacote de decoração, e preenche "O que vem no kit" sozinho em Novo Kit. Deixe vazio se não quiser usar.</p>
         <EditorPacotes titulo="Decoração" corBotao={BRAND.azul} pacotes={form.catalogo_pacotes_decoracao} onChange={(v) => set("catalogo_pacotes_decoracao", v)} />
       </div>
 
