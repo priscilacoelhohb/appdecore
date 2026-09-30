@@ -794,12 +794,14 @@ function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout, is
             </button>
           )}
 
-          {isOwner && profile.plano_tipo === "premium" && (
+          {isOwner && (profile.plano_tipo === "premium" ? (
             <button onClick={() => { setPage("whatsapp"); onClose(); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer" style={{ minHeight: 44 }}>
               <img src="whatsapp-logo.png" alt="" className="w-5 h-5 object-contain shrink-0" />
               <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>WhatsApp</span>
             </button>
-          )}
+          ) : (
+            <MenuItemWhatsAppBloqueado profile={profile} />
+          ))}
 
           <button onClick={() => { setPage("indique"); onClose(); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer" style={{ minHeight: 44 }}>
             <span style={{ color: BRAND.rosa }}><IconRocket /></span>
@@ -1046,6 +1048,7 @@ function TrialGate({ profile, onLogout, children }) {
 function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, userId, onOpenMenu, isOwner }) {
   const isHome = page === "home";
   const [sinoAberto, setSinoAberto] = useState(false);
+  const [upgradeWhatsAberto, setUpgradeWhatsAberto] = useState(false);
   return (
     <div className="sticky top-0 z-20 text-white" style={{ background: `linear-gradient(120deg, ${BRAND.azul}, ${BRAND.azulEscuro})` }}>
       <div className="max-w-5xl mx-auto px-5 py-4 flex items-center justify-between">
@@ -1067,6 +1070,13 @@ function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, use
         <div className="flex items-center gap-1">
           {isOwner && profile.plano_tipo === "premium" && !profile.whatsapp_proprio_conectado && (
             <button onClick={() => setPage("whatsapp")} className="flex items-center gap-1.5 pl-2 pr-3 py-2 rounded-full font-bold text-xs cursor-pointer active:scale-95 transition shrink-0" style={{ background: "#22C55E", color: "#fff" }} aria-label="Conectar WhatsApp">
+              <img src="whatsapp-logo.png" alt="" className="w-5 h-5 rounded-full bg-white p-0.5 shrink-0" />
+              <span className="sm:hidden whitespace-nowrap">Conectar</span>
+              <span className="hidden sm:inline whitespace-nowrap">Conectar WhatsApp</span>
+            </button>
+          )}
+          {isOwner && profile.plano_tipo !== "premium" && (
+            <button onClick={() => setUpgradeWhatsAberto(true)} className="flex items-center gap-1.5 pl-2 pr-3 py-2 rounded-full font-bold text-xs cursor-pointer active:scale-95 transition shrink-0" style={{ background: "#22C55E", color: "#fff" }} aria-label="Conectar WhatsApp (exclusivo do Premium)">
               <img src="whatsapp-logo.png" alt="" className="w-5 h-5 rounded-full bg-white p-0.5 shrink-0" />
               <span className="sm:hidden whitespace-nowrap">Conectar</span>
               <span className="hidden sm:inline whitespace-nowrap">Conectar WhatsApp</span>
@@ -1105,6 +1115,7 @@ function Header({ userEmail, page, setPage, onLogout, profile, notificacoes, use
           <button onClick={onLogout} className="p-2.5 rounded-full hover:bg-white/10 active:scale-90 transition cursor-pointer" aria-label="Sair" style={{ minWidth: 44, minHeight: 44 }}><IconLogout /></button>
         </div>
       </div>
+      {upgradeWhatsAberto && <ModalUpgradeWhatsApp profile={profile} onFechar={() => setUpgradeWhatsAberto(false)} />}
     </div>
   );
 }
@@ -1124,6 +1135,14 @@ function IconVarinhaMagica({ className, style }) {
   );
 }
 
+// Link certo pra ela assinar Premium a partir do Básico — mesmos links da
+// Cakto usados no TrialGate/landing, respeitando o ciclo (mensal/anual) que
+// ela já tem. Sempre Cakto (nunca Stripe), pra não repetir o problema de
+// gateway duplicado que já causou cobrança em dobro antes.
+function linkAssinarPremium(profile) {
+  return profile.ciclo_cobranca === "anual" ? "https://pay.cakto.com.br/598ihk8_1131831" : "https://pay.cakto.com.br/v6va3mm";
+}
+
 function HomeCard({ emoji, title, desc, color, onClick, stat }) {
   return (
     <button onClick={onClick} className="group w-full text-left bg-white rounded-3xl p-6 shadow-sm hover:shadow-xl transition-all active:scale-[0.98] border-2 border-transparent hover:border-current cursor-pointer" style={{ color }}>
@@ -1134,6 +1153,40 @@ function HomeCard({ emoji, title, desc, color, onClick, stat }) {
       <h3 className="fredoka text-lg font-bold" style={{ color: BRAND.tinta }}>{title}</h3>
       <p className="text-sm text-slate-400 mt-1 leading-snug">{desc}</p>
     </button>
+  );
+}
+
+// Modal "vira Premium" do WhatsApp automático — usado tanto no cadeadinho do
+// menu lateral quanto no botão verde do cabeçalho, pra não duplicar o texto.
+function ModalUpgradeWhatsApp({ profile, onFechar }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,.5)" }} onClick={onFechar}>
+      <div className="bg-white rounded-2xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="text-3xl mb-2">🔒💬</div>
+        <p className="fredoka text-lg font-bold mb-2" style={{ color: BRAND.tinta }}>WhatsApp automático</p>
+        <p className="text-sm text-slate-500 leading-relaxed">Conecte seu WhatsApp e deixe mensagens no automático — boas-vindas, lembrete de retirada e devolução, confirmação de contrato e mais. Exclusivo do plano Premium.</p>
+        <a href={linkAssinarPremium(profile)} className="block w-full mt-4 py-2.5 rounded-xl font-bold text-sm text-white text-center cursor-pointer" style={{ background: BRAND.rosa }}>Assinar Premium</a>
+        <button onClick={onFechar} className="w-full mt-2 py-2 rounded-xl font-bold text-xs cursor-pointer text-slate-400">Agora não</button>
+      </div>
+    </div>
+  );
+}
+
+// Item de menu do WhatsApp quando ela está no Básico — mesma ideia do
+// LockedHomeCard (cadeadinho + modal explicando + botão de assinar), só que
+// no formato de linha de menu em vez de card. Self-contained (tem o próprio
+// estado do modal) pra não mexer em nada do componente do menu em volta.
+function MenuItemWhatsAppBloqueado({ profile }) {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <>
+      <button onClick={() => setAberto(true)} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer" style={{ minHeight: 44 }}>
+        <img src="whatsapp-logo.png" alt="" className="w-5 h-5 object-contain shrink-0" style={{ opacity: 0.4 }} />
+        <span className="font-semibold text-sm flex-1" style={{ color: "#94a3b8" }}>WhatsApp</span>
+        <span className="text-xs" title="Exclusivo do plano Premium">🔒</span>
+      </button>
+      {aberto && <ModalUpgradeWhatsApp profile={profile} onFechar={() => setAberto(false)} />}
+    </>
   );
 }
 
@@ -1249,7 +1302,7 @@ function HomeDashboard({ setPage, contracts, profile, userId, isOwner, membershi
         {pode("catalogo") && (profile.plano_tipo === "premium" ? (
           <HomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Vitrine dos seus kits com fotos reais, filtros por categoria e botão de WhatsApp pronto. Ainda edita as fotos com IA — troque cores e detalhes sem precisar tirar foto nova." color="#8B5CF6" onClick={() => setPage("catalogo")} />
         ) : (
-          <LockedHomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Vitrine dos seus kits com fotos reais, filtros por categoria e botão de WhatsApp pronto. Ainda edita as fotos com IA — troque cores e detalhes sem precisar tirar foto nova. Exclusivo do plano Premium." linkUpgrade={`https://buy.stripe.com/4gM5kwgoRh1I7Z57HdfQI08?prefilled_email=${encodeURIComponent(profile.email || "")}`} />
+          <LockedHomeCard emoji={<IconVarinhaMagica className="w-7 h-7" />} title="Catálogo" desc="Vitrine dos seus kits com fotos reais, filtros por categoria e botão de WhatsApp pronto. Ainda edita as fotos com IA — troque cores e detalhes sem precisar tirar foto nova. Exclusivo do plano Premium." linkUpgrade={linkAssinarPremium(profile)} />
         ))}
       </div>
     </div>
