@@ -803,10 +803,15 @@ function SidebarMenu({ aberto, onClose, config, userEmail, profile, onLogout, is
             <MenuItemWhatsAppBloqueado profile={profile} />
           ))}
 
-          <button onClick={() => { setPage("indique"); onClose(); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer" style={{ minHeight: 44 }}>
-            <span style={{ color: BRAND.rosa }}><IconRocket /></span>
-            <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>Indique e Ganhe</span>
-          </button>
+          {/* "Indique e Ganhe" arquivado (out/2026): some do menu, mas a tela
+              (IndiqueEGanheTab) e a config no admin continuam no código.
+              Pra reativar, é só trocar MOSTRAR_INDIQUE_E_GANHE pra true. */}
+          {MOSTRAR_INDIQUE_E_GANHE && (
+            <button onClick={() => { setPage("indique"); onClose(); }} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-slate-50 text-left cursor-pointer" style={{ minHeight: 44 }}>
+              <span style={{ color: BRAND.rosa }}><IconRocket /></span>
+              <span className="font-semibold text-sm" style={{ color: BRAND.tinta }}>Indique e Ganhe</span>
+            </button>
+          )}
         </div>
 
         <div className="border-t border-slate-100 px-4 py-3 flex items-center gap-2.5">
@@ -6275,6 +6280,9 @@ function EquipeTab({ userId, profile }) {
     </div>
   );
 }
+
+// Liga/desliga o item "Indique e Ganhe" no menu lateral.
+const MOSTRAR_INDIQUE_E_GANHE = false;
 
 function BotaoAfiliado({ plano, link }) {
   if (!link) {
