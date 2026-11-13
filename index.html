@@ -180,6 +180,52 @@ function linhasDoMaterial(texto) {
   return partes.length > 0 && linhas.length === partes.length ? linhas.map((m) => ({ qtd: m[1], desc: m[2] })) : null;
 }
 // Busca de peça do estoque: por nome, modelo ou código.
+// Estoque por data: a peça só fica ocupada nos dias do contrato (da
+// retirada até a devolução). Fora desses dias ela está livre pra outra
+// festa — não precisa mais "devolver pro estoque" pra liberar.
+// quantidade_total = quantas ela tem ao todo; contratos antigos ainda
+// gravam em "quantidade", então fica de reserva se o total estiver vazio.
+function totalDaPeca(item) {
+  const t = item && item.quantidade_total;
+  return t == null ? Math.max(0, Number(item && item.quantidade) || 0) : Math.max(0, Number(t) || 0);
+}
+function periodoDoContrato(c) {
+  const ini = (c && (c.dataRetirada || c.data_retirada)) || "";
+  if (!ini) return null;
+  let fim = (c.dataDevolucao || c.data_devolucao) || ini;
+  if (fim < ini) fim = ini;
+  return [ini, fim];
+}
+function periodosSeCruzam(a, b) { return !!a && !!b && a[0] <= b[1] && b[0] <= a[1]; }
+// Busca todas as peças reservadas em contratos dessa loja. Vai de 1000 em
+// 1000 porque o Supabase corta em 1000 linhas por busca (tem loja com mais).
+async function buscarReservasEstoque(decoradoraId) {
+  const todas = [];
+  for (let de = 0; ; de += 1000) {
+    const { data, error } = await sb.from("contract_estoque_itens").select("contract_id, estoque_item_id, quantidade").eq("decoradora_id", decoradoraId).order("id", { ascending: true }).range(de, de + 999);
+    if (error || !data) break;
+    todas.push(...data);
+    if (data.length < 1000) break;
+  }
+  return todas;
+}
+// Quanto de cada peça já está reservado em OUTROS contratos que caem nos
+// mesmos dias (contrato cancelado não segura peça).
+function reservadoPorPecaNoPeriodo(reservas, contratos, periodo, ignorarContratoId) {
+  const mapa = {};
+  if (!periodo) return mapa;
+  const porId = {};
+  (contratos || []).forEach((c) => { porId[c.id] = c; });
+  (reservas || []).forEach((r) => {
+    if (r.contract_id === ignorarContratoId) return;
+    const c = porId[r.contract_id];
+    if (!c || (c.statusContrato || c.status_contrato) === "cancelado") return;
+    if (!periodosSeCruzam(periodoDoContrato(c), periodo)) return;
+    mapa[r.estoque_item_id] = (mapa[r.estoque_item_id] || 0) + (Number(r.quantidade) || 0);
+  });
+  return mapa;
+}
+
 function bateBuscaPeca(item, busca) {
   const t = (busca || "").trim().toLowerCase();
   if (!t) return true;
@@ -2341,12 +2387,19 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
   const [filtroStatusContrato, setFiltroStatusContrato] = useState("ativos"); // 'ativos' | 'concluidos' | 'cancelados' | 'todos'
   const [filtroPendentes, setFiltroPendentes] = useState(false); // true = mostra só os contratos com pagamento pendente
   const [confirmarCancelamento, setConfirmarCancelamento] = useState(null); // contrato aguardando resposta sobre o sinal antes de cancelar
+  const [reservasEstoque, setReservasEstoque] = useState([]); // peças já reservadas em cada contrato (pra saber o que está livre em cada data)
+  const [kitsEstoque, setKitsEstoque] = useState([]); // pacotes de peças (ex: Kit Bronze) cadastrados no Estoque
+  const [avisoKit, setAvisoKit] = useState("");
 
   useEffect(() => {
     sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true }).then(({ data }) => {
       const itens = data || [];
       setEstoqueItens(itens);
       if (itens.length === 0) setModoMaterial("manual"); // sem estoque cadastrado, já começa no modo digitado
+    });
+    buscarReservasEstoque(userId).then(setReservasEstoque);
+    sb.from("estoque_kits").select("*").eq("decoradora_id", userId).then(({ data }) => {
+      setKitsEstoque((data || []).sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR", { sensitivity: "base", numeric: true })));
     });
   }, [userId]);
 
@@ -2372,9 +2425,36 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
 
   function set(field, value) { setForm((f) => ({ ...f, [field]: value })); }
 
+  // Livre = total da peça menos o que outros contratos já reservaram nos
+  // mesmos dias deste (retirada até devolução). Sem data escolhida ainda,
+  // mostra o total.
+  const periodoDoForm = periodoDoContrato(form);
+  const reservadoNoPeriodo = useMemo(
+    () => reservadoPorPecaNoPeriodo(reservasEstoque, contracts, periodoDoForm, editingId),
+    [reservasEstoque, contracts, periodoDoForm && periodoDoForm[0], periodoDoForm && periodoDoForm[1], editingId]
+  );
   function maxDisponivel(item) {
-    // pode selecionar até o que já está disponível, mais o que esse contrato já tinha reservado antes (se estiver editando)
-    return item.quantidade + (itensSelecionadosOriginais[item.id] || 0);
+    return Math.max(0, totalDaPeca(item) - (reservadoNoPeriodo[item.id] || 0));
+  }
+
+  // Coloca todas as peças do pacote no contrato de uma vez. Se faltar peça
+  // livre nessa data, põe o que der e avisa o que ficou faltando.
+  function adicionarKit(kit) {
+    const novaSelecao = { ...itensSelecionados };
+    const faltando = [];
+    (kit.itens || []).forEach((k) => {
+      const item = estoqueItens.find((it) => it.id === k.estoque_item_id);
+      if (!item) return;
+      const querer = (novaSelecao[item.id] || 0) + (Number(k.quantidade) || 0);
+      const pode = Math.min(querer, maxDisponivel(item));
+      if (pode < querer) faltando.push(`${querer - pode}x ${item.material}${item.modelo ? ` (${item.modelo})` : ""}`);
+      if (pode > 0) novaSelecao[item.id] = pode; else delete novaSelecao[item.id];
+    });
+    aplicarSelecao(novaSelecao);
+    if (!form.produtoNome.trim()) set("produtoNome", kit.nome);
+    setAvisoKit(faltando.length > 0
+      ? `"${kit.nome}" entrou, mas ${periodoDoForm ? "nessa data" : "no estoque"} faltam: ${faltando.join(", ")}.`
+      : `✓ "${kit.nome}" adicionado.`);
   }
 
   // Soma do que ela escolheu: quantidade x preço unitário cadastrado no Estoque.
@@ -2465,9 +2545,9 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
     setMostrarSugestoes(false);
   }
 
-  function startNew() { setForm(CAMPOS_VAZIOS); setValorManual(false); setEditingId(null); setErro(""); setSalvo(false); setShowForm(true); setItensSelecionados({}); setItensSelecionadosOriginais({}); setModoMaterial(estoqueItens.length > 0 ? "estoque" : "manual"); }
+  function startNew() { setForm(CAMPOS_VAZIOS); setValorManual(false); setEditingId(null); setErro(""); setSalvo(false); setShowForm(true); setItensSelecionados({}); setItensSelecionadosOriginais({}); setAvisoKit(""); setModoMaterial(estoqueItens.length > 0 ? "estoque" : "manual"); }
   async function editContract(c) {
-    setForm({ ...CAMPOS_VAZIOS, ...c }); setValorManual(parseValorBR(c.valor) > 0); setEditingId(c.id); setErro(""); setSalvo(false); setShowForm(true);
+    setForm({ ...CAMPOS_VAZIOS, ...c }); setValorManual(parseValorBR(c.valor) > 0); setEditingId(c.id); setErro(""); setSalvo(false); setShowForm(true); setAvisoKit("");
     const { data } = await sb.from("contract_estoque_itens").select("estoque_item_id, quantidade").eq("contract_id", c.id);
     const mapa = {};
     (data || []).forEach((r) => { mapa[r.estoque_item_id] = r.quantidade; });
@@ -2492,29 +2572,20 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
     const { error } = await sb.from("contracts").upsert(row);
     if (error) { setSalvando(false); setErro("Erro ao salvar: " + error.message); return; }
 
-    // Ajusta o estoque conforme a quantidade de cada material mudou.
+    // Grava as peças reservadas nesse contrato. O total do Estoque não muda:
+    // a peça fica ocupada só nos dias deste contrato (ver periodoDoContrato).
     const todosOsIds = new Set([...Object.keys(itensSelecionadosOriginais), ...Object.keys(itensSelecionados)]);
-    let mexeuNoEstoque = false;
     for (const itemId of todosOsIds) {
       const antes = itensSelecionadosOriginais[itemId] || 0;
       const agora = itensSelecionados[itemId] || 0;
-      const delta = agora - antes; // positivo = usando mais (desconta), negativo = usando menos (devolve)
-      if (delta !== 0) {
-        mexeuNoEstoque = true;
-        const item = estoqueItens.find((it) => it.id === itemId);
-        if (item) await sb.from("estoque_itens").update({ quantidade: Math.max(0, item.quantidade - delta) }).eq("id", itemId);
-      }
       if (agora > 0) {
         const itemEstoque = estoqueItens.find((it) => it.id === itemId);
         await sb.from("contract_estoque_itens").upsert({ id: uid(), contract_id: id, decoradora_id: userId, estoque_item_id: itemId, quantidade: agora, preco_unitario: itemEstoque ? itemEstoque.preco_unitario : null }, { onConflict: "contract_id,estoque_item_id" });
-      } else {
+      } else if (antes > 0) {
         await sb.from("contract_estoque_itens").delete().eq("contract_id", id).eq("estoque_item_id", itemId);
       }
     }
-    if (mexeuNoEstoque) {
-      const { data: estoqueAtualizado } = await sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true });
-      setEstoqueItens(estoqueAtualizado || []);
-    }
+    buscarReservasEstoque(userId).then(setReservasEstoque);
 
     setSalvando(false);
     await carregarContratos();
@@ -2522,13 +2593,8 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
   }
 
   async function removeContract(c) {
-    if (!c.devolvido) {
-      const { data: links } = await sb.from("contract_estoque_itens").select("*").eq("contract_id", c.id);
-      for (const link of links || []) {
-        const { data: item } = await sb.from("estoque_itens").select("quantidade").eq("id", link.estoque_item_id).maybeSingle();
-        if (item) await sb.from("estoque_itens").update({ quantidade: item.quantidade + link.quantidade }).eq("id", link.estoque_item_id);
-      }
-    }
+    // As peças desse contrato ficam livres sozinhas: a reserva vale só
+    // enquanto o contrato existe (não mexe mais no total do Estoque).
     const { error } = await sb.from("contracts").delete().eq("id", c.id);
     if (error) { setErro("Erro ao excluir: " + error.message); return; }
     setConfirmarExclusao(null);
@@ -2679,6 +2745,22 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
                 <p className="text-xs text-slate-400 bg-slate-50 rounded-xl px-3 py-2.5">Você ainda não cadastrou nada no Estoque. Vá no card "📦 Estoque" pra cadastrar seus materiais, ou use "Digitar manualmente" acima.</p>
               ) : (
                 <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[11px] mb-2 px-2 py-1.5 rounded-lg" style={periodoDoForm ? { background: "#22C55E14", color: "#15803D" } : { background: "#FEF3C7", color: "#92400E" }}>
+                    {periodoDoForm
+                      ? <>📅 Mostrando o que está livre {periodoDoForm[0] === periodoDoForm[1] ? <>em <b>{formatDateBR(periodoDoForm[0])}</b></> : <>de <b>{formatDateBR(periodoDoForm[0])}</b> a <b>{formatDateBR(periodoDoForm[1])}</b></>}. Peças de festas em outros dias não contam.</>
+                      : <>📅 Preencha a data de {labelData(form.tipoServico, "ida").toLowerCase()} pra ver quantas peças estão livres nesse dia.</>}
+                  </p>
+                  {kitsEstoque.length > 0 && (
+                    <div className="mb-2">
+                      <p className="text-[11px] font-bold text-slate-500 mb-1">🎁 Adicionar pacote inteiro:</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {kitsEstoque.map((k) => (
+                          <button key={k.id} type="button" onClick={() => adicionarKit(k)} className="px-2.5 py-1 rounded-full text-xs font-bold cursor-pointer" style={{ background: BRAND.rosa + "14", color: BRAND.rosa }}>+ {k.nome}</button>
+                        ))}
+                      </div>
+                      {avisoKit && <p className="text-[11px] mt-1.5 px-2 py-1.5 rounded-lg" style={avisoKit.startsWith("✓") ? { background: "#22C55E14", color: "#15803D" } : { background: "#FEF3C7", color: "#92400E" }}>{avisoKit}</p>}
+                    </div>
+                  )}
                   <div className="relative mb-2">
                     <input className={inputClass + " pl-9 bg-white"} placeholder="Buscar por nome ou código..." value={buscaMaterialContrato} onChange={(e) => setBuscaMaterialContrato(e.target.value)} />
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
@@ -2696,11 +2778,11 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
                         {fotoDoItem(item) ? (
                           <img src={fotoDoItem(item)} loading="lazy" className="w-7 h-7 rounded object-cover shrink-0" />
                         ) : (
-                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corEstoque(item.quantidade) }} />
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corEstoque(disponivel) }} />
                         )}
                         <span className="text-sm flex-1 truncate" style={{ color: semEstoque ? "#94a3b8" : BRAND.tinta }}>
                           {item.codigo && <span className="font-mono text-[11px] font-bold mr-1.5" style={{ color: BRAND.azul }}>{item.codigo}</span>}
-                          {item.material}{item.modelo ? ` — ${item.modelo}` : ""}{semEstoque ? " (sem estoque)" : ` (${disponivel} disponíveis)`}
+                          {item.material}{item.modelo ? ` — ${item.modelo}` : ""}{semEstoque ? (totalDaPeca(item) > 0 ? " (ocupada nessa data)" : " (sem estoque)") : ` (${disponivel} ${periodoDoForm ? "livres" : "disponíveis"})`}
                           {item.preco_unitario != null && <span className="text-slate-400"> · {formatBRL(item.preco_unitario)} cada</span>}
                         </span>
                         <div className="flex items-center gap-1.5 shrink-0">
@@ -2725,10 +2807,11 @@ function ContratoTab({ userId, profile, onProfileUpdate, abrirContratoId, onCont
                           {escolhidos.map((it) => {
                             const q = itensSelecionados[it.id];
                             const unit = Number(it.preco_unitario) || 0;
+                            const passou = q > maxDisponivel(it);
                             return (
                               <div key={it.id} className="flex items-center gap-2 text-xs" style={{ color: BRAND.tinta }}>
                                 <span className="font-bold w-7 shrink-0 text-right">{q}x</span>
-                                <span className="flex-1 truncate">{it.material}{it.modelo ? ` — ${it.modelo}` : ""}</span>
+                                <span className="flex-1 truncate">{it.material}{it.modelo ? ` — ${it.modelo}` : ""}{passou && <span className="font-bold" style={{ color: "#B45309" }}> · só {maxDisponivel(it)} livres nessa data</span>}</span>
                                 <span className="shrink-0" style={{ color: unit > 0 ? BRAND.tinta : "#f59e0b" }}>{unit > 0 ? formatBRL(q * unit) : "sem valor"}</span>
                                 <button type="button" title="Tirar do contrato" onClick={() => definirQuantidadeItem(it, 0)} className="text-slate-400 hover:text-red-400 cursor-pointer shrink-0">✕</button>
                               </div>
@@ -3215,6 +3298,123 @@ function corEstoque(qtd) {
   return "#22C55E";
 }
 
+// Pacotes de peças (ex: Kit Bronze = 1 painel + 3 cilindros + 1 boleira).
+// No contrato, um toque no pacote coloca todas as peças dele de uma vez.
+function PacotesDePecas({ userId, itens }) {
+  const [kits, setKits] = useState([]);
+  const [editando, setEditando] = useState(null); // { id, nome, itens: { estoqueItemId: qtd } }
+  const [buscaPeca, setBuscaPeca] = useState("");
+  const [erroKit, setErroKit] = useState("");
+  const [salvandoKit, setSalvandoKit] = useState(false);
+
+  const ordenar = (lista) => [...lista].sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR", { sensitivity: "base", numeric: true }));
+  useEffect(() => {
+    sb.from("estoque_kits").select("*").eq("decoradora_id", userId).then(({ data }) => setKits(ordenar(data || [])));
+  }, [userId]);
+
+  const nomePeca = (id) => { const it = itens.find((x) => x.id === id); return it ? it.material + (it.modelo ? ` (${it.modelo})` : "") : null; };
+  const resumo = (kit) => (kit.itens || []).filter((k) => nomePeca(k.estoque_item_id)).map((k) => `${k.quantidade}x ${nomePeca(k.estoque_item_id)}`).join(", ");
+
+  function abrir(kit) {
+    const mapa = {};
+    (kit ? kit.itens || [] : []).forEach((k) => { if (nomePeca(k.estoque_item_id)) mapa[k.estoque_item_id] = Number(k.quantidade) || 0; });
+    setEditando({ id: kit ? kit.id : uid(), nome: kit ? kit.nome : "", itens: mapa });
+    setBuscaPeca(""); setErroKit("");
+  }
+  function mudarQtd(itemId, delta) {
+    setEditando((e) => {
+      const q = Math.max(0, (e.itens[itemId] || 0) + delta);
+      const novo = { ...e.itens };
+      if (q === 0) delete novo[itemId]; else novo[itemId] = q;
+      return { ...e, itens: novo };
+    });
+  }
+  async function salvar() {
+    const nome = editando.nome.trim();
+    const lista = Object.entries(editando.itens).filter(([, q]) => q > 0).map(([estoque_item_id, quantidade]) => ({ estoque_item_id, quantidade }));
+    if (!nome) { setErroKit("Dá um nome pro pacote (ex: Kit Bronze)."); return; }
+    if (lista.length === 0) { setErroKit("Escolha pelo menos uma peça pro pacote."); return; }
+    if (kits.some((k) => k.id !== editando.id && (k.nome || "").trim().toLowerCase() === nome.toLowerCase())) { setErroKit(`Já existe um pacote chamado "${nome}".`); return; }
+    setSalvandoKit(true);
+    const row = { id: editando.id, decoradora_id: userId, nome, itens: lista };
+    const { error } = await sb.from("estoque_kits").upsert(row);
+    setSalvandoKit(false);
+    if (error) { setErroKit("Erro ao salvar o pacote: " + error.message); return; }
+    setKits((ks) => ordenar([...ks.filter((k) => k.id !== row.id), row]));
+    setEditando(null);
+  }
+  async function excluir(kit) {
+    if (!window.confirm(`Apagar o pacote "${kit.nome}"? As peças continuam no estoque e nos contratos que já usaram.`)) return;
+    const { error } = await sb.from("estoque_kits").delete().eq("id", kit.id);
+    if (error) { setErroKit("Erro ao apagar: " + error.message); return; }
+    setKits((ks) => ks.filter((k) => k.id !== kit.id));
+  }
+
+  const totalNoKit = editando ? Object.values(editando.itens).reduce((s, q) => s + q, 0) : 0;
+  return (
+    <div className="bg-white rounded-2xl p-4 mb-5 shadow-sm border border-slate-100">
+      <p className="font-bold text-xs mb-1" style={{ color: BRAND.rosa }}>🎁 Pacotes de peças<Ajuda emoji="🎁" titulo="Pacotes de peças" texto="Monte seus pacotes com as peças do estoque, tipo Kit Bronze, Kit Prata, Kit Ouro: o que vai em cada um e quantas de cada peça. Depois, no contrato, é só tocar no pacote que todas as peças entram de uma vez, já conferindo se estão livres na data da festa." /></p>
+      <p className="text-xs text-slate-400 mb-3">Ex.: Kit Bronze = 1 painel + 3 cilindros + 1 boleira. No contrato, um toque coloca todas as peças.</p>
+      {kits.length > 0 && !editando && (
+        <div className="space-y-2 mb-3">
+          {kits.map((k) => (
+            <div key={k.id} className="flex items-center gap-2 rounded-xl p-2.5 bg-slate-50">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold truncate" style={{ color: BRAND.tinta }}>{k.nome}</p>
+                <p className="text-[11px] text-slate-500">{resumo(k) || "Sem peças (as peças desse pacote foram apagadas do estoque)"}</p>
+              </div>
+              <button onClick={() => abrir(k)} className="text-xs font-bold px-2.5 py-1.5 rounded-lg cursor-pointer shrink-0" style={{ color: BRAND.azul, background: BRAND.azul + "14" }}>Editar</button>
+              <button onClick={() => excluir(k)} className="p-1.5 rounded-lg hover:bg-rose-50 text-rose-400 cursor-pointer shrink-0" title="Apagar pacote">🗑</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {editando ? (
+        <div className="rounded-xl p-3 bg-slate-50">
+          <input autoFocus className={inputClass + " bg-white mb-2"} placeholder="Nome do pacote (ex: Kit Bronze)" value={editando.nome} onChange={(e) => setEditando((x) => ({ ...x, nome: e.target.value }))} />
+          {itens.length === 0 ? (
+            <p className="text-xs text-slate-400 py-2">Cadastre as peças no estoque primeiro (ali em cima) pra montar o pacote.</p>
+          ) : (
+            <>
+              <div className="relative mb-2">
+                <input className={inputClass + " pl-9 bg-white"} placeholder="Buscar peça por nome ou código..." value={buscaPeca} onChange={(e) => setBuscaPeca(e.target.value)} />
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
+              </div>
+              <div className="space-y-1 max-h-64 overflow-y-auto">
+                {itens.filter((it) => bateBuscaPeca(it, buscaPeca)).map((it) => {
+                  const q = editando.itens[it.id] || 0;
+                  return (
+                    <div key={it.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg" style={q > 0 ? { background: BRAND.rosa + "14" } : {}}>
+                      <span className="text-sm flex-1 truncate" style={{ color: BRAND.tinta }}>
+                        {it.codigo && <span className="font-mono text-[11px] font-bold mr-1.5" style={{ color: BRAND.azul }}>{it.codigo}</span>}
+                        {it.material}{it.modelo ? ` — ${it.modelo}` : ""}
+                      </span>
+                      <button type="button" disabled={q <= 0} onClick={() => mudarQtd(it.id, -1)} className="w-6 h-6 rounded-md font-bold text-xs cursor-pointer disabled:opacity-30" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>−</button>
+                      <span className="w-6 text-center text-sm font-bold" style={{ color: BRAND.tinta }}>{q}</span>
+                      <button type="button" onClick={() => mudarQtd(it.id, 1)} className="w-6 h-6 rounded-md font-bold text-xs cursor-pointer" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>+</button>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          <p className="text-xs font-semibold text-slate-500 mt-2">{totalNoKit} {totalNoKit === 1 ? "peça" : "peças"} no pacote</p>
+          {erroKit && <div className="text-xs font-semibold mt-2 px-3 py-2 rounded-lg" style={{ background: BRAND.rosa + "18", color: BRAND.rosa }}>⚠️ {erroKit}</div>}
+          <div className="flex gap-2 mt-3">
+            <button disabled={salvandoKit} onClick={salvar} className="px-4 py-2 rounded-xl font-bold text-white text-sm cursor-pointer disabled:opacity-60" style={{ background: BRAND.rosa }}>{salvandoKit ? "Salvando..." : "Salvar pacote"}</button>
+            <button onClick={() => { setEditando(null); setErroKit(""); }} className="px-4 py-2 rounded-xl font-bold text-sm text-slate-400 cursor-pointer">Cancelar</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {erroKit && <div className="text-xs font-semibold mb-2 px-3 py-2 rounded-lg" style={{ background: BRAND.rosa + "18", color: BRAND.rosa }}>⚠️ {erroKit}</div>}
+          <button onClick={() => abrir(null)} className="w-full py-2.5 rounded-xl font-bold text-xs cursor-pointer border-2 border-dashed" style={{ borderColor: BRAND.rosa, color: BRAND.rosa }}>+ Novo pacote</button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function EstoqueTab({ userId, profile, onProfileUpdate }) {
   const [itens, setItens] = useState(null);
   const [erro, setErro] = useState("");
@@ -3232,10 +3432,19 @@ function EstoqueTab({ userId, profile, onProfileUpdate }) {
   const [fotoAmpliada, setFotoAmpliada] = useState(null);
   const [editandoMaterial, setEditandoMaterial] = useState(null); // nome original do material sendo renomeado
   const [nomeEditado, setNomeEditado] = useState("");
+  const [emUsoHoje, setEmUsoHoje] = useState({}); // { estoqueItemId: quantas estão em festa hoje }
 
   const carregar = useCallback(async () => {
     const { data } = await sb.from("estoque_itens").select("*").eq("decoradora_id", userId).order("material", { ascending: true });
     setItens(data || []);
+  }, [userId]);
+
+  useEffect(() => {
+    const hoje = todayISO();
+    Promise.all([
+      buscarReservasEstoque(userId),
+      sb.from("contracts").select("id, data_retirada, data_devolucao, status_contrato").eq("decoradora_id", userId).lte("data_retirada", hoje),
+    ]).then(([reservas, { data: contratos }]) => setEmUsoHoje(reservadoPorPecaNoPeriodo(reservas, contratos || [], [hoje, hoje], null)));
   }, [userId]);
 
   useEffect(() => { carregar(); }, [carregar]);
@@ -3249,8 +3458,8 @@ function EstoqueTab({ userId, profile, onProfileUpdate }) {
 
   async function atualizarQuantidade(item, novaQuantidade) {
     const q = Math.max(0, Number(novaQuantidade) || 0);
-    setItens((lista) => lista.map((i) => i.id === item.id ? { ...i, quantidade: q } : i));
-    await sb.from("estoque_itens").update({ quantidade: q }).eq("id", item.id);
+    setItens((lista) => lista.map((i) => i.id === item.id ? { ...i, quantidade: q, quantidade_total: q } : i));
+    await sb.from("estoque_itens").update({ quantidade: q, quantidade_total: q }).eq("id", item.id);
   }
 
   async function atualizarPreco(item, novoValor) {
@@ -3347,7 +3556,7 @@ function EstoqueTab({ userId, profile, onProfileUpdate }) {
       }
     }
     setSalvandoNovo(true);
-    const row = { id: novoItemIdRef.current || uid(), decoradora_id: userId, material: nome, modelo: "", quantidade: Math.max(0, Number(novaQtd) || 0), preco_unitario: novoPreco.trim() ? Number(novoPreco) : null, foto_url: novaFoto || null };
+    const row = { id: novoItemIdRef.current || uid(), decoradora_id: userId, material: nome, modelo: "", quantidade: Math.max(0, Number(novaQtd) || 0), quantidade_total: Math.max(0, Number(novaQtd) || 0), preco_unitario: novoPreco.trim() ? Number(novoPreco) : null, foto_url: novaFoto || null };
     if (novoCodigo.trim()) row.codigo = novoCodigo.trim(); // sem código digitado, o banco gera o próximo sozinho
     const { error } = await sb.from("estoque_itens").insert(row);
     setSalvandoNovo(false);
@@ -3389,8 +3598,8 @@ function EstoqueTab({ userId, profile, onProfileUpdate }) {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-7">
-      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>📦 Estoque<Ajuda emoji="📦" titulo="Estoque" texto="Aqui fica a lista de todas as peças que você tem: painéis, arcos, mesas... Quando você usa uma peça num contrato, o app desconta a quantidade sozinho, e quando ela volta, devolve pro estoque. Assim você nunca promete duas festas com a mesma peça no mesmo dia." /></h2>
-      <p className="text-sm text-slate-400 mb-3">Cadastre e edite os materiais que você tem disponível.</p>
+      <h2 className="fredoka text-xl font-bold mb-1" style={{ color: BRAND.tinta }}>📦 Estoque<Ajuda emoji="📦" titulo="Estoque" texto="Aqui fica a lista de todas as peças que você tem: painéis, arcos, mesas... Coloque a quantidade TOTAL que você tem de cada uma. Quando você usa uma peça num contrato, ela fica ocupada só nos dias daquela festa (da retirada até a devolução) — nos outros dias continua livre pra outro contrato. Assim você nunca promete duas festas com a mesma peça no mesmo dia." /></h2>
+      <p className="text-sm text-slate-400 mb-3">Cadastre a quantidade total que você tem de cada peça. Nos contratos, ela só fica ocupada nos dias da festa.</p>
 
       <div className="flex flex-wrap gap-3 mb-5">
         <span className="text-xs font-semibold flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ background: "#DC2626" }} />Sem estoque</span>
@@ -3444,6 +3653,8 @@ function EstoqueTab({ userId, profile, onProfileUpdate }) {
         </button>
       </div>
 
+      <PacotesDePecas userId={userId} itens={itens} />
+
       <div className="relative mb-4">
         <input className={inputClass + " pl-9"} placeholder="Pesquisar por nome ou código..." value={busca} onChange={(e) => setBusca(e.target.value)} />
         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
@@ -3475,7 +3686,7 @@ function EstoqueTab({ userId, profile, onProfileUpdate }) {
             )}
             <div className="space-y-2">
               {lista.map((item) => (
-                <div key={item.id} className="flex items-center gap-2.5 rounded-xl p-2.5" style={{ background: corEstoque(item.quantidade) + "10" }}>
+                <div key={item.id} className="flex items-center gap-2.5 rounded-xl p-2.5" style={{ background: corEstoque(totalDaPeca(item)) + "10" }}>
                   <div className="w-10 h-10 rounded-lg overflow-hidden flex items-center justify-center shrink-0 relative" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>
                     {enviandoFotoId === item.id ? (
                       <span className="text-[9px] text-slate-400">...</span>
@@ -3495,13 +3706,13 @@ function EstoqueTab({ userId, profile, onProfileUpdate }) {
                       <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFotoItemExistente(item, e)} />
                     </label>
                   </div>
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corEstoque(item.quantidade) }} />
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: corEstoque(totalDaPeca(item)) }} />
                   <input key={item.id + ":" + (item.codigo || "")} defaultValue={item.codigo || ""} onBlur={async (e) => { const el = e.target; const ok = await atualizarCodigo(item, el.value); if (!ok) el.value = item.codigo || ""; }} onKeyDown={(e) => e.key === "Enter" && e.target.blur()} maxLength={20} title="Código da peça (pode trocar; não pode repetir)" className="w-16 shrink-0 text-center rounded-lg border-2 border-slate-200 py-1 text-xs font-bold font-mono bg-white" style={{ color: BRAND.azul }} />
-                  <span className="text-sm flex-1 truncate" style={{ color: BRAND.tinta }}>{item.modelo}</span>
+                  <span className="text-sm flex-1 truncate" style={{ color: BRAND.tinta }}>{item.modelo}{emUsoHoje[item.id] > 0 && <span className="block text-[11px] font-semibold" style={{ color: "#B45309" }}>{emUsoHoje[item.id]} em festa hoje</span>}</span>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => atualizarQuantidade(item, item.quantidade - 1)} className="w-7 h-7 rounded-lg font-bold cursor-pointer" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>−</button>
-                    <input type="number" className="w-14 text-center rounded-lg border-2 border-slate-200 py-1 text-sm font-bold" value={item.quantidade} onChange={(e) => atualizarQuantidade(item, e.target.value)} />
-                    <button onClick={() => atualizarQuantidade(item, item.quantidade + 1)} className="w-7 h-7 rounded-lg font-bold cursor-pointer" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>+</button>
+                    <button onClick={() => atualizarQuantidade(item, totalDaPeca(item) - 1)} className="w-7 h-7 rounded-lg font-bold cursor-pointer" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>−</button>
+                    <input type="number" className="w-14 text-center rounded-lg border-2 border-slate-200 py-1 text-sm font-bold" value={totalDaPeca(item)} onChange={(e) => atualizarQuantidade(item, e.target.value)} title="Quantidade total que você tem" />
+                    <button onClick={() => atualizarQuantidade(item, totalDaPeca(item) + 1)} className="w-7 h-7 rounded-lg font-bold cursor-pointer" style={{ background: "#fff", border: "1px solid #e2e8f0" }}>+</button>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <span className="text-xs text-slate-400">R$</span>
@@ -5601,11 +5812,8 @@ function AgendaTab({ userId, profile }) {
   const [marcandoDevolucao, setMarcandoDevolucao] = useState(null);
   async function marcarDevolucao(evento) {
     setMarcandoDevolucao(evento.id);
-    const { data: links } = await sb.from("contract_estoque_itens").select("*").eq("contract_id", evento.contractId);
-    for (const link of links || []) {
-      const { data: item } = await sb.from("estoque_itens").select("quantidade").eq("id", link.estoque_item_id).maybeSingle();
-      if (item) await sb.from("estoque_itens").update({ quantidade: item.quantidade + link.quantidade }).eq("id", link.estoque_item_id);
-    }
+    // Só marca que voltou: o estoque agora é por data, então as peças já
+    // ficam livres pros outros dias sem precisar somar de volta.
     await sb.from("contracts").update({ devolvido: true }).eq("id", evento.contractId);
     setContracts((cs) => cs.map((c) => c.id === evento.contractId ? { ...c, devolvido: true } : c));
     setMarcandoDevolucao(null);
